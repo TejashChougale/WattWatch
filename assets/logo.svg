@@ -1,0 +1,85 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 80" width="100%" height="100%" fill="none">
+  <!-- Definitions for Gradients and Shadow Effects -->
+  <defs>
+    <linearGradient id="wwGoldGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#D4AF37"/>
+      <stop offset="50%" stop-color="#B99A62"/>
+      <stop offset="100%" stop-color="#8C6D38"/>
+    </linearGradient>
+    <linearGradient id="wwBlueGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#1E386E"/>
+      <stop offset="100%" stop-color="#172B55"/>
+    </linearGradient>
+    <linearGradient id="wwBurgundyGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#8E3550"/>
+      <stop offset="100%" stop-color="#6E293F"/>
+    </linearGradient>
+    <filter id="wwGoldGlow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="2" stdDeviation="2" flood-color="#B99A62" flood-opacity="0.35"/>
+    </filter>
+  </defs>
+
+  <!-- Emblem Icon: Luxury Geometric Energy Shield + Dynamic Bolt -->
+  <g transform="translate(10, 8)">
+    <!-- Outer Octagonal Shield Outline (Antique Gold) -->
+    <polygon points="32,2 52,10 62,30 58,52 32,62 6,52 2,30 12,10" 
+             fill="none" 
+             stroke="url(#wwGoldGrad)" 
+             stroke-width="1.8" 
+             stroke-linejoin="round"
+             filter="url(#wwGoldGlow)" />
+             
+    <!-- Inner Concentric Ring with Gold Accent Points -->
+    <circle cx="32" cy="32" r="23" 
+            fill="url(#wwBlueGrad)" 
+            stroke="url(#wwGoldGrad)" 
+            stroke-width="1.2" 
+            stroke-dasharray="2 3" />
+            
+    <!-- Corner Pips -->
+    <circle cx="32" cy="5" r="1.5" fill="#D4AF37" />
+    <circle cx="58" cy="32" r="1.5" fill="#D4AF37" />
+    <circle cx="32" cy="59" r="1.5" fill="#D4AF37" />
+    <circle cx="6" cy="32" r="1.5" fill="#D4AF37" />
+
+    <!-- Royal Stylized Precision Energy Bolt -->
+    <!-- Shadow for depth -->
+    <polygon points="34,14 20,33 29,33 26,50 43,28 33,28" 
+             fill="#6E293F" 
+             opacity="0.4"
+             transform="translate(1, 1)" />
+             
+    <!-- Primary Bolt in Gold Gradient -->
+    <polygon points="34,14 20,33 29,33 26,50 43,28 33,28" 
+             fill="url(#wwGoldGrad)" 
+             stroke="#FAF7F0" 
+             stroke-width="0.8" 
+             stroke-linejoin="bevel" />
+             
+    <!-- Central Energy Spark Core -->
+    <circle cx="30" cy="31" r="1.8" fill="#FAF7F0" />
+  </g>
+
+  <!-- Brand Typography -->
+  <!-- Brand Name: WATTWATCH -->
+  <text x="86" y="41" 
+        font-family="'Playfair Display', 'Cinzel', Georgia, 'Times New Roman', serif" 
+        font-size="27" 
+        font-weight="700" 
+        letter-spacing="2.5" 
+        fill="#172B55"
+        class="ww-logo-text-title">WATT<tspan fill="#6E293F">WATCH</tspan></text>
+
+  <!-- Tagline / Subtitle -->
+  <text x="88" y="57" 
+        font-family="'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" 
+        font-size="9.5" 
+        font-weight="600" 
+        letter-spacing="3.2" 
+        fill="#B99A62"
+        class="ww-logo-text-sub">ENERGY ANALYTICS</text>
+        
+  <!-- Subtle decorative rule under typography -->
+  <line x1="88" y1="62" x2="270" y2="62" stroke="url(#wwGoldGrad)" stroke-width="0.75" stroke-opacity="0.6"/>
+  <circle cx="272" cy="62" r="1.2" fill="#B99A62"/>
+</svg>

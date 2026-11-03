@@ -1,0 +1,903 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>WattWatch | Premium Electricity Consumption & Energy Analytics Platform</title>
+  
+  <!-- Meta description and branding -->
+  <meta name="description" content="WattWatch is a royal luxury energy technology dashboard designed to monitor electricity consumption, calculate estimated bills, manage appliances, and provide data-driven energy savings.">
+  <link rel="icon" type="image/svg+xml" href="assets/logo.svg">
+
+  <!-- Core Stylesheets -->
+  <link rel="stylesheet" href="css/style.css">
+  <link rel="stylesheet" href="css/dashboard.css">
+  <link rel="stylesheet" href="css/responsive.css">
+</head>
+<body>
+
+  <!-- Application Layout Grid -->
+  <div class="app-layout">
+    
+    <!-- Mobile Navigation Drawer Backdrop -->
+    <div class="sidebar-backdrop" id="sidebarBackdrop" aria-hidden="true"></div>
+
+    <!-- ==========================================
+         SIDEBAR NAVIGATION
+         ========================================== -->
+    <aside class="app-sidebar" id="appSidebar" aria-label="Main Navigation">
+      <!-- Sidebar Brand Header -->
+      <div class="sidebar-header">
+        <a href="#overview" class="brand-wrapper" onclick="WattWatchApp.navigateTo('overview'); return false;">
+          <img src="assets/logo.svg" alt="WattWatch Luxury Logo" class="brand-logo-svg">
+          <div class="brand-text">
+            <span class="brand-name">WATT<span>WATCH</span></span>
+            <span class="brand-subtitle">Energy Analytics</span>
+          </div>
+        </a>
+      </div>
+
+      <!-- Navigation Links -->
+      <div class="sidebar-body">
+        <div class="nav-section">
+          <div class="nav-section-title">Navigation</div>
+          <ul class="sidebar-nav-list">
+            <li>
+              <a href="#overview" class="nav-item-link active" data-view="overview" aria-label="Dashboard Overview">
+                <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                  <rect x="3" y="3" width="7" height="9" rx="1"/>
+                  <rect x="14" y="3" width="7" height="5" rx="1"/>
+                  <rect x="14" y="12" width="7" height="9" rx="1"/>
+                  <rect x="3" y="16" width="7" height="5" rx="1"/>
+                </svg>
+                <span>Overview</span>
+              </a>
+            </li>
+            <li>
+              <a href="#appliances" class="nav-item-link" data-view="appliances" aria-label="Appliance Inventory">
+                <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                  <rect x="2" y="7" width="20" height="14" rx="2"/>
+                  <path d="M12 7V3"/>
+                  <path d="M8 3h8"/>
+                  <circle cx="8" cy="14" r="2"/>
+                  <path d="M14 14h4"/>
+                </svg>
+                <span>Appliances</span>
+                <span class="nav-badge" id="navApplianceCountBadge">0</span>
+              </a>
+            </li>
+            <li>
+              <a href="#analytics" class="nav-item-link" data-view="analytics" aria-label="Consumption Analytics">
+                <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                  <path d="M18 20V10"/>
+                  <path d="M12 20V4"/>
+                  <path d="M6 20v-6"/>
+                </svg>
+                <span>Analytics</span>
+              </a>
+            </li>
+            <li>
+              <a href="#recommendations" class="nav-item-link" data-view="recommendations" aria-label="Energy Saving Tips">
+                <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                  <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/>
+                  <circle cx="12" cy="12" r="4"/>
+                </svg>
+                <span>Energy Tips</span>
+              </a>
+            </li>
+            <li>
+              <a href="#settings" class="nav-item-link" data-view="settings" aria-label="System Settings">
+                <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                  <circle cx="12" cy="12" r="3"/>
+                  <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+                </svg>
+                <span>Settings</span>
+              </a>
+            </li>
+          </ul>
+        </div>
+      </div>
+
+      <!-- Sidebar Footer / Active Tariff Card -->
+      <div class="sidebar-footer">
+        <div class="sidebar-tariff-card">
+          <div>
+            <div class="tariff-info-label">Active Tariff</div>
+            <div class="tariff-info-val" id="sidebarTariffVal">₹8.00</div>
+          </div>
+          <button type="button" class="btn btn-secondary btn-sm" onclick="WattWatchApp.navigateTo('settings')" title="Configure Rate">
+            Edit
+          </button>
+        </div>
+      </div>
+    </aside>
+
+    <!-- ==========================================
+         MAIN VIEWPORT WRAPPER
+         ========================================== -->
+    <main class="app-main">
+      
+      <!-- Top Sticky Navigation Bar -->
+      <header class="app-topbar">
+        <div class="topbar-left">
+          <button type="button" class="mobile-menu-toggle" id="mobileMenuToggle" aria-label="Toggle navigation drawer">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="3" y1="12" x2="21" y2="12"/>
+              <line x1="3" y1="6" x2="21" y2="6"/>
+              <line x1="3" y1="18" x2="21" y2="18"/>
+            </svg>
+          </button>
+          <div class="topbar-heading-group">
+            <h1 class="topbar-page-title" id="topbarPageTitle">Executive Overview</h1>
+            <p class="topbar-page-subtitle" id="topbarPageSubtitle">Comprehensive household energy metrics & bill projections</p>
+          </div>
+        </div>
+
+        <div class="topbar-right">
+          <!-- Rate Indicator Pill -->
+          <div class="topbar-chip" title="Current electricity billing tariff">
+            <span>Tariff:</span>
+            <strong id="topbarTariffRate">₹8.00 / kWh</strong>
+          </div>
+
+          <!-- Monthly Bill Pill -->
+          <div class="topbar-chip" title="Estimated monthly electricity bill">
+            <span>Est. Bill:</span>
+            <strong id="topbarMonthlyBill">₹0.00</strong>
+          </div>
+
+          <!-- Light/Dark Mode Switcher -->
+          <button type="button" class="theme-toggle-btn" id="themeToggleBtn" aria-label="Toggle Theme" title="Switch Theme">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+            </svg>
+          </button>
+
+          <!-- Quick Add Appliance Button -->
+          <button type="button" class="btn btn-gold" onclick="WattWatchAppliances.openModal()" aria-label="Add Appliance">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+              <line x1="12" y1="5" x2="12" y2="19"/>
+              <line x1="5" y1="12" x2="19" y2="12"/>
+            </svg>
+            <span>Add Appliance</span>
+          </button>
+        </div>
+      </header>
+
+      <!-- Content Views Container -->
+      <div class="app-content">
+
+        <!-- ==========================================
+             VIEW 1: OVERVIEW DASHBOARD
+             ========================================== -->
+        <section class="view-pane active" id="view-overview" aria-labelledby="topbarPageTitle">
+          
+          <!-- Summary Cards Grid (4 KPI Cards) -->
+          <div class="metrics-grid">
+            <!-- Metric 1: Total Energy Consumption -->
+            <div class="metric-card">
+              <div class="metric-card-header">
+                <span class="metric-title">Total Monthly Energy</span>
+                <div class="metric-icon-wrap">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
+                  </svg>
+                </div>
+              </div>
+              <div class="metric-value" id="metricTotalMonthlyKwh">0.00 kWh</div>
+              <div class="metric-subtext">
+                <span>Calculated over active appliances</span>
+              </div>
+            </div>
+
+            <!-- Metric 2: Estimated Electricity Bill -->
+            <div class="metric-card">
+              <div class="metric-card-header">
+                <span class="metric-title">Estimated Monthly Bill</span>
+                <div class="metric-icon-wrap">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <line x1="12" y1="1" x2="12" y2="23"/>
+                    <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>
+                  </svg>
+                </div>
+              </div>
+              <div class="metric-value" id="metricEstimatedMonthlyBill">₹0.00</div>
+              <div class="metric-subtext">
+                <span>Estimated charges based on unit rate</span>
+              </div>
+            </div>
+
+            <!-- Metric 3: Active Appliances -->
+            <div class="metric-card">
+              <div class="metric-card-header">
+                <span class="metric-title">Active Appliances</span>
+                <div class="metric-icon-wrap">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <rect x="2" y="7" width="20" height="14" rx="2"/>
+                    <path d="M12 7V3"/>
+                  </svg>
+                </div>
+              </div>
+              <div class="metric-value" id="metricAppliancesCount">0</div>
+              <div class="metric-subtext">
+                <span>Total electrical units tracked</span>
+              </div>
+            </div>
+
+            <!-- Metric 4: Average Daily Consumption -->
+            <div class="metric-card">
+              <div class="metric-card-header">
+                <span class="metric-title">Avg. Daily Consumption</span>
+                <div class="metric-icon-wrap">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <circle cx="12" cy="12" r="10"/>
+                    <polyline points="12 6 12 12 16 14"/>
+                  </svg>
+                </div>
+              </div>
+              <div class="metric-value" id="metricAvgDailyKwh">0.00 kWh</div>
+              <div class="metric-subtext">
+                <span>Estimated baseline load / 24 hrs</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Spotlight Banner (Highest Consuming Appliance) -->
+          <div class="spotlight-banner">
+            <div class="spotlight-content">
+              <div class="spotlight-tag">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                  <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
+                </svg>
+                <span>Primary Load Spotlight</span>
+              </div>
+              <h2 class="spotlight-title" id="spotlightApplianceTitle">Analyzing Household Inventory...</h2>
+              <p class="spotlight-desc" id="spotlightApplianceDesc">Add appliances to determine your highest energy consumer and unlock tailored savings strategies.</p>
+            </div>
+            <div class="spotlight-actions">
+              <button type="button" class="btn btn-gold" onclick="WattWatchApp.navigateTo('recommendations')">
+                View Savings Tips
+              </button>
+            </div>
+          </div>
+
+          <!-- Quick Actions Bar -->
+          <div class="quick-actions-bar">
+            <span class="quick-actions-label">Quick Actions:</span>
+            <button type="button" class="btn btn-primary btn-sm" onclick="WattWatchAppliances.openModal()">
+              + Add Appliance
+            </button>
+            <button type="button" class="btn btn-secondary btn-sm" onclick="WattWatchApp.navigateTo('analytics')">
+              View Analytics
+            </button>
+            <button type="button" class="btn btn-secondary btn-sm" onclick="WattWatchApp.navigateTo('settings')">
+              Manage Electricity Rate
+            </button>
+            <button type="button" class="btn btn-secondary btn-sm" onclick="WattWatchApp.navigateTo('recommendations')">
+              Energy Tips
+            </button>
+          </div>
+
+          <!-- Charts Row 1: Weekly Projection & Category Breakdown -->
+          <div class="charts-grid-2col">
+            <!-- Chart 1: Projected Daily Consumption Profile -->
+            <div class="card chart-card">
+              <div class="card-header">
+                <div>
+                  <h3 class="card-title">Weekly Load Projection</h3>
+                  <p class="card-subtitle">Projected day-by-day household electrical consumption</p>
+                </div>
+                <span class="badge badge-blue">7-Day Trend</span>
+              </div>
+              <div class="chart-container">
+                <canvas id="overviewTrendChart"></canvas>
+              </div>
+            </div>
+
+            <!-- Chart 2: Category Consumption Breakdown -->
+            <div class="card chart-card">
+              <div class="card-header">
+                <div>
+                  <h3 class="card-title">Category Distribution</h3>
+                  <p class="card-subtitle">Energy proportion across categories</p>
+                </div>
+                <span class="badge badge-gold">Monthly Share</span>
+              </div>
+              <div class="chart-container">
+                <canvas id="overviewCategoryChart"></canvas>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- ==========================================
+             VIEW 2: APPLIANCES MANAGEMENT
+             ========================================== -->
+        <section class="view-pane" id="view-appliances" aria-label="Appliance Inventory Section">
+          
+          <!-- Appliances Control Toolbar -->
+          <div class="appliances-toolbar">
+            <!-- Search Input -->
+            <div class="search-input-wrap">
+              <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="11" cy="11" r="8"/>
+                <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+              </svg>
+              <input type="text" id="applianceSearchInput" class="form-control search-input" placeholder="Search by name or category..." aria-label="Search Appliances">
+            </div>
+
+            <!-- Sort By Selector -->
+            <div style="display: flex; align-items: center; gap: 0.75rem;">
+              <label for="applianceSortSelect" style="font-size: 0.825rem; font-weight: 600; color: var(--text-secondary); white-space: nowrap;">Sort by:</label>
+              <select id="applianceSortSelect" class="form-control" style="width: auto; min-width: 190px;" aria-label="Sort appliances">
+                <option value="consumption_desc">Consumption (Highest first)</option>
+                <option value="consumption_asc">Consumption (Lowest first)</option>
+                <option value="cost_desc">Estimated Cost (Highest first)</option>
+                <option value="power_desc">Power Rating (Watts)</option>
+                <option value="hours_desc">Daily Usage Hours</option>
+                <option value="name_asc">Name (A to Z)</option>
+              </select>
+              
+              <button type="button" class="btn btn-primary" onclick="WattWatchAppliances.openModal()">
+                + Add Appliance
+              </button>
+            </div>
+          </div>
+
+          <!-- Category Filter Pills -->
+          <div class="filter-pills-row" id="categoryFilters" role="tablist" aria-label="Filter appliances by category">
+            <button type="button" class="filter-pill active" data-category="All">All Categories</button>
+            <button type="button" class="filter-pill" data-category="Cooling">Cooling</button>
+            <button type="button" class="filter-pill" data-category="Lighting">Lighting</button>
+            <button type="button" class="filter-pill" data-category="Kitchen">Kitchen</button>
+            <button type="button" class="filter-pill" data-category="Entertainment">Entertainment</button>
+            <button type="button" class="filter-pill" data-category="Computing">Computing</button>
+            <button type="button" class="filter-pill" data-category="Other">Other</button>
+          </div>
+
+          <!-- Appliances Table -->
+          <div class="table-responsive" id="appliancesTableWrap">
+            <table class="appliance-table" aria-label="Appliance Inventory Table">
+              <thead>
+                <tr>
+                  <th scope="col">Appliance Name</th>
+                  <th scope="col">Category</th>
+                  <th scope="col">Power (Watts)</th>
+                  <th scope="col">Operating Schedule</th>
+                  <th scope="col">Monthly Energy (kWh)</th>
+                  <th scope="col">Estimated Monthly Bill</th>
+                  <th scope="col">Actions</th>
+                </tr>
+              </thead>
+              <tbody id="applianceTableBody">
+                <!-- Dynamically populated via appliances.js -->
+              </tbody>
+            </table>
+          </div>
+
+          <!-- Empty State (When no appliances match) -->
+          <div class="card empty-state-card" id="appliancesEmptyState" style="display: none;">
+            <svg class="empty-state-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <rect x="2" y="7" width="20" height="14" rx="2"/>
+              <path d="M12 7V3"/>
+              <path d="M8 3h8"/>
+            </svg>
+            <h3 class="empty-state-title">No Appliances Configured</h3>
+            <p class="empty-state-desc">Your inventory is currently empty. Add your electrical devices to calculate power consumption and forecast monthly costs.</p>
+            <div style="display: flex; gap: 0.75rem; margin-top: 0.5rem; flex-wrap: wrap;">
+              <button type="button" class="btn btn-primary" onclick="WattWatchAppliances.openModal()">
+                + Add First Appliance
+              </button>
+              <button type="button" class="btn btn-secondary" onclick="document.getElementById('btnLoadSampleData').click()">
+                Load Sample Household
+              </button>
+            </div>
+          </div>
+        </section>
+
+        <!-- ==========================================
+             VIEW 3: CONSUMPTION ANALYTICS
+             ========================================== -->
+        <section class="view-pane" id="view-analytics" aria-label="Analytics Section">
+          
+          <!-- Analytics Header Strip -->
+          <div class="analytics-header-strip">
+            <div>
+              <h2>Energy Consumption Analytics</h2>
+              <p style="font-size: 0.85rem; color: var(--text-secondary);">Interactive breakdown of load patterns, category allocations, and appliance rankings</p>
+            </div>
+
+            <!-- Timeframe selector -->
+            <div class="analytics-time-pills">
+              <button type="button" class="time-pill-btn" data-timeframe="daily">Diurnal (24h)</button>
+              <button type="button" class="time-pill-btn" data-timeframe="weekly">Weekly Cycle</button>
+              <button type="button" class="time-pill-btn active" data-timeframe="monthly">Monthly Horizon</button>
+            </div>
+          </div>
+
+          <!-- Analytics KPI Strip -->
+          <div class="metrics-grid" style="margin-bottom: 1.5rem;">
+            <div class="metric-card">
+              <span class="metric-title">Daily Average</span>
+              <div class="metric-value" id="analyticsDailyAvg">0.00 kWh</div>
+              <div class="metric-subtext">Estimated load per day</div>
+            </div>
+            <div class="metric-card">
+              <span class="metric-title">Monthly Total</span>
+              <div class="metric-value" id="analyticsMonthlyTotal">0.00 kWh</div>
+              <div class="metric-subtext">30-day projection</div>
+            </div>
+            <div class="metric-card">
+              <span class="metric-title">Peak Category</span>
+              <div class="metric-value" id="analyticsPeakCategory" style="font-size: 1.5rem;">-</div>
+              <div class="metric-subtext">Highest consuming domain</div>
+            </div>
+            <div class="metric-card">
+              <span class="metric-title">Daily Cost</span>
+              <div class="metric-value" id="analyticsDailyCost">₹0.00</div>
+              <div class="metric-subtext">Estimated daily expense</div>
+            </div>
+          </div>
+
+          <!-- Analytics Charts Grid -->
+          <div class="charts-grid-analytics">
+            <!-- Timeline Line Chart -->
+            <div class="card chart-card">
+              <div class="card-header">
+                <div>
+                  <h3 class="card-title">Load Projection Curve</h3>
+                  <p class="card-subtitle">Estimated energy draw pattern over chosen horizon</p>
+                </div>
+                <span class="badge badge-gold">Consumption (kWh)</span>
+              </div>
+              <div class="chart-container">
+                <canvas id="analyticsTimelineChart"></canvas>
+              </div>
+            </div>
+
+            <!-- Category Cost Donut -->
+            <div class="card chart-card">
+              <div class="card-header">
+                <div>
+                  <h3 class="card-title">Energy Cost by Category</h3>
+                  <p class="card-subtitle">Estimated financial allocation in INR</p>
+                </div>
+                <span class="badge badge-burgundy">Cost Share (₹)</span>
+              </div>
+              <div class="chart-container">
+                <canvas id="analyticsCategoryShareChart"></canvas>
+              </div>
+            </div>
+
+            <!-- Horizontal Appliance Ranking Bar Chart (Full Width) -->
+            <div class="card chart-card full-width-chart-card">
+              <div class="card-header">
+                <div>
+                  <h3 class="card-title">Appliance Consumption Ranking</h3>
+                  <p class="card-subtitle">Top consuming electrical devices ranked by monthly kilowatt-hours</p>
+                </div>
+                <span class="badge badge-blue">Appliance Ranking</span>
+              </div>
+              <div class="chart-container" style="min-height: 320px;">
+                <canvas id="analyticsApplianceRankChart"></canvas>
+              </div>
+            </div>
+          </div>
+
+          <!-- Detailed Consumption Matrix Breakdown Table -->
+          <div class="card" style="margin-top: 2rem;">
+            <div class="card-header">
+              <div>
+                <h3 class="card-title">Comprehensive Consumption Matrix</h3>
+                <p class="card-subtitle">Granular power, schedule, and cost metrics for all registered devices</p>
+              </div>
+            </div>
+            <div class="table-responsive">
+              <table class="appliance-table" aria-label="Detailed Consumption Matrix">
+                <thead>
+                  <tr>
+                    <th scope="col">Rank</th>
+                    <th scope="col">Appliance</th>
+                    <th scope="col">Power (W)</th>
+                    <th scope="col">Operating Schedule</th>
+                    <th scope="col">Monthly Energy</th>
+                    <th scope="col">Estimated Monthly Bill (% of total)</th>
+                  </tr>
+                </thead>
+                <tbody id="analyticsMatrixTableBody">
+                  <!-- Dynamically populated via app.js -->
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <!-- ==========================================
+             VIEW 4: ENERGY-SAVING TIPS & RECOMMENDATIONS
+             ========================================== -->
+        <section class="view-pane" id="view-recommendations" aria-label="Energy Optimization Section">
+          
+          <!-- Hero Savings Banner -->
+          <div class="savings-hero-banner">
+            <div>
+              <span class="badge badge-gold" style="margin-bottom: 0.5rem; background: rgba(185, 154, 98, 0.2); color: #FAF7F0; border-color: var(--antique-gold);">
+                Data-Driven Optimization
+              </span>
+              <h2 style="font-family: var(--font-serif); font-size: 1.6rem; color: #FFFFFF; margin-bottom: 0.35rem;">
+                Household Energy Optimization
+              </h2>
+              <p style="font-size: 0.875rem; color: rgba(240, 229, 208, 0.85); max-width: 580px;">
+                Rule-based recommendations derived from your actual appliance ratings, operational durations, and tariff rate.
+              </p>
+            </div>
+
+            <div class="savings-hero-stats">
+              <div class="savings-stat-block">
+                <span class="savings-stat-label">Potential Monthly Savings</span>
+                <span class="savings-stat-val" id="tipsTotalSavingsCost">₹0.00</span>
+              </div>
+              <div class="savings-stat-block">
+                <span class="savings-stat-label">Energy Conservation</span>
+                <span class="savings-stat-val" id="tipsTotalSavingsKwh" style="color: var(--antique-gold);">0.00 kWh</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Recommendations Grid Container -->
+          <div class="tips-grid" id="tipsGridContainer">
+            <!-- Dynamically populated via app.js & recommendations.js -->
+          </div>
+
+          <!-- Empty State (When no recommendations apply) -->
+          <div class="card empty-state-card" id="tipsEmptyState" style="display: none;">
+            <svg class="empty-state-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/>
+              <circle cx="12" cy="12" r="4"/>
+            </svg>
+            <h3 class="empty-state-title">No Recommendations Available</h3>
+            <p class="empty-state-desc">Add appliances to your inventory so our rule-based energy intelligence engine can analyze your load profiles and recommend specific optimizations.</p>
+            <button type="button" class="btn btn-primary" onclick="WattWatchAppliances.openModal()">
+              + Add Appliance
+            </button>
+          </div>
+
+          <!-- Clear Utility Disclaimer -->
+          <div class="disclaimer-banner" style="margin-top: 1.5rem;">
+            <svg class="disclaimer-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="10"/>
+              <line x1="12" y1="8" x2="12" y2="12"/>
+              <line x1="12" y1="16" x2="12.01" y2="16"/>
+            </svg>
+            <div>
+              <strong>Disclaimer:</strong> All savings calculations are mathematical estimates based on nominal equipment wattage, user-specified operating durations, and baseline electricity rates. Actual utility savings may vary according to DISCOM slab tariffs, seasonal ambient temperatures, compressor duty cycles, and government duties.
+            </div>
+          </div>
+        </section>
+
+        <!-- ==========================================
+             VIEW 5: SETTINGS & DATA MANAGEMENT
+             ========================================== -->
+        <section class="view-pane" id="view-settings" aria-label="Settings Section">
+          <div class="settings-grid">
+            
+            <!-- Settings Card 1: Tariff Configuration -->
+            <div class="card settings-card">
+              <div class="card-header">
+                <div>
+                  <h3 class="card-title">Electricity Tariff Configuration</h3>
+                  <p class="card-subtitle">Set your local electricity provider rate per kilowatt-hour</p>
+                </div>
+                <span class="badge badge-gold">Billing Engine</span>
+              </div>
+
+              <div class="form-group">
+                <label for="settingsElectricityRate" class="form-label">
+                  Electricity Rate (₹ per kWh / Unit):
+                </label>
+                <div class="rate-stepper-wrap">
+                  <button type="button" class="btn btn-secondary btn-icon" id="btnRateStepMinus" title="Decrease rate by ₹0.50">-</button>
+                  <input type="number" id="settingsElectricityRate" class="form-control" step="0.25" min="0.5" max="100" value="8.00" style="font-family: var(--font-serif); font-size: 1.25rem; font-weight: 700; text-align: center;">
+                  <button type="button" class="btn btn-secondary btn-icon" id="btnRateStepPlus" title="Increase rate by ₹0.50">+</button>
+                </div>
+                <div class="form-hint">Standard residential rates in India generally range from ₹6.50 to ₹12.00 per unit depending on slab and state.</div>
+              </div>
+
+              <!-- Quick rate presets -->
+              <div style="margin-top: 1rem;">
+                <span style="font-size: 0.78rem; font-weight: 600; color: var(--text-secondary); text-transform: uppercase;">Quick Presets:</span>
+                <div class="rate-presets-group">
+                  <button type="button" class="preset-chip rate-preset-btn" data-rate="6.50">₹6.50 / unit</button>
+                  <button type="button" class="preset-chip rate-preset-btn" data-rate="8.00">₹8.00 / unit (Default)</button>
+                  <button type="button" class="preset-chip rate-preset-btn" data-rate="10.00">₹10.00 / unit</button>
+                  <button type="button" class="preset-chip rate-preset-btn" data-rate="12.50">₹12.50 / unit</button>
+                </div>
+              </div>
+            </div>
+
+            <!-- Settings Card 2: Visual Theme & Appearance -->
+            <div class="card settings-card">
+              <div class="card-header">
+                <div>
+                  <h3 class="card-title">Appearance & Theme</h3>
+                  <p class="card-subtitle">Select your preferred royal luxury color scheme</p>
+                </div>
+                <span class="badge badge-blue">Visual System</span>
+              </div>
+
+              <div class="theme-options-grid">
+                <!-- Light Theme Option -->
+                <div class="theme-option-card selected" data-theme-val="light" role="button" tabindex="0">
+                  <div class="theme-preview-box theme-preview-light">
+                    <div class="bar"></div>
+                    <div class="body"></div>
+                  </div>
+                  <div>
+                    <strong style="font-size: 0.9rem; color: var(--text-primary); display: block;">Royal Beige (Light)</strong>
+                    <span style="font-size: 0.75rem; color: var(--text-secondary);">Warm beige background with royal blue & antique gold</span>
+                  </div>
+                </div>
+
+                <!-- Dark Theme Option -->
+                <div class="theme-option-card" data-theme-val="dark" role="button" tabindex="0">
+                  <div class="theme-preview-box theme-preview-dark">
+                    <div class="bar"></div>
+                    <div class="body"></div>
+                  </div>
+                  <div>
+                    <strong style="font-size: 0.9rem; color: var(--text-primary); display: block;">Royal Dark (Luxury)</strong>
+                    <span style="font-size: 0.75rem; color: var(--text-secondary);">Deep midnight blue with gold highlights & burgundy</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Settings Card 3: Data Management & Portability -->
+            <div class="card settings-card">
+              <div class="card-header">
+                <div>
+                  <h3 class="card-title">Data Backup & Portability</h3>
+                  <p class="card-subtitle">Export or import your full inventory and settings via JSON</p>
+                </div>
+                <span class="badge badge-gold">JSON Portability</span>
+              </div>
+
+              <p style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 1.25rem;">
+                All WattWatch data is persisted in your browser's local storage. You can create a full JSON snapshot for backup or migrate across devices.
+              </p>
+
+              <div style="display: flex; gap: 0.75rem; flex-wrap: wrap;">
+                <button type="button" class="btn btn-primary" id="btnExportJson">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                    <polyline points="7 10 12 15 17 10"/>
+                    <line x1="12" y1="15" x2="12" y2="3"/>
+                  </svg>
+                  <span>Export Data (JSON)</span>
+                </button>
+
+                <button type="button" class="btn btn-secondary" id="btnTriggerImportJson">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                    <polyline points="17 8 12 3 7 8"/>
+                    <line x1="12" y1="3" x2="12" y2="15"/>
+                  </svg>
+                  <span>Import Data (JSON)</span>
+                </button>
+                <input type="file" id="importJsonFileInput" accept=".json,application/json" style="display: none;">
+              </div>
+            </div>
+
+            <!-- Settings Card 4: Sample Data & Reset -->
+            <div class="card settings-card">
+              <div class="card-header">
+                <div>
+                  <h3 class="card-title">Demonstration & Reset</h3>
+                  <p class="card-subtitle">Load pre-configured sample appliances or clear local storage</p>
+                </div>
+                <span class="badge badge-burgundy">Maintenance</span>
+              </div>
+
+              <div style="display: flex; flex-direction: column; gap: 1rem;">
+                <div>
+                  <div style="font-weight: 600; font-size: 0.875rem; color: var(--text-primary); margin-bottom: 0.25rem;">Sample Household Dataset</div>
+                  <p style="font-size: 0.8rem; color: var(--text-secondary); margin-bottom: 0.75rem;">
+                    Instantly populate 7 curated modern household appliances (Inverter AC, BLDC fans, Refrigerator, Smart TV, Geyser, LEDs, Workstation).
+                  </p>
+                  <button type="button" class="btn btn-secondary btn-sm" id="btnLoadSampleData">
+                    Load Sample Household
+                  </button>
+                </div>
+
+                <hr class="gold-divider">
+
+                <div>
+                  <div style="font-weight: 600; font-size: 0.875rem; color: #A92639; margin-bottom: 0.25rem;">Clear All Application Data</div>
+                  <p style="font-size: 0.8rem; color: var(--text-secondary); margin-bottom: 0.75rem;">
+                    Permanently delete all saved appliances, customized rates, and user preferences from your browser.
+                  </p>
+                  <button type="button" class="btn btn-danger btn-sm" id="btnClearAllData">
+                    Reset All Data
+                  </button>
+                </div>
+              </div>
+            </div>
+
+          </div>
+        </section>
+
+      </div>
+    </main>
+  </div>
+
+  <!-- ==========================================
+       MODAL: ADD / EDIT APPLIANCE
+       ========================================== -->
+  <div class="modal-backdrop" id="applianceModal" role="dialog" aria-modal="true" aria-labelledby="modalTitle" aria-hidden="true">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2 class="modal-title" id="modalTitle">Add New Appliance</h2>
+        <button type="button" class="btn btn-ghost btn-icon" onclick="WattWatchAppliances.closeModal()" aria-label="Close modal">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="18" y1="6" x2="6" y2="18"/>
+            <line x1="6" y1="6" x2="18" y2="18"/>
+          </svg>
+        </button>
+      </div>
+
+      <form id="applianceForm" novalidate>
+        <div class="modal-body">
+          
+          <!-- Preset Dropdown Picker -->
+          <div class="preset-picker-row">
+            <label for="modalPresetSelect" class="preset-picker-label">Quick Auto-Fill:</label>
+            <select id="modalPresetSelect" class="form-control" style="width: auto; max-width: 320px; font-size: 0.825rem;">
+              <!-- Populated by appliances.js -->
+            </select>
+          </div>
+
+          <!-- Appliance Name -->
+          <div class="form-group">
+            <label for="modalApplianceName" class="form-label">
+              Appliance Name <span class="required">*</span>
+            </label>
+            <input type="text" id="modalApplianceName" class="form-control" placeholder="e.g. Inverter Split AC 1.5 Ton" required>
+            <div class="form-error"></div>
+          </div>
+
+          <!-- Category -->
+          <div class="form-group">
+            <label for="modalCategory" class="form-label">
+              Category <span class="required">*</span>
+            </label>
+            <select id="modalCategory" class="form-control" required>
+              <option value="Cooling">Cooling</option>
+              <option value="Lighting">Lighting</option>
+              <option value="Kitchen">Kitchen</option>
+              <option value="Entertainment">Entertainment</option>
+              <option value="Computing">Computing</option>
+              <option value="Other">Other</option>
+            </select>
+            <div class="form-error"></div>
+          </div>
+
+          <!-- Power Rating & Quantity (2 columns) -->
+          <div style="display: grid; grid-template-columns: 1.2fr 1fr; gap: 1rem;">
+            <div class="form-group">
+              <label for="modalPowerWatts" class="form-label">
+                Power Rating (Watts) <span class="required">*</span>
+              </label>
+              <input type="number" id="modalPowerWatts" class="form-control" placeholder="e.g. 1500" min="1" max="50000" step="1" required>
+              <div class="form-error"></div>
+            </div>
+
+            <div class="form-group">
+              <label for="modalQuantity" class="form-label">
+                Quantity <span class="required">*</span>
+              </label>
+              <input type="number" id="modalQuantity" class="form-control" value="1" min="1" max="100" step="1" required>
+              <div class="form-error"></div>
+            </div>
+          </div>
+
+          <!-- Daily Hours & Operating Days (2 columns) -->
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+            <div class="form-group">
+              <label for="modalDailyHours" class="form-label">
+                Daily Usage (Hours) <span class="required">*</span>
+              </label>
+              <input type="number" id="modalDailyHours" class="form-control" value="4" min="0" max="24" step="0.5" required>
+              <div class="form-error"></div>
+            </div>
+
+            <div class="form-group">
+              <label for="modalOperatingDays" class="form-label">
+                Operating Days / Mo <span class="required">*</span>
+              </label>
+              <input type="number" id="modalOperatingDays" class="form-control" value="30" min="1" max="31" step="1" required>
+              <div class="form-error"></div>
+            </div>
+          </div>
+
+          <!-- Live Calculation Preview Card inside modal -->
+          <div class="calc-preview-box">
+            <div class="calc-preview-item">
+              <span class="calc-preview-label">Daily Energy</span>
+              <span class="calc-preview-val" id="previewDailyKwh">0.00 kWh</span>
+            </div>
+            <div class="calc-preview-item">
+              <span class="calc-preview-label">Monthly Energy</span>
+              <span class="calc-preview-val" id="previewMonthlyKwh">0.00 kWh</span>
+            </div>
+            <div class="calc-preview-item">
+              <span class="calc-preview-label">Monthly Est. Cost</span>
+              <span class="calc-preview-val highlight-cost" id="previewMonthlyCost">₹0.00</span>
+            </div>
+          </div>
+
+        </div>
+
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" onclick="WattWatchAppliances.closeModal()">
+            Cancel
+          </button>
+          <button type="submit" class="btn btn-primary" id="modalSubmitBtn">
+            Save Appliance
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ==========================================
+       MODAL: REUSABLE CONFIRMATION DIALOG
+       ========================================== -->
+  <div class="modal-backdrop" id="confirmModal" role="dialog" aria-modal="true" aria-labelledby="confirmModalTitle" aria-hidden="true">
+    <div class="modal-content" style="max-width: 440px;">
+      <div class="modal-header">
+        <h3 class="modal-title" id="confirmModalTitle" style="font-size: 1.15rem;">Confirmation Required</h3>
+        <button type="button" class="btn btn-ghost btn-icon" onclick="WattWatchApp.closeConfirmDialog()" aria-label="Close confirmation">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="18" y1="6" x2="6" y2="18"/>
+            <line x1="6" y1="6" x2="18" y2="18"/>
+          </svg>
+        </button>
+      </div>
+      <div class="modal-body">
+        <p id="confirmModalMessage" style="font-size: 0.9rem; color: var(--text-primary); line-height: 1.5;"></p>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary btn-sm" onclick="WattWatchApp.closeConfirmDialog()">
+          Cancel
+        </button>
+        <button type="button" class="btn btn-primary btn-sm" id="confirmModalOkBtn" onclick="WattWatchApp.confirmAction()">
+          Confirm
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==========================================
+       TOAST NOTIFICATIONS CONTAINER
+       ========================================== -->
+  <div class="toast-container" id="toastContainer" aria-live="polite" aria-atomic="true"></div>
+
+  <!-- ==========================================
+       JAVASCRIPT MODULES
+       ========================================== -->
+  <!-- Chart.js: Local high-speed bundle with CDN fallback -->
+  <script src="js/chart.umd.min.js"></script>
+  <script>
+    if (typeof Chart === 'undefined') {
+      document.write('<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"><\/script>');
+    }
+  </script>
+
+  <!-- WattWatch Application Modules -->
+  <script src="js/storage.js"></script>
+  <script src="js/calculations.js"></script>
+  <script src="js/recommendations.js"></script>
+  <script src="js/charts.js"></script>
+  <script src="js/appliances.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>

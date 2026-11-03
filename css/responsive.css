@@ -1,0 +1,193 @@
+/* ==========================================================================
+   WATTWATCH - RESPONSIVE & MOBILE STYLES
+   ========================================================================== */
+
+/* --- Tablet & Medium Screens (<= 1024px) --- */
+@media screen and (max-width: 1024px) {
+  :root {
+    --sidebar-width: 240px;
+  }
+
+  .metrics-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .charts-grid-2col {
+    grid-template-columns: 1fr;
+  }
+
+  .charts-grid-analytics {
+    grid-template-columns: 1fr;
+  }
+
+  .tips-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .settings-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* --- Mobile Landscape & Small Tablets (<= 860px) --- */
+@media screen and (max-width: 860px) {
+  .app-sidebar {
+    transform: translateX(-100%);
+    box-shadow: 10px 0 30px rgba(0, 0, 0, 0.4);
+    z-index: 1000;
+  }
+
+  .app-sidebar.is-open {
+    transform: translateX(0);
+  }
+
+  .app-main {
+    margin-left: 0;
+    width: 100%;
+  }
+
+  .mobile-menu-toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  /* Backdrop when mobile drawer is open */
+  .sidebar-backdrop {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background-color: rgba(15, 23, 42, 0.6);
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
+    z-index: 999;
+  }
+
+  .sidebar-backdrop.is-visible {
+    display: block;
+  }
+
+  .app-topbar {
+    padding: 0 1.25rem;
+  }
+
+  .app-content {
+    padding: 1.25rem;
+  }
+
+  .spotlight-banner {
+    flex-direction: column;
+    align-items: flex-start;
+    padding: 1.25rem;
+  }
+
+  .spotlight-actions {
+    width: 100%;
+  }
+
+  .spotlight-actions .btn {
+    width: 100%;
+  }
+
+  .savings-hero-banner {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 1.25rem;
+  }
+
+  .savings-hero-stats {
+    flex-wrap: wrap;
+    gap: 1.5rem;
+  }
+}
+
+/* --- Mobile Phones (<= 640px) --- */
+@media screen and (max-width: 640px) {
+  .metrics-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .topbar-right .topbar-chip {
+    display: none;
+  }
+
+  .topbar-page-title {
+    font-size: 1.15rem;
+  }
+
+  .topbar-page-subtitle {
+    display: none;
+  }
+
+  .calc-preview-box {
+    grid-template-columns: 1fr;
+    gap: 0.5rem;
+  }
+
+  .appliances-toolbar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .search-input-wrap {
+    max-width: 100%;
+    min-width: 100%;
+  }
+
+  .appliance-table th,
+  .appliance-table td {
+    padding: 0.75rem 0.65rem;
+    font-size: 0.8rem;
+  }
+
+  .table-actions {
+    flex-direction: column;
+    gap: 0.25rem;
+  }
+
+  .btn-icon {
+    width: 32px;
+    height: 32px;
+  }
+
+  .modal-content {
+    margin: 0.5rem;
+    max-height: 94vh;
+  }
+
+  .modal-header,
+  .modal-body,
+  .modal-footer {
+    padding: 1rem;
+  }
+
+  .theme-options-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .toast-container {
+    left: 1rem;
+    right: 1rem;
+    bottom: 1rem;
+    max-width: none;
+  }
+}
+
+/* --- Accessibility: Reduced Motion --- */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* --- High Contrast Utility --- */
+@media (forced-colors: active) {
+  .btn, .filter-pill, .card, .metric-card {
+    border: 1px solid CanvasText;
+  }
+}
