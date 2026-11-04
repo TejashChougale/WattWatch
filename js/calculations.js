@@ -1,11 +1,8 @@
 /**
- * WATTWATCH - Electricity Calculation Engine
- * Implements standard physical formulas for electrical energy consumption & bill estimation.
- * 
- * Formulas:
- *   Daily Energy (kWh)   = (Power in Watts × Quantity × Usage Hours) / 1000
- *   Monthly Energy (kWh) = (Power in Watts × Quantity × Usage Hours × Operating Days) / 1000
- *   Estimated Cost (₹)   = Energy Consumption (kWh) × Electricity Rate (₹/kWh)
+ * WATTWATCH 2.0 - Electricity Calculation Engine
+ * Implements physical formulas for electrical consumption, flat and multi-slab tariffs,
+ * budget tracking thresholds, appliance replacement simulations, month-to-month deltas,
+ * and grid carbon emission analytics.
  */
 
 const WattWatchCalculations = {
@@ -40,7 +37,7 @@ const WattWatchCalculations = {
   },
 
   /**
-   * Calculates estimated electricity cost
+   * Calculates estimated electricity cost using a flat rate per kWh
    * @param {number} energyKwh - Energy consumed in kWh
    * @param {number} ratePerKwh - Electricity price per unit (₹/kWh)
    * @returns {number} Cost in currency
@@ -49,6 +46,318 @@ const WattWatchCalculations = {
     const kwh = Math.max(0, Number(energyKwh) || 0);
     const rate = Math.max(0, Number(ratePerKwh) || 0);
     return kwh * rate;
+  },
+
+  /**
+   * Advanced Tariff Calculator: Computes charges based on flat or multi-slab progressive tariffs,
+   * incorporating fixed meter charges and user-configured electricity duty/tax.
+   * @param {number} totalKwh - Total monthly consumption
+   * @param {Object} settings - Full or partial settings object
+   * @returns {Object} Comprehensive tariff breakdown
+   */
+  calculateAdvancedTariff(totalKwh, settings = {}) {
+    const kwh = Math.max(0, Number(totalKwh) || 0);
+    const model = settings.tariffModel || 'flat';
+    const flatRate = Math.max(0, Number(settings.electricityRate) || 8.00);
+    const fixedCharge = Math.max(0, Number(settings.fixedCharges) || 0);
+    const taxPercent = Math.max(0, Number(settings.additionalTaxPercent) || 0);
+
+    let energyCharges = 0;
+    const slabBreakdown = [];
+
+    if (model === 'slab' && Array.isArray(settings.slabConfig) && settings.slabConfig.length > 0) {
+      let remainingKwh = kwh;
+      let lowerBound = 0;
+
+      for (let i = 0; i < settings.slabConfig.length; i++) {
+        const slab = settings.slabConfig[i];
+        const slabRate = Math.max(0, Number(slab.rate) || 0);
+        const upperBound = slab.upTo !== null && slab.upTo !== undefined ? Number(slab.upTo) : null;
+
+        let slabCapacity = 0;
+        let unitsInSlab = 0;
+
+        if (upperBound !== null) {
+          slabCapacity = Math.max(0, upperBound - lowerBound);
+          unitsInSlab = Math.min(remainingKwh, slabCapacity);
+          lowerBound = upperBound;
+        } else {
+          // Open-ended highest tier (e.g., above 300 units)
+          unitsInSlab = remainingKwh;
+        }
+
+        const costInSlab = unitsInSlab * slabRate;
+        energyCharges += costInSlab;
+        remainingKwh = Math.max(0, remainingKwh - unitsInSlab);
+
+        slabBreakdown.push({
+          tier: i + 1,
+          label: upperBound !== null ? `${slabBreakdown.length === 0 ? '0' : settings.slabConfig[i-1]?.upTo || 0} - ${upperBound} kWh` : `Above ${settings.slabConfig[i-1]?.upTo || lowerBound} kWh`,
+          units: unitsInSlab,
+          rate: slabRate,
+          cost: costInSlab
+        });
+      }
+    } else {
+      // Standard Flat Rate model
+      energyCharges = kwh * flatRate;
+      slabBreakdown.push({
+        tier: 1,
+        label: `All consumption (Flat rate)`,
+        units: kwh,
+        rate: flatRate,
+        cost: energyCharges
+      });
+    }
+
+    const subtotal = energyCharges + fixedCharge;
+    const taxCharges = subtotal * (taxPercent / 100);
+    const totalCost = subtotal + taxCharges;
+    const effectiveRatePerKwh = kwh > 0 ? totalCost / kwh : flatRate;
+
+    return {
+      model,
+      totalKwh,
+      energyCharges,
+      fixedCharge,
+      taxPercent,
+      taxCharges,
+      totalCost,
+      effectiveRatePerKwh,
+      slabBreakdown
+    };
+  },
+
+  /**
+   * Budget Tracker: Computes budget utilization, remaining allowance, and threshold warnings
+   * @param {number} estimatedMonthlyBill - Current estimated monthly cost
+   * @param {number} budgetInr - Configured monthly budget in INR
+   * @returns {Object} Budget tracking status
+   */
+  calculateBudgetStatus(estimatedMonthlyBill, budgetInr) {
+    const bill = Math.max(0, Number(estimatedMonthlyBill) || 0);
+    const budget = Math.max(0, Number(budgetInr) || 0);
+
+    if (budget <= 0) {
+      return {
+        hasBudget: false,
+        budget: 0,
+        estimatedBill: bill,
+        remaining: 0,
+        utilizationPercent: 0,
+        status: 'unset',
+        statusLabel: 'No Budget Set',
+        warningLevel: null,
+        message: 'Set a monthly electricity budget in Settings to track utilization.'
+      };
+    }
+
+    const remaining = budget - bill;
+    const utilizationPercent = (bill / budget) * 100;
+
+    let status = 'safe';
+    let statusLabel = 'Within Budget';
+    let warningLevel = null;
+    let message = `You have utilized ${utilizationPercent.toFixed(1)}% of your monthly ₹${budget.toLocaleString('en-IN')} budget.`;
+
+    if (utilizationPercent >= 100) {
+      status = 'exceeded';
+      statusLabel = 'Budget Exceeded';
+      warningLevel = 100;
+      message = `Alert: Current estimate (₹${bill.toFixed(2)}) exceeds your monthly budget by ₹${Math.abs(remaining).toFixed(2)} (${utilizationPercent.toFixed(1)}%).`;
+    } else if (utilizationPercent >= 90) {
+      status = 'critical';
+      statusLabel = 'Critical (≥ 90%)';
+      warningLevel = 90;
+      message = `Warning: You have reached ${utilizationPercent.toFixed(1)}% of your monthly budget. Only ₹${remaining.toFixed(2)} remains.`;
+    } else if (utilizationPercent >= 75) {
+      status = 'warning';
+      statusLabel = 'Caution (≥ 75%)';
+      warningLevel = 75;
+      message = `Notice: Consumption is at ${utilizationPercent.toFixed(1)}% of your budget limit.`;
+    }
+
+    return {
+      hasBudget: true,
+      budget,
+      estimatedBill: bill,
+      remaining,
+      utilizationPercent,
+      status,
+      statusLabel,
+      warningLevel,
+      message
+    };
+  },
+
+  /**
+   * Month-to-Month Comparison: Calculates differentials between two billing snapshots
+   * Includes robust zero-division safety handling.
+   * @param {Object} snapA - Base/earlier period snapshot
+   * @param {Object} snapB - Target/later period snapshot
+   * @returns {Object} Comparative deltas and percentage changes
+   */
+  compareSnapshots(snapA, snapB) {
+    if (!snapA || !snapB) return null;
+
+    const kwhA = Math.max(0, Number(snapA.totalKwh) || 0);
+    const kwhB = Math.max(0, Number(snapB.totalKwh) || 0);
+    const costA = Math.max(0, Number(snapA.totalCost) || 0);
+    const costB = Math.max(0, Number(snapB.totalCost) || 0);
+
+    const kwhDiff = kwhB - kwhA;
+    const costDiff = costB - costA;
+
+    // Zero-division safety for percentage calculations
+    let kwhPercentDiff = 0;
+    if (kwhA > 0) {
+      kwhPercentDiff = ((kwhB - kwhA) / kwhA) * 100;
+    } else if (kwhB > 0) {
+      kwhPercentDiff = 100.0;
+    }
+
+    let costPercentDiff = 0;
+    if (costA > 0) {
+      costPercentDiff = ((costB - costA) / costA) * 100;
+    } else if (costB > 0) {
+      costPercentDiff = 100.0;
+    }
+
+    return {
+      periodA: snapA.period,
+      periodLabelA: snapA.periodLabel || snapA.period,
+      periodB: snapB.period,
+      periodLabelB: snapB.periodLabel || snapB.period,
+      kwhA,
+      kwhB,
+      costA,
+      costB,
+      kwhDiff,
+      costDiff,
+      kwhPercentDiff,
+      costPercentDiff,
+      kwhIncreased: kwhDiff > 0,
+      costIncreased: costDiff > 0,
+      isIdentical: Math.abs(kwhDiff) < 0.001 && Math.abs(costDiff) < 0.001
+    };
+  },
+
+  /**
+   * Appliance Replacement Simulator: Evaluates energy, bill, and ROI payback
+   * between an existing baseline appliance and a prospective alternative.
+   * @param {Object} baselineAppliance
+   * @param {number} altWatts - Prospective alternative power rating
+   * @param {number} altDailyHours - Prospective daily operating hours
+   * @param {number} altDays - Operating days per month
+   * @param {number} altQty - Units quantity
+   * @param {number} electricityRate - Tariff per kWh
+   * @param {number} purchaseCostInr - Optional upfront purchase cost of new appliance
+   * @returns {Object} Comparative metrics & savings
+   */
+  simulateReplacement(baselineAppliance, altWatts, altDailyHours, altDays, altQty, electricityRate = 8.00, purchaseCostInr = 0) {
+    const baseW = Number(baselineAppliance.powerWatts) || 0;
+    const baseH = Number(baselineAppliance.dailyHours) || 0;
+    const baseD = Number(baselineAppliance.operatingDays) || 30;
+    const baseQ = Number(baselineAppliance.quantity) || 1;
+
+    const newW = Math.max(0, Number(altWatts) || 0);
+    const newH = Math.min(24, Math.max(0, Number(altDailyHours) || 0));
+    const newD = Math.min(31, Math.max(1, Number(altDays) || baseD));
+    const newQ = Math.max(1, Number(altQty) || baseQ);
+    const rate = Math.max(0, Number(electricityRate) || 8.00);
+
+    const baseMonthlyKwh = this.calculateMonthlyKwh(baseW, baseQ, baseH, baseD);
+    const baseMonthlyCost = this.calculateCost(baseMonthlyKwh, rate);
+
+    const newMonthlyKwh = this.calculateMonthlyKwh(newW, newQ, newH, newD);
+    const newMonthlyCost = this.calculateCost(newMonthlyKwh, rate);
+
+    const monthlyKwhSaved = baseMonthlyKwh - newMonthlyKwh;
+    const monthlyCostSaved = baseMonthlyCost - newMonthlyCost;
+    const annualKwhSaved = monthlyKwhSaved * 12;
+    const annualCostSaved = monthlyCostSaved * 12;
+
+    let percentSaved = 0;
+    if (baseMonthlyKwh > 0) {
+      percentSaved = (monthlyKwhSaved / baseMonthlyKwh) * 100;
+    }
+
+    // Payback period in months
+    const upfrontCost = Math.max(0, Number(purchaseCostInr) || 0);
+    let paybackMonths = null;
+    if (upfrontCost > 0 && monthlyCostSaved > 0) {
+      paybackMonths = upfrontCost / monthlyCostSaved;
+    }
+
+    return {
+      baseline: {
+        name: baselineAppliance.name,
+        watts: baseW,
+        hours: baseH,
+        days: baseD,
+        quantity: baseQ,
+        monthlyKwh: baseMonthlyKwh,
+        monthlyCost: baseMonthlyCost
+      },
+      replacement: {
+        watts: newW,
+        hours: newH,
+        days: newD,
+        quantity: newQ,
+        monthlyKwh: newMonthlyKwh,
+        monthlyCost: newMonthlyCost
+      },
+      savings: {
+        monthlyKwhSaved,
+        monthlyCostSaved,
+        annualKwhSaved,
+        annualCostSaved,
+        percentSaved,
+        isSaving: monthlyCostSaved > 0,
+        upfrontCost,
+        paybackMonths
+      }
+    };
+  },
+
+  /**
+   * Carbon Footprint Estimator: Quantifies electricity-driven CO2e emissions
+   * @param {number} totalMonthlyKwh - Total household consumption in kWh
+   * @param {number|null} emissionFactor - Grid carbon intensity in kg CO2e / kWh
+   * @returns {Object} Carbon emission analytics
+   */
+  calculateCarbonFootprint(totalMonthlyKwh, emissionFactor = 0.82) {
+    const kwh = Math.max(0, Number(totalMonthlyKwh) || 0);
+
+    if (emissionFactor === null || emissionFactor === undefined || isNaN(Number(emissionFactor)) || Number(emissionFactor) <= 0) {
+      return {
+        isAvailable: false,
+        emissionFactor: null,
+        monthlyKgCO2: 0,
+        annualKgCO2: 0,
+        annualMetricTons: 0,
+        treesEquivalent: 0,
+        message: 'Carbon intensity factor is currently disabled or unconfigured in Settings.'
+      };
+    }
+
+    const factor = Number(emissionFactor);
+    const monthlyKgCO2 = kwh * factor;
+    const annualKgCO2 = monthlyKgCO2 * 12;
+    const annualMetricTons = annualKgCO2 / 1000;
+
+    // An average mature urban tree sequesters ~21.77 kg of CO2 per year (US EPA / CEA standard)
+    const treesEquivalent = Math.round(annualKgCO2 / 21.77);
+
+    return {
+      isAvailable: true,
+      emissionFactor: factor,
+      monthlyKgCO2,
+      annualKgCO2,
+      annualMetricTons,
+      treesEquivalent,
+      formula: `Monthly kWh (${kwh.toFixed(2)}) × Grid Factor (${factor.toFixed(2)} kg CO₂e/kWh)`
+    };
   },
 
   /**

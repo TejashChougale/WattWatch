@@ -1,40 +1,44 @@
 /**
- * WATTWATCH - Main Application Controller
- * Coordinates navigation, dashboard updates, analytics, settings, modals, and toasts.
+ * WATTWATCH 2.0 - Main Application Controller
+ * Coordinates navigation, dashboard updates, budget tracking, analytics,
+ * historical snapshots, simulators, PDF reporting, modals, and toasts.
  */
 
 const WattWatchApp = {
   currentView: 'overview',
   analyticsTimeframe: 'monthly',
   confirmCallback: null,
+  budgetWarnedSession: { 75: false, 90: false, 100: false },
 
   /**
    * Application bootstrap
    */
   init() {
-    console.log('[WattWatch] Initializing Luxury Energy Analytics Platform...');
+    console.log('[WattWatch 2.0] Initializing Advanced Energy Management & Analytics Platform...');
 
     // Restore theme preference
     this.initTheme();
 
     // Initialize submodules
     WattWatchAppliances.init();
+    WattWatchHistory.init();
+    WattWatchSimulator.init();
+    WattWatchReport.init();
 
     // Bind navigation & UI controls
     this.bindNavigation();
     this.bindSettings();
     this.bindModalKeyboards();
 
-    // Check if first-time user: offer sample data or start fresh
+    // First-time user onboarding
     const existing = WattWatchStorage.getAppliances();
     if (existing.length === 0 && !localStorage.getItem('wattwatch_onboarded_v1')) {
-      // Auto-load sample household so new users immediately see a rich, functional dashboard
       WattWatchStorage.loadSampleHousehold();
       localStorage.setItem('wattwatch_onboarded_v1', 'true');
-      this.showToast('Curated sample household data loaded for preview', 'info', 'Welcome to WattWatch');
+      this.showToast('Curated sample household data loaded for preview', 'info', 'Welcome to WattWatch 2.0');
     }
 
-    // Refresh all views and charts
+    // Refresh all views, summaries and charts
     this.refreshAll();
   },
 
@@ -75,6 +79,8 @@ const WattWatchApp = {
       WattWatchCharts.renderOverviewCharts(summary);
     } else if (this.currentView === 'analytics') {
       WattWatchCharts.renderAnalyticsCharts(summary, this.analyticsTimeframe);
+    } else if (this.currentView === 'history') {
+      WattWatchCharts.renderHistoryTrendChart(WattWatchStorage.getHistory());
     }
 
     this.showToast(`Switched to ${theme === 'dark' ? 'Royal Dark' : 'Beige & Royal Blue'} theme`, 'info', 'Theme Updated');
@@ -89,7 +95,6 @@ const WattWatchApp = {
         : `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>`;
     }
 
-    // Settings page radio indicators
     document.querySelectorAll('.theme-option-card').forEach(card => {
       if (card.getAttribute('data-theme-val') === theme) {
         card.classList.add('selected');
@@ -103,7 +108,6 @@ const WattWatchApp = {
    * Binds navigation links, sidebar drawer, and mobile menu toggle
    */
   bindNavigation() {
-    // Nav Items
     const navLinks = document.querySelectorAll('.nav-item-link');
     navLinks.forEach(link => {
       link.addEventListener('click', (e) => {
@@ -116,7 +120,6 @@ const WattWatchApp = {
       });
     });
 
-    // Mobile Hamburger Toggle
     const mobileToggle = document.getElementById('mobileMenuToggle');
     const sidebar = document.getElementById('appSidebar');
     const backdrop = document.getElementById('sidebarBackdrop');
@@ -157,12 +160,11 @@ const WattWatchApp = {
 
   /**
    * Switches visible view tab
-   * @param {string} viewId - 'overview' | 'appliances' | 'analytics' | 'recommendations' | 'settings'
+   * @param {string} viewId - 'overview' | 'appliances' | 'history' | 'analytics' | 'simulator' | 'recommendations' | 'settings'
    */
   navigateTo(viewId) {
     this.currentView = viewId;
 
-    // Update active nav links
     document.querySelectorAll('.nav-item-link').forEach(link => {
       if (link.getAttribute('data-view') === viewId) {
         link.classList.add('active');
@@ -171,7 +173,6 @@ const WattWatchApp = {
       }
     });
 
-    // Switch view panes
     document.querySelectorAll('.view-pane').forEach(pane => {
       pane.classList.remove('active');
     });
@@ -181,16 +182,17 @@ const WattWatchApp = {
       targetPane.classList.add('active');
     }
 
-    // Update Topbar Titles
     const titleMap = {
       overview: { title: 'Executive Overview', sub: 'Comprehensive household energy metrics & bill projections' },
       appliances: { title: 'Appliance Inventory', sub: 'Manage electrical ratings, operating schedules, and unit counts' },
-      analytics: { title: 'Consumption Analytics', sub: 'Granular load distributions, category allocations, and comparisons' },
+      history: { title: 'Monthly Bill History', sub: 'Frozen billing snapshots, historical trends, and month-to-month comparisons' },
+      analytics: { title: 'Consumption Analytics', sub: 'Granular load distributions, category allocations, and carbon footprint' },
+      simulator: { title: 'Simulators & Tariffs', sub: 'Model energy-efficient appliance upgrades and test progressive slab tariffs' },
       recommendations: { title: 'Energy Optimization Tips', sub: 'Actionable data-driven strategies to reduce consumption and costs' },
-      settings: { title: 'System Settings', sub: 'Configure tariffs, currency, data portability, and display preferences' }
+      settings: { title: 'System Settings', sub: 'Configure tariffs, budget limits, carbon factors, data portability, and display' }
     };
 
-    const info = titleMap[viewId] || { title: 'WattWatch Dashboard', sub: 'Premium Energy Analytics' };
+    const info = titleMap[viewId] || { title: 'WattWatch 2.0 Dashboard', sub: 'Advanced Energy Analytics' };
     const titleEl = document.getElementById('topbarPageTitle');
     const subEl = document.getElementById('topbarPageSubtitle');
 
@@ -199,7 +201,6 @@ const WattWatchApp = {
 
     window.scrollTo({ top: 0, behavior: 'smooth' });
 
-    // Re-render relevant view components
     this.refreshAll();
   },
 
@@ -212,18 +213,29 @@ const WattWatchApp = {
     const rate = settings.electricityRate || 8.00;
 
     const summary = WattWatchCalculations.calculateHouseholdSummary(appliances, rate);
+    const advancedTariff = WattWatchCalculations.calculateAdvancedTariff(summary.totalMonthlyKwh, settings);
 
-    // Update topbar & sidebar tariff indicators
-    this.updateGlobalTariffPills(summary, settings);
+    // Determine final estimated bill (flat or advanced slab)
+    const effectiveBill = settings.tariffModel === 'slab' ? advancedTariff.totalCost : summary.totalMonthlyCost;
 
-    // Update Overview View
-    this.renderOverviewMetrics(summary);
+    // Update topbar & sidebar indicators
+    this.updateGlobalTariffPills(summary, settings, effectiveBill, advancedTariff);
+
+    // Update Overview View (metrics & budget tracker)
+    this.renderOverviewMetrics(summary, effectiveBill, settings);
 
     // Update Appliances View
     WattWatchAppliances.renderApplianceTable();
 
+    // Update History View
+    WattWatchHistory.renderHistoryView();
+
+    // Update Simulators
+    WattWatchSimulator.populateApplianceSelect();
+    WattWatchSimulator.populateTariffSandbox();
+
     // Update Analytics View
-    this.renderAnalyticsData(summary);
+    this.renderAnalyticsData(summary, effectiveBill, settings);
 
     // Update Recommendations View
     this.renderRecommendationsView(appliances, rate);
@@ -236,25 +248,32 @@ const WattWatchApp = {
       WattWatchCharts.renderOverviewCharts(summary);
     } else if (this.currentView === 'analytics') {
       WattWatchCharts.renderAnalyticsCharts(summary, this.analyticsTimeframe);
+    } else if (this.currentView === 'history') {
+      WattWatchCharts.renderHistoryTrendChart(WattWatchStorage.getHistory());
     }
   },
 
   /**
    * Updates topbar pills and sidebar tariff badges
    */
-  updateGlobalTariffPills(summary, settings) {
-    const rateStr = `${settings.currency || '₹'}${Number(settings.electricityRate).toFixed(2)} / kWh`;
+  updateGlobalTariffPills(summary, settings, effectiveBill, advancedTariff) {
+    const rateStr = settings.tariffModel === 'slab'
+      ? `Slab Tariff (₹${advancedTariff.effectiveRatePerKwh.toFixed(2)}/kWh avg)`
+      : `${settings.currency || '₹'}${Number(settings.electricityRate).toFixed(2)} / kWh`;
 
     const topbarTariff = document.getElementById('topbarTariffRate');
     if (topbarTariff) topbarTariff.textContent = rateStr;
 
     const topbarBill = document.getElementById('topbarMonthlyBill');
-    if (topbarBill) topbarBill.textContent = WattWatchCalculations.formatCurrency(summary.totalMonthlyCost, settings.currency);
+    if (topbarBill) topbarBill.textContent = WattWatchCalculations.formatCurrency(effectiveBill, settings.currency);
 
     const sidebarRate = document.getElementById('sidebarTariffVal');
-    if (sidebarRate) sidebarRate.textContent = `${settings.currency || '₹'}${Number(settings.electricityRate).toFixed(2)}`;
+    if (sidebarRate) {
+      sidebarRate.textContent = settings.tariffModel === 'slab'
+        ? `Slab Mode`
+        : `${settings.currency || '₹'}${Number(settings.electricityRate).toFixed(2)}`;
+    }
 
-    // Update appliance badge counts in sidebar
     const badge = document.getElementById('navApplianceCountBadge');
     if (badge) {
       badge.textContent = summary.totalAppliancesCount.toString();
@@ -262,20 +281,20 @@ const WattWatchApp = {
   },
 
   /**
-   * Populates the 4 executive summary cards and spotlight banner in Overview
+   * Populates Overview metrics and the Electricity Budget Tracker widget
    */
-  renderOverviewMetrics(summary) {
+  renderOverviewMetrics(summary, effectiveBill, settings) {
     const elKwh = document.getElementById('metricTotalMonthlyKwh');
     const elBill = document.getElementById('metricEstimatedMonthlyBill');
     const elCount = document.getElementById('metricAppliancesCount');
     const elDaily = document.getElementById('metricAvgDailyKwh');
 
     if (elKwh) elKwh.textContent = WattWatchCalculations.formatKwh(summary.totalMonthlyKwh);
-    if (elBill) elBill.textContent = WattWatchCalculations.formatCurrency(summary.totalMonthlyCost);
+    if (elBill) elBill.textContent = WattWatchCalculations.formatCurrency(effectiveBill);
     if (elCount) elCount.textContent = `${summary.totalAppliancesCount} (${summary.totalUnits} Units)`;
     if (elDaily) elDaily.textContent = WattWatchCalculations.formatKwh(summary.totalDailyKwh);
 
-    // Spotlight Banner: Highest consuming appliance
+    // Spotlight Banner
     const spotlightTitle = document.getElementById('spotlightApplianceTitle');
     const spotlightDesc = document.getElementById('spotlightApplianceDesc');
 
@@ -290,12 +309,97 @@ const WattWatchApp = {
       if (spotlightTitle) spotlightTitle.textContent = 'No Active Consumption Recorded';
       if (spotlightDesc) spotlightDesc.textContent = 'Add your appliances to identify your primary energy consumers and calculate estimated monthly electricity charges.';
     }
+
+    // Budget Tracker Widget
+    this.renderBudgetTracker(effectiveBill, settings.budgetInr);
   },
 
   /**
-   * Renders metrics and matrix table on dedicated Analytics view
+   * Renders the Electricity Budget Tracker widget on Overview
    */
-  renderAnalyticsData(summary) {
+  renderBudgetTracker(effectiveBill, budgetInr) {
+    const budgetCard = document.getElementById('overviewBudgetWidget');
+    if (!budgetCard) return;
+
+    const b = WattWatchCalculations.calculateBudgetStatus(effectiveBill, budgetInr);
+
+    const elAmount = document.getElementById('budgetCardAmount');
+    const elRemaining = document.getElementById('budgetCardRemaining');
+    const elPercent = document.getElementById('budgetCardPercent');
+    const elProgress = document.getElementById('budgetCardProgressFill');
+    const elBadge = document.getElementById('budgetCardBadge');
+
+    if (!b.hasBudget) {
+      if (elAmount) elAmount.textContent = '₹0.00 (Unset)';
+      if (elRemaining) elRemaining.textContent = 'Set budget in Settings';
+      if (elPercent) elPercent.textContent = '0%';
+      if (elProgress) {
+        elProgress.style.width = '0%';
+        elProgress.style.backgroundColor = 'var(--muted-slate)';
+      }
+      if (elBadge) {
+        elBadge.className = 'badge badge-outline';
+        elBadge.textContent = 'No Budget Set';
+      }
+      return;
+    }
+
+    if (elAmount) elAmount.textContent = WattWatchCalculations.formatCurrency(b.budget);
+    if (elRemaining) {
+      elRemaining.textContent = b.remaining >= 0
+        ? `₹${b.remaining.toFixed(2)} remaining`
+        : `₹${Math.abs(b.remaining).toFixed(2)} over budget`;
+    }
+    if (elPercent) elPercent.textContent = `${Math.min(999, b.utilizationPercent).toFixed(1)}% utilized`;
+
+    // Progress bar width & color
+    const cappedWidth = Math.min(100, b.utilizationPercent);
+    if (elProgress) {
+      elProgress.style.width = `${cappedWidth}%`;
+      if (b.status === 'exceeded') {
+        elProgress.style.backgroundColor = '#A92639';
+      } else if (b.status === 'critical') {
+        elProgress.style.backgroundColor = 'var(--deep-burgundy)';
+      } else if (b.status === 'warning') {
+        elProgress.style.backgroundColor = 'var(--antique-gold)';
+      } else {
+        elProgress.style.backgroundColor = 'var(--royal-blue)';
+      }
+    }
+
+    if (elBadge) {
+      if (b.status === 'exceeded') {
+        elBadge.className = 'badge badge-burgundy';
+        elBadge.textContent = 'Exceeded (≥100%)';
+      } else if (b.status === 'critical') {
+        elBadge.className = 'badge badge-burgundy';
+        elBadge.textContent = 'Critical (≥90%)';
+      } else if (b.status === 'warning') {
+        elBadge.className = 'badge badge-gold';
+        elBadge.textContent = 'Caution (≥75%)';
+      } else {
+        elBadge.className = 'badge badge-cooling';
+        elBadge.textContent = 'Within Budget';
+      }
+    }
+
+    // Trigger warning notifications when thresholds are crossed once per session
+    if (b.warningLevel === 100 && !this.budgetWarnedSession[100]) {
+      this.budgetWarnedSession[100] = true;
+      this.showToast(b.message, 'error', 'Budget Exceeded');
+    } else if (b.warningLevel === 90 && !this.budgetWarnedSession[90]) {
+      this.budgetWarnedSession[90] = true;
+      this.showToast(b.message, 'warning', 'Budget Alert (≥90%)');
+    } else if (b.warningLevel === 75 && !this.budgetWarnedSession[75]) {
+      this.budgetWarnedSession[75] = true;
+      this.showToast(b.message, 'info', 'Budget Notice (≥75%)');
+    }
+  },
+
+  /**
+   * Renders metrics, matrix table, and carbon analytics on Analytics view
+   */
+  renderAnalyticsData(summary, effectiveBill, settings) {
     const elDailyAvg = document.getElementById('analyticsDailyAvg');
     const elMonthlyTotal = document.getElementById('analyticsMonthlyTotal');
     const elPeakCat = document.getElementById('analyticsPeakCategory');
@@ -303,9 +407,8 @@ const WattWatchApp = {
 
     if (elDailyAvg) elDailyAvg.textContent = WattWatchCalculations.formatKwh(summary.totalDailyKwh);
     if (elMonthlyTotal) elMonthlyTotal.textContent = WattWatchCalculations.formatKwh(summary.totalMonthlyKwh);
-    if (elDailyCost) elDailyCost.textContent = WattWatchCalculations.formatCurrency(summary.totalDailyKwh * summary.ratePerKwh);
+    if (elDailyCost) elDailyCost.textContent = WattWatchCalculations.formatCurrency(effectiveBill / 30);
 
-    // Peak category
     let topCatName = 'None';
     let topCatKwh = 0;
     Object.values(summary.categoryBreakdown).forEach(c => {
@@ -315,6 +418,25 @@ const WattWatchApp = {
       }
     });
     if (elPeakCat) elPeakCat.textContent = topCatName;
+
+    // Carbon Footprint Section
+    const carbon = WattWatchCalculations.calculateCarbonFootprint(summary.totalMonthlyKwh, settings.carbonEmissionFactor);
+    const elCarbonMonth = document.getElementById('analyticsCarbonMonthly');
+    const elCarbonAnnual = document.getElementById('analyticsCarbonAnnual');
+    const elCarbonTrees = document.getElementById('analyticsCarbonTrees');
+    const elCarbonFactorHint = document.getElementById('analyticsCarbonFactorHint');
+
+    if (carbon.isAvailable) {
+      if (elCarbonMonth) elCarbonMonth.textContent = `${carbon.monthlyKgCO2.toFixed(1)} kg CO₂e`;
+      if (elCarbonAnnual) elCarbonAnnual.textContent = `${carbon.annualMetricTons.toFixed(2)} Metric Tons`;
+      if (elCarbonTrees) elCarbonTrees.textContent = `${carbon.treesEquivalent} Mature Trees`;
+      if (elCarbonFactorHint) elCarbonFactorHint.textContent = `Based on ${carbon.emissionFactor} kg CO₂e / kWh`;
+    } else {
+      if (elCarbonMonth) elCarbonMonth.textContent = 'Unavailable';
+      if (elCarbonAnnual) elCarbonAnnual.textContent = 'Unavailable';
+      if (elCarbonTrees) elCarbonTrees.textContent = '—';
+      if (elCarbonFactorHint) elCarbonFactorHint.textContent = 'Emission factor disabled in Settings';
+    }
 
     // Render detailed matrix breakdown table
     const tbody = document.getElementById('analyticsMatrixTableBody');
@@ -408,10 +530,10 @@ const WattWatchApp = {
   },
 
   /**
-   * Binds settings controls (Tariff, JSON Export/Import, Sample Data, Clear)
+   * Binds settings controls (Tariff, Budget, Carbon Factor, JSON Export/Import, Sample Data, Clear)
    */
   bindSettings() {
-    // Tariff Rate Input
+    // Tariff Rate Input (Flat)
     const rateInput = document.getElementById('settingsElectricityRate');
     if (rateInput) {
       rateInput.addEventListener('change', (e) => {
@@ -419,11 +541,11 @@ const WattWatchApp = {
         if (isNaN(val) || val <= 0) val = 8.00;
         WattWatchStorage.saveSettings({ electricityRate: val });
         this.refreshAll();
-        this.showToast(`Electricity rate updated to ₹${val.toFixed(2)}/kWh`, 'success', 'Rate Updated');
+        this.showToast(`Electricity flat rate updated to ₹${val.toFixed(2)}/kWh`, 'success', 'Rate Updated');
       });
     }
 
-    // Rate Stepper Buttons
+    // Rate Steppers
     const btnRateMinus = document.getElementById('btnRateStepMinus');
     const btnRatePlus = document.getElementById('btnRateStepPlus');
     if (btnRateMinus && rateInput) {
@@ -454,6 +576,31 @@ const WattWatchApp = {
         }
       });
     });
+
+    // Budget Configuration Input
+    const budgetInput = document.getElementById('settingsMonthlyBudget');
+    if (budgetInput) {
+      budgetInput.addEventListener('change', (e) => {
+        const val = Math.max(0, parseFloat(e.target.value) || 0);
+        WattWatchStorage.saveSettings({ budgetInr: val });
+        // Reset session warning so user gets fresh alerts for new budget
+        this.budgetWarnedSession = { 75: false, 90: false, 100: false };
+        this.refreshAll();
+        this.showToast(`Monthly electricity budget set to ₹${val.toLocaleString('en-IN')}`, 'success', 'Budget Saved');
+      });
+    }
+
+    // Carbon Emission Factor Input
+    const carbonInput = document.getElementById('settingsCarbonFactor');
+    if (carbonInput) {
+      carbonInput.addEventListener('change', (e) => {
+        const valStr = e.target.value.trim();
+        const factor = (valStr === '' || isNaN(Number(valStr)) || Number(valStr) <= 0) ? null : Number(valStr);
+        WattWatchStorage.saveSettings({ carbonEmissionFactor: factor });
+        this.refreshAll();
+        this.showToast(factor !== null ? `Grid carbon factor set to ${factor} kg CO₂e/kWh` : 'Carbon factor disabled', 'info', 'Carbon Setting');
+      });
+    }
 
     // Theme Selector Cards in Settings
     const themeCards = document.querySelectorAll('.theme-option-card');
@@ -492,12 +639,12 @@ const WattWatchApp = {
         const a = document.createElement('a');
         const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
         a.href = url;
-        a.download = `wattwatch-data-${timestamp}.json`;
+        a.download = `wattwatch-2-data-${timestamp}.json`;
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
         URL.revokeObjectURL(url);
-        this.showToast('Configuration exported as JSON', 'success', 'Export Complete');
+        this.showToast('Full configuration & history exported as JSON', 'success', 'Export Complete');
       });
     }
 
@@ -515,7 +662,8 @@ const WattWatchApp = {
           const res = WattWatchStorage.importDataJSON(event.target.result);
           if (res.success) {
             this.refreshAll();
-            this.showToast(`Successfully imported ${res.count} appliance(s)`, 'success', 'Import Successful');
+            const histMsg = res.historyCount ? ` and ${res.historyCount} historical snapshots` : '';
+            this.showToast(`Successfully imported ${res.count} appliance(s)${histMsg}`, 'success', 'Import Successful');
           } else {
             this.showToast(res.error || 'Failed to import data', 'error', 'Import Error');
           }
@@ -531,13 +679,13 @@ const WattWatchApp = {
       btnClear.addEventListener('click', () => {
         this.openConfirmDialog({
           title: 'Reset All Application Data?',
-          message: 'Are you sure you want to completely erase all appliances and restore default settings? This cannot be undone.',
+          message: 'Are you sure you want to completely erase all appliances, historical snapshots, and restore default settings? This cannot be undone.',
           confirmText: 'Reset Everything',
           confirmClass: 'btn-danger',
           onConfirm: () => {
             WattWatchStorage.clearAllData();
             this.refreshAll();
-            this.showToast('All appliances cleared and settings reset', 'info', 'Data Reset');
+            this.showToast('All appliances and historical records cleared', 'info', 'Data Reset');
           }
         });
       });
@@ -549,6 +697,16 @@ const WattWatchApp = {
     if (rateInput && document.activeElement !== rateInput) {
       rateInput.value = Number(settings.electricityRate || 8.00).toFixed(2);
     }
+
+    const budgetInput = document.getElementById('settingsMonthlyBudget');
+    if (budgetInput && document.activeElement !== budgetInput) {
+      budgetInput.value = Number(settings.budgetInr || 0);
+    }
+
+    const carbonInput = document.getElementById('settingsCarbonFactor');
+    if (carbonInput && document.activeElement !== carbonInput) {
+      carbonInput.value = settings.carbonEmissionFactor !== null ? Number(settings.carbonEmissionFactor).toFixed(2) : '';
+    }
   },
 
   /**
@@ -558,29 +716,23 @@ const WattWatchApp = {
     window.addEventListener('keydown', (e) => {
       if (e.key === 'Escape') {
         WattWatchAppliances.closeModal();
+        WattWatchHistory.closeDetailsModal();
+        WattWatchReport.closeReportModal();
         this.closeConfirmDialog();
       }
     });
 
-    // Close on backdrop click for appliance modal
-    const applianceModal = document.getElementById('applianceModal');
-    if (applianceModal) {
-      applianceModal.addEventListener('click', (e) => {
-        if (e.target === applianceModal) {
-          WattWatchAppliances.closeModal();
-        }
-      });
-    }
-
-    // Close on backdrop click for confirm modal
-    const confirmModal = document.getElementById('confirmModal');
-    if (confirmModal) {
-      confirmModal.addEventListener('click', (e) => {
-        if (e.target === confirmModal) {
-          this.closeConfirmDialog();
-        }
-      });
-    }
+    // Close on backdrop clicks
+    ['applianceModal', 'confirmModal', 'historyDetailModal', 'reportModal'].forEach(id => {
+      const modal = document.getElementById(id);
+      if (modal) {
+        modal.addEventListener('click', (e) => {
+          if (e.target === modal) {
+            modal.classList.remove('is-open');
+          }
+        });
+      }
+    });
   },
 
   /**

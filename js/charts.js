@@ -1,6 +1,8 @@
 /**
- * WATTWATCH - Charts Engine (Chart.js Integration)
+ * WATTWATCH 2.0 - Charts Engine (Chart.js Integration)
  * Renders luxury-themed interactive visualizations using official brand colors.
+ * Includes Overview trends, Category shares, Multi-horizon Analytics,
+ * Historical Bill Trends, Month-to-Month Comparisons, and Carbon Emissions.
  */
 
 const WattWatchCharts = {
@@ -10,7 +12,10 @@ const WattWatchCharts = {
     overviewCategory: null,
     analyticsTimeline: null,
     analyticsApplianceRank: null,
-    analyticsCategoryShare: null
+    analyticsCategoryShare: null,
+    historyTrend: null,
+    comparisonChart: null,
+    carbonChart: null
   },
 
   // Color palettes tailored for Light and Dark modes
@@ -86,12 +91,9 @@ const WattWatchCharts = {
     const colors = this.getThemeColors();
     const ctx = canvas.getContext('2d');
 
-    // Generate 7-day representative weekly projection based on household appliances
-    // (Considers regular daily loads + day-specific weighting)
     const daysOfWeek = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
     const baselineDailyKwh = summary.totalDailyKwh;
 
-    // Realistic day variance (weekends tend to have ~10-15% higher cooling/entertainment load)
     const weeklyData = [
       Number((baselineDailyKwh * 0.98).toFixed(2)),
       Number((baselineDailyKwh * 0.96).toFixed(2)),
@@ -124,9 +126,7 @@ const WattWatchCharts = {
         responsive: true,
         maintainAspectRatio: false,
         plugins: {
-          legend: {
-            display: false
-          },
+          legend: { display: false },
           tooltip: {
             backgroundColor: colors.isDark ? '#0D1628' : '#FAF7F0',
             titleColor: colors.textColor,
@@ -156,10 +156,7 @@ const WattWatchCharts = {
             }
           },
           y: {
-            grid: {
-              color: colors.gridColor,
-              drawBorder: false
-            },
+            grid: { color: colors.gridColor, drawBorder: false },
             ticks: {
               color: colors.softSlate,
               font: { family: 'Inter', size: 11 },
@@ -265,6 +262,9 @@ const WattWatchCharts = {
     this.renderAnalyticsTimelineChart(summary, timeframe);
     this.renderAnalyticsApplianceRankChart(summary);
     this.renderAnalyticsCategoryShareChart(summary);
+
+    const settings = WattWatchStorage.getSettings();
+    this.renderCarbonChart(summary, settings.carbonEmissionFactor);
   },
 
   /**
@@ -289,15 +289,12 @@ const WattWatchCharts = {
     let costData = [];
 
     if (timeframe === 'daily') {
-      // 24-hour diurnal load distribution pattern based on household appliance usage
       labels = ['12 AM', '3 AM', '6 AM', '9 AM', '12 PM', '3 PM', '6 PM', '9 PM'];
       const baseHourly = summary.totalDailyKwh / 8;
-      // Typical residential curve: peaks around 7-10 AM and 6-10 PM
       const profileWeights = [0.65, 0.50, 0.90, 1.35, 1.10, 1.25, 1.60, 1.40];
       kwhData = profileWeights.map(w => Number((baseHourly * w).toFixed(2)));
       costData = kwhData.map(kwh => (kwh * summary.ratePerKwh).toFixed(2));
     } else if (timeframe === 'weekly') {
-      // 4-week cycle projection
       labels = ['Week 1', 'Week 2', 'Week 3', 'Week 4'];
       const weeklyBase = summary.totalMonthlyKwh / 4;
       kwhData = [
@@ -308,7 +305,6 @@ const WattWatchCharts = {
       ];
       costData = kwhData.map(kwh => (kwh * summary.ratePerKwh).toFixed(2));
     } else {
-      // Monthly 6-month projected horizon based on current appliance inventory
       labels = ['Current Month', 'Month +1', 'Month +2', 'Month +3', 'Month +4', 'Month +5'];
       const mBase = summary.totalMonthlyKwh;
       kwhData = [
@@ -402,7 +398,6 @@ const WattWatchCharts = {
     const colors = this.getThemeColors();
     const ctx = canvas.getContext('2d');
 
-    // Sort appliances by monthly kWh descending (take top 8 for clean visual presentation)
     const sortedAppliances = [...summary.appliances]
       .sort((a, b) => b.monthlyKwh - a.monthlyKwh)
       .slice(0, 8);
@@ -546,6 +541,257 @@ const WattWatchCharts = {
   },
 
   /**
+   * Carbon Emissions Breakdown Chart (WATTWATCH 2.0)
+   */
+  renderCarbonChart(summary, emissionFactor) {
+    const canvas = document.getElementById('analyticsCarbonChart');
+    if (!canvas) return;
+
+    this.destroyChart('carbonChart');
+
+    if (!summary || summary.appliances.length === 0 || !emissionFactor) {
+      this.renderEmptyStateOnCanvas(canvas, 'Configure emission factor in Settings to view carbon breakdown');
+      return;
+    }
+
+    const colors = this.getThemeColors();
+    const ctx = canvas.getContext('2d');
+
+    // Calculate emissions per category
+    const activeCategories = Object.values(summary.categoryBreakdown)
+      .filter(c => c.kwh > 0)
+      .sort((a, b) => b.kwh - a.kwh);
+
+    const labels = activeCategories.map(c => c.category);
+    const dataKg = activeCategories.map(c => Number((c.kwh * emissionFactor).toFixed(2)));
+    const bgColors = activeCategories.map((_, idx) => colors.categoryPalette[idx % colors.categoryPalette.length]);
+
+    this.instances.carbonChart = new Chart(ctx, {
+      type: 'bar',
+      data: {
+        labels: labels,
+        datasets: [
+          {
+            label: 'Estimated Carbon Emissions (kg CO₂e)',
+            data: dataKg,
+            backgroundColor: bgColors,
+            borderRadius: 6,
+            maxBarThickness: 42
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            backgroundColor: colors.isDark ? '#0D1628' : '#FAF7F0',
+            titleColor: colors.textColor,
+            bodyColor: colors.textColor,
+            borderColor: colors.antiqueGold,
+            borderWidth: 1,
+            padding: 12,
+            callbacks: {
+              label: (context) => [
+                `Emissions: ${context.raw} kg CO₂e`,
+                `Energy: ${activeCategories[context.dataIndex].kwh.toFixed(1)} kWh`
+              ]
+            }
+          }
+        },
+        scales: {
+          x: {
+            grid: { display: false },
+            ticks: {
+              color: colors.softSlate,
+              font: { family: 'Inter', size: 11 }
+            }
+          },
+          y: {
+            grid: { color: colors.gridColor, drawBorder: false },
+            ticks: {
+              color: colors.softSlate,
+              font: { family: 'Inter', size: 11 },
+              callback: (val) => `${val} kg`
+            },
+            beginAtZero: true
+          }
+        }
+      }
+    });
+  },
+
+  /**
+   * Historical Bill & Consumption Trend Chart (WATTWATCH 2.0)
+   */
+  renderHistoryTrendChart(history) {
+    const canvas = document.getElementById('historyTrendChart');
+    if (!canvas) return;
+
+    this.destroyChart('historyTrend');
+
+    if (!history || history.length === 0) {
+      this.renderEmptyStateOnCanvas(canvas, 'No saved billing snapshots available');
+      return;
+    }
+
+    const colors = this.getThemeColors();
+    const ctx = canvas.getContext('2d');
+
+    // Chronological sort for the trend graph (oldest to newest)
+    const sorted = [...history].sort((a, b) => a.period.localeCompare(b.period));
+    const labels = sorted.map(h => h.periodLabel || h.period);
+    const dataKwh = sorted.map(h => Number(h.totalKwh.toFixed(2)));
+    const dataCost = sorted.map(h => Number(h.totalCost.toFixed(2)));
+
+    this.instances.historyTrend = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: labels,
+        datasets: [
+          {
+            label: 'Monthly Energy (kWh)',
+            data: dataKwh,
+            borderColor: colors.royalBlue,
+            backgroundColor: colors.isDark ? 'rgba(61, 104, 178, 0.2)' : 'rgba(23, 43, 85, 0.1)',
+            fill: true,
+            tension: 0.3,
+            borderWidth: 2.5,
+            pointBackgroundColor: colors.antiqueGold,
+            pointBorderColor: colors.cardBg,
+            pointBorderWidth: 2,
+            pointRadius: 5
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            backgroundColor: colors.isDark ? '#0D1628' : '#FAF7F0',
+            titleColor: colors.textColor,
+            bodyColor: colors.textColor,
+            borderColor: colors.antiqueGold,
+            borderWidth: 1,
+            padding: 12,
+            callbacks: {
+              label: (context) => [
+                `Consumption: ${context.raw} kWh`,
+                `Estimated Bill: ₹${dataCost[context.dataIndex].toLocaleString('en-IN')}`
+              ]
+            }
+          }
+        },
+        scales: {
+          x: {
+            grid: { display: false },
+            ticks: {
+              color: colors.softSlate,
+              font: { family: 'Inter', size: 11 }
+            }
+          },
+          y: {
+            grid: { color: colors.gridColor, drawBorder: false },
+            ticks: {
+              color: colors.softSlate,
+              font: { family: 'Inter', size: 11 },
+              callback: (val) => `${val} kWh`
+            },
+            beginAtZero: true
+          }
+        }
+      }
+    });
+  },
+
+  /**
+   * Month-to-Month Comparative Grouped Bar Chart (WATTWATCH 2.0)
+   */
+  renderComparisonChart(comp) {
+    const canvas = document.getElementById('historyComparisonChart');
+    if (!canvas) return;
+
+    this.destroyChart('comparisonChart');
+
+    if (!comp) return;
+
+    const colors = this.getThemeColors();
+    const ctx = canvas.getContext('2d');
+
+    this.instances.comparisonChart = new Chart(ctx, {
+      type: 'bar',
+      data: {
+        labels: ['Energy Consumption (kWh)', 'Estimated Bill (₹ / 10)'],
+        datasets: [
+          {
+            label: comp.periodLabelA,
+            data: [comp.kwhA, comp.costA / 10],
+            backgroundColor: colors.royalBlue,
+            borderRadius: 4
+          },
+          {
+            label: comp.periodLabelB,
+            data: [comp.kwhB, comp.costB / 10],
+            backgroundColor: colors.antiqueGold,
+            borderRadius: 4
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: {
+            position: 'top',
+            labels: {
+              color: colors.textColor,
+              font: { family: 'Inter', size: 11 }
+            }
+          },
+          tooltip: {
+            backgroundColor: colors.isDark ? '#0D1628' : '#FAF7F0',
+            titleColor: colors.textColor,
+            bodyColor: colors.textColor,
+            borderColor: colors.antiqueGold,
+            borderWidth: 1,
+            padding: 12,
+            callbacks: {
+              label: (context) => {
+                const label = context.dataset.label;
+                const isEnergy = context.dataIndex === 0;
+                const raw = context.raw;
+                return isEnergy
+                  ? `${label}: ${raw.toFixed(2)} kWh`
+                  : `${label}: ₹${(raw * 10).toFixed(2)}`;
+              }
+            }
+          }
+        },
+        scales: {
+          x: {
+            grid: { display: false },
+            ticks: {
+              color: colors.softSlate,
+              font: { family: 'Inter', size: 11 }
+            }
+          },
+          y: {
+            grid: { color: colors.gridColor, drawBorder: false },
+            ticks: {
+              color: colors.softSlate,
+              font: { family: 'Inter', size: 11 }
+            },
+            beginAtZero: true
+          }
+        }
+      }
+    });
+  },
+
+  /**
    * Renders a clean luxury empty state text inside canvas container
    * @param {HTMLCanvasElement} canvas
    * @param {string} message
@@ -554,7 +800,6 @@ const WattWatchCharts = {
     const parent = canvas.parentElement;
     if (!parent) return;
 
-    // Check if empty overlay exists, else inject
     let overlay = parent.querySelector('.canvas-empty-state-overlay');
     if (!overlay) {
       overlay = document.createElement('div');

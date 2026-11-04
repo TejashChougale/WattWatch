@@ -3,10 +3,10 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>WattWatch | Premium Electricity Consumption & Energy Analytics Platform</title>
+  <title>WattWatch 2.0 | Advanced Electricity Management & Analytics Platform</title>
   
   <!-- Meta description and branding -->
-  <meta name="description" content="WattWatch is a royal luxury energy technology dashboard designed to monitor electricity consumption, calculate estimated bills, manage appliances, and provide data-driven energy savings.">
+  <meta name="description" content="WattWatch 2.0 is an advanced luxury electricity management and analytics platform. Monitor consumption, track electricity budgets, compare historical billing periods, simulate appliance replacements, test slab tariffs, and estimate carbon emissions.">
   <link rel="icon" type="image/svg+xml" href="assets/logo.svg">
 
   <!-- Core Stylesheets -->
@@ -31,8 +31,8 @@
         <a href="#overview" class="brand-wrapper" onclick="WattWatchApp.navigateTo('overview'); return false;">
           <img src="assets/logo.svg" alt="WattWatch Luxury Logo" class="brand-logo-svg">
           <div class="brand-text">
-            <span class="brand-name">WATT<span>WATCH</span></span>
-            <span class="brand-subtitle">Energy Analytics</span>
+            <span class="brand-name">WATT<span>WATCH</span> 2.0</span>
+            <span class="brand-subtitle">Energy Intelligence</span>
           </div>
         </a>
       </div>
@@ -67,6 +67,15 @@
               </a>
             </li>
             <li>
+              <a href="#history" class="nav-item-link" data-view="history" aria-label="Monthly Bill History">
+                <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                  <circle cx="12" cy="12" r="10"/>
+                  <polyline points="12 6 12 12 16 14"/>
+                </svg>
+                <span>Bill History</span>
+              </a>
+            </li>
+            <li>
               <a href="#analytics" class="nav-item-link" data-view="analytics" aria-label="Consumption Analytics">
                 <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
                   <path d="M18 20V10"/>
@@ -74,6 +83,14 @@
                   <path d="M6 20v-6"/>
                 </svg>
                 <span>Analytics</span>
+              </a>
+            </li>
+            <li>
+              <a href="#simulator" class="nav-item-link" data-view="simulator" aria-label="Simulators & Tariffs">
+                <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                  <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
+                </svg>
+                <span>Simulators</span>
               </a>
             </li>
             <li>
@@ -146,6 +163,18 @@
             <strong id="topbarMonthlyBill">₹0.00</strong>
           </div>
 
+          <!-- PDF Report Trigger Button -->
+          <button type="button" class="btn btn-secondary btn-sm" id="btnOpenReportModal" title="Generate Monthly PDF Report" aria-label="Download Monthly Report">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+              <polyline points="14 2 14 8 20 8"/>
+              <line x1="16" y1="13" x2="8" y2="13"/>
+              <line x1="16" y1="17" x2="8" y2="17"/>
+              <polyline points="10 9 9 9 8 9"/>
+            </svg>
+            <span>PDF Report</span>
+          </button>
+
           <!-- Light/Dark Mode Switcher -->
           <button type="button" class="theme-toggle-btn" id="themeToggleBtn" aria-label="Toggle Theme" title="Switch Theme">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -172,6 +201,45 @@
              ========================================== -->
         <section class="view-pane active" id="view-overview" aria-labelledby="topbarPageTitle">
           
+          <!-- Electricity Budget Tracker Widget (WATTWATCH 2.0) -->
+          <div class="budget-widget-card" id="overviewBudgetWidget">
+            <div class="budget-widget-header">
+              <div class="budget-widget-title-group">
+                <div class="budget-widget-icon">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <line x1="12" y1="1" x2="12" y2="23"/>
+                    <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>
+                  </svg>
+                </div>
+                <div>
+                  <h3 style="font-family: var(--font-serif); font-size: 1.1rem; color: var(--text-primary); margin: 0;">
+                    Monthly Electricity Budget Tracker
+                  </h3>
+                  <div style="font-size: 0.78rem; color: var(--text-secondary);">
+                    Target Budget: <strong id="budgetCardAmount" style="color: var(--text-primary);">₹2,500.00</strong>
+                  </div>
+                </div>
+              </div>
+
+              <div style="display: flex; align-items: center; gap: 0.75rem;">
+                <span class="badge badge-cooling" id="budgetCardBadge">Within Budget</span>
+                <button type="button" class="btn btn-secondary btn-sm" onclick="WattWatchApp.navigateTo('settings')" title="Edit Budget Limit">
+                  Edit Budget
+                </button>
+              </div>
+            </div>
+
+            <!-- Visual Progress Bar -->
+            <div class="budget-progress-track">
+              <div class="budget-progress-bar" id="budgetCardProgressFill" style="width: 0%; background-color: var(--royal-blue);"></div>
+            </div>
+
+            <div class="budget-stats-row">
+              <span id="budgetCardPercent" style="font-weight: 600; color: var(--text-primary);">0% utilized</span>
+              <span id="budgetCardRemaining" style="font-weight: 500;">Calculating remaining allowance...</span>
+            </div>
+          </div>
+
           <!-- Summary Cards Grid (4 KPI Cards) -->
           <div class="metrics-grid">
             <!-- Metric 1: Total Energy Consumption -->
@@ -203,7 +271,7 @@
               </div>
               <div class="metric-value" id="metricEstimatedMonthlyBill">₹0.00</div>
               <div class="metric-subtext">
-                <span>Estimated charges based on unit rate</span>
+                <span>Estimated charges based on tariff</span>
               </div>
             </div>
 
@@ -267,14 +335,17 @@
             <button type="button" class="btn btn-primary btn-sm" onclick="WattWatchAppliances.openModal()">
               + Add Appliance
             </button>
-            <button type="button" class="btn btn-secondary btn-sm" onclick="WattWatchApp.navigateTo('analytics')">
-              View Analytics
+            <button type="button" class="btn btn-secondary btn-sm" id="btnOverviewSaveSnapshot">
+              Save Bill Snapshot
             </button>
-            <button type="button" class="btn btn-secondary btn-sm" onclick="WattWatchApp.navigateTo('settings')">
-              Manage Electricity Rate
+            <button type="button" class="btn btn-secondary btn-sm" onclick="WattWatchReport.openReportModal()">
+              Generate PDF Report
             </button>
-            <button type="button" class="btn btn-secondary btn-sm" onclick="WattWatchApp.navigateTo('recommendations')">
-              Energy Tips
+            <button type="button" class="btn btn-secondary btn-sm" onclick="WattWatchApp.navigateTo('history')">
+              Bill History
+            </button>
+            <button type="button" class="btn btn-secondary btn-sm" onclick="WattWatchApp.navigateTo('simulator')">
+              Simulators
             </button>
           </div>
 
@@ -396,7 +467,136 @@
         </section>
 
         <!-- ==========================================
-             VIEW 3: CONSUMPTION ANALYTICS
+             VIEW 3: MONTHLY BILL HISTORY (WATTWATCH 2.0)
+             ========================================== -->
+        <section class="view-pane" id="view-history" aria-label="Monthly Bill History Section">
+          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 1.5rem; flex-wrap: wrap; gap: 1rem;">
+            <div>
+              <h2>Monthly Electricity Bill History</h2>
+              <p style="font-size: 0.85rem; color: var(--text-secondary);">Permanent frozen snapshots of past billing cycles and month-to-month analytics</p>
+            </div>
+            <button type="button" class="btn btn-gold" id="btnSaveCurrentSnapshot">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/>
+                <polyline points="17 21 17 13 7 13 7 21"/>
+                <polyline points="7 3 7 8 15 8"/>
+              </svg>
+              <span>Save Current Month Snapshot</span>
+            </button>
+          </div>
+
+          <!-- History Record Highlights -->
+          <div class="metrics-grid" style="grid-template-columns: repeat(3, 1fr); margin-bottom: 1.5rem;">
+            <div class="metric-card">
+              <span class="metric-title">Highest Recorded Bill</span>
+              <div class="metric-value" id="historyHighestBill" style="color: var(--deep-burgundy);">₹0.00</div>
+              <div class="metric-subtext">Peak historical monthly charge</div>
+            </div>
+
+            <div class="metric-card">
+              <span class="metric-title">Lowest Recorded Bill</span>
+              <div class="metric-value" id="historyLowestBill">₹0.00</div>
+              <div class="metric-subtext">Minimum historical monthly charge</div>
+            </div>
+
+            <div class="metric-card">
+              <span class="metric-title">Historical Records</span>
+              <div class="metric-value" id="historyRecordsCount">0 Records</div>
+              <div class="metric-subtext">Saved monthly billing snapshots</div>
+            </div>
+          </div>
+
+          <!-- Historical Trend Chart -->
+          <div class="card chart-card" style="margin-bottom: 2rem;">
+            <div class="card-header">
+              <div>
+                <h3 class="card-title">Historical Consumption & Bill Trends</h3>
+                <p class="card-subtitle">Track how your household energy usage evolves over recorded billing cycles</p>
+              </div>
+              <span class="badge badge-gold">Historical Profile</span>
+            </div>
+            <div class="chart-container" style="min-height: 290px;">
+              <canvas id="historyTrendChart"></canvas>
+            </div>
+          </div>
+
+          <!-- Month-to-Month Period Comparison Card -->
+          <div class="card" id="historyComparisonCard" style="margin-bottom: 2rem;">
+            <div class="card-header">
+              <div>
+                <h3 class="card-title">Month-to-Month Period Comparison</h3>
+                <p class="card-subtitle">Select and compare any two saved billing snapshots to observe consumption and cost variances</p>
+              </div>
+              <span class="badge badge-blue">Comparative Delta</span>
+            </div>
+
+            <div style="display: flex; align-items: center; gap: 1rem; margin-bottom: 1.5rem; flex-wrap: wrap;">
+              <div style="flex: 1; min-width: 240px;">
+                <label for="comparePeriodSelectA" class="form-label">Baseline Period (A):</label>
+                <select id="comparePeriodSelectA" class="form-control"></select>
+              </div>
+              <div style="font-family: var(--font-serif); font-weight: 700; color: var(--antique-gold); font-size: 1.25rem; margin-top: 1.25rem;">
+                VS
+              </div>
+              <div style="flex: 1; min-width: 240px;">
+                <label for="comparePeriodSelectB" class="form-label">Comparison Period (B):</label>
+                <select id="comparePeriodSelectB" class="form-control"></select>
+              </div>
+            </div>
+
+            <div id="comparisonResultsBox">
+              <!-- Dynamically populated via history.js -->
+            </div>
+
+            <div class="chart-container" style="min-height: 260px; margin-top: 1rem;">
+              <canvas id="historyComparisonChart"></canvas>
+            </div>
+          </div>
+
+          <!-- Historical Snapshots Ledger Table -->
+          <div class="card">
+            <div class="card-header">
+              <div>
+                <h3 class="card-title">Saved Billing Periods Ledger</h3>
+                <p class="card-subtitle">Permanent historical snapshots remain unaffected by subsequent appliance modifications</p>
+              </div>
+            </div>
+
+            <div class="table-responsive" id="historyTableWrap">
+              <table class="appliance-table" aria-label="Historical Bill Records">
+                <thead>
+                  <tr>
+                    <th scope="col">Billing Period</th>
+                    <th scope="col">Total Energy</th>
+                    <th scope="col">Estimated Bill</th>
+                    <th scope="col">Tariff Model & Rate</th>
+                    <th scope="col">Appliances</th>
+                    <th scope="col">Recorded On</th>
+                    <th scope="col">Actions</th>
+                  </tr>
+                </thead>
+                <tbody id="historyTableBody">
+                  <!-- Dynamically populated via history.js -->
+                </tbody>
+              </table>
+            </div>
+
+            <div class="card empty-state-card" id="historyEmptyState" style="display: none; border: none; box-shadow: none;">
+              <svg class="empty-state-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                <circle cx="12" cy="12" r="10"/>
+                <polyline points="12 6 12 12 16 14"/>
+              </svg>
+              <h3 class="empty-state-title">No Historical Billing Snapshots</h3>
+              <p class="empty-state-desc">Save your current monthly calculations as a frozen snapshot to build your historical consumption ledger and unlock month-to-month comparison analytics.</p>
+              <button type="button" class="btn btn-primary" onclick="WattWatchHistory.promptSaveSnapshot()">
+                Save First Snapshot
+              </button>
+            </div>
+          </div>
+        </section>
+
+        <!-- ==========================================
+             VIEW 4: CONSUMPTION ANALYTICS
              ========================================== -->
         <section class="view-pane" id="view-analytics" aria-label="Analytics Section">
           
@@ -404,7 +604,7 @@
           <div class="analytics-header-strip">
             <div>
               <h2>Energy Consumption Analytics</h2>
-              <p style="font-size: 0.85rem; color: var(--text-secondary);">Interactive breakdown of load patterns, category allocations, and appliance rankings</p>
+              <p style="font-size: 0.85rem; color: var(--text-secondary);">Interactive breakdown of load patterns, category allocations, and carbon footprint</p>
             </div>
 
             <!-- Timeframe selector -->
@@ -484,6 +684,52 @@
             </div>
           </div>
 
+          <!-- Carbon Footprint Estimator Section (WATTWATCH 2.0) -->
+          <div class="card" style="margin-top: 2rem;">
+            <div class="card-header">
+              <div>
+                <h3 class="card-title">Carbon Footprint Estimator</h3>
+                <p class="card-subtitle">Quantified greenhouse gas emissions ($\text{kg CO}_2\text{e}$) derived from your electrical load profile</p>
+              </div>
+              <span class="badge badge-cooling">Environmental Analytics</span>
+            </div>
+
+            <div class="metrics-grid" style="grid-template-columns: repeat(3, 1fr); margin-bottom: 1.5rem;">
+              <div class="metric-card">
+                <span class="metric-title">Estimated Monthly Carbon</span>
+                <div class="metric-value" id="analyticsCarbonMonthly">0.0 kg CO₂e</div>
+                <div class="metric-subtext" id="analyticsCarbonFactorHint">Based on regional grid factor</div>
+              </div>
+
+              <div class="metric-card">
+                <span class="metric-title">Annualized Emissions</span>
+                <div class="metric-value" id="analyticsCarbonAnnual" style="color: var(--deep-burgundy);">0.00 Metric Tons</div>
+                <div class="metric-subtext">Projected yearly carbon impact</div>
+              </div>
+
+              <div class="metric-card">
+                <span class="metric-title">Offsetting Requirement</span>
+                <div class="metric-value" id="analyticsCarbonTrees" style="color: var(--text-gold);">0 Trees</div>
+                <div class="metric-subtext">Urban trees needed to sequester annual load</div>
+              </div>
+            </div>
+
+            <div class="chart-container" style="min-height: 280px;">
+              <canvas id="analyticsCarbonChart"></canvas>
+            </div>
+
+            <div class="disclaimer-banner" style="margin-top: 1rem;">
+              <svg class="disclaimer-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="10"/>
+                <line x1="12" y1="8" x2="12" y2="12"/>
+                <line x1="12" y1="16" x2="12.01" y2="16"/>
+              </svg>
+              <div>
+                <strong>Carbon Estimation Formula & Assumptions:</strong> $\text{Emissions (kg CO}_2\text{e)} = \text{Monthly kWh} \times \text{Grid Emission Factor}$. Standard factor reflects Central Electricity Authority (CEA) India baseline ($0.82\text{ kg CO}_2/\text{kWh}$). Can be modified or disabled in Settings.
+              </div>
+            </div>
+          </div>
+
           <!-- Detailed Consumption Matrix Breakdown Table -->
           <div class="card" style="margin-top: 2rem;">
             <div class="card-header">
@@ -513,7 +759,166 @@
         </section>
 
         <!-- ==========================================
-             VIEW 4: ENERGY-SAVING TIPS & RECOMMENDATIONS
+             VIEW 5: SIMULATORS & TARIFFS (WATTWATCH 2.0)
+             ========================================== -->
+        <section class="view-pane" id="view-simulator" aria-label="Simulators Section">
+
+          <!-- Section 1: Appliance Replacement Simulator -->
+          <div style="margin-bottom: 2.5rem;">
+            <div style="margin-bottom: 1.25rem;">
+              <h2>Appliance Efficiency Replacement Simulator</h2>
+              <p style="font-size: 0.85rem; color: var(--text-secondary);">
+                Evaluate how upgrading an existing appliance to a higher-efficiency model impacts your monthly bill and payback timeframe.
+              </p>
+            </div>
+
+            <div class="sim-grid-2col">
+              <!-- Left Pane: Inputs -->
+              <div class="sim-input-pane">
+                <h3 style="font-family: var(--font-serif); font-size: 1.15rem; margin-bottom: 1rem; color: var(--text-primary);">
+                  Select Baseline Appliance
+                </h3>
+
+                <div class="form-group">
+                  <label for="simApplianceSelect" class="form-label">Choose Existing Appliance:</label>
+                  <select id="simApplianceSelect" class="form-control"></select>
+                </div>
+
+                <!-- Baseline Info Box -->
+                <div id="simBaselineInfo" style="background: var(--soft-blue); padding: 0.85rem; border-radius: var(--radius-md); margin-bottom: 1.25rem; border: 1px solid var(--border-subtle);"></div>
+
+                <hr class="gold-divider">
+
+                <h3 style="font-family: var(--font-serif); font-size: 1.15rem; margin-bottom: 1rem; color: var(--text-primary);">
+                  Prospective Alternative Model
+                </h3>
+
+                <div class="form-group">
+                  <label for="simAltWatts" class="form-label">Replacement Power Rating (Watts) <span class="required">*</span>:</label>
+                  <input type="number" id="simAltWatts" class="form-control" placeholder="e.g. 900" min="1" step="1">
+                </div>
+
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+                  <div class="form-group">
+                    <label for="simAltHours" class="form-label">Daily Usage (Hours):</label>
+                    <input type="number" id="simAltHours" class="form-control" min="0" max="24" step="0.5">
+                  </div>
+                  <div class="form-group">
+                    <label for="simAltDays" class="form-label">Operating Days / Mo:</label>
+                    <input type="number" id="simAltDays" class="form-control" min="1" max="31">
+                  </div>
+                </div>
+
+                <div style="display: grid; grid-template-columns: 1.2fr 1fr; gap: 0.75rem;">
+                  <div class="form-group">
+                    <label for="simPurchaseCost" class="form-label">New Model Price (₹ - Optional):</label>
+                    <input type="number" id="simPurchaseCost" class="form-control" placeholder="e.g. 24000" min="0" step="100">
+                  </div>
+                  <div class="form-group">
+                    <label for="simAltQty" class="form-label">Quantity:</label>
+                    <input type="number" id="simAltQty" class="form-control" min="1" value="1">
+                  </div>
+                </div>
+              </div>
+
+              <!-- Right Pane: Live Comparison Results -->
+              <div class="sim-results-pane">
+                <h3 style="font-family: var(--font-serif); font-size: 1.15rem; margin-bottom: 1rem; color: var(--text-primary);">
+                  Efficiency & Financial Analysis
+                </h3>
+                <div id="simResultsContainer" style="flex: 1; display: flex; flex-direction: column; justify-content: center;">
+                  <!-- Dynamically populated via simulator.js -->
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <hr class="gold-divider" style="margin: 2.5rem 0;">
+
+          <!-- Section 2: Advanced Electricity Tariff Calculator Sandbox -->
+          <div>
+            <div style="margin-bottom: 1.25rem;">
+              <h2>Advanced Electricity Tariff Calculator & Sandbox</h2>
+              <p style="font-size: 0.85rem; color: var(--text-secondary);">
+                Experiment with progressive slab tariffs, fixed charges, and taxes to accurately model utility billing rules.
+              </p>
+            </div>
+
+            <div class="card" style="margin-bottom: 1.5rem;">
+              <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; margin-bottom: 1.25rem;">
+                <div class="form-group">
+                  <label for="calcTariffModelSelect" class="form-label">Billing Model:</label>
+                  <select id="calcTariffModelSelect" class="form-control">
+                    <option value="flat">Flat Rate (Standard)</option>
+                    <option value="slab">Progressive Slabs (Tiered)</option>
+                  </select>
+                </div>
+
+                <div class="form-group">
+                  <label for="calcFlatRateInput" class="form-label">Flat Rate (₹/kWh):</label>
+                  <input type="number" id="calcFlatRateInput" class="form-control" step="0.25" min="0.5" value="8.00">
+                </div>
+
+                <div class="form-group">
+                  <label for="calcFixedCharges" class="form-label">Fixed Meter Charges (₹/mo):</label>
+                  <input type="number" id="calcFixedCharges" class="form-control" step="10" min="0" value="110.00">
+                </div>
+
+                <div class="form-group">
+                  <label for="calcTaxPercent" class="form-label">Electricity Duty / Tax (%):</label>
+                  <input type="number" id="calcTaxPercent" class="form-control" step="0.5" min="0" max="50" value="5.0">
+                </div>
+              </div>
+
+              <!-- Slab Editor Group -->
+              <div id="tariffSlabsEditorGroup" style="display: none; margin-bottom: 1.5rem;">
+                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.75rem;">
+                  <span style="font-weight: 600; font-size: 0.9rem; color: var(--text-primary);">Configured Slab Tiers:</span>
+                  <button type="button" class="btn btn-secondary btn-sm" id="btnAddTariffSlab">
+                    + Add Slab Tier
+                  </button>
+                </div>
+
+                <div class="table-responsive">
+                  <table class="appliance-table">
+                    <thead>
+                      <tr>
+                        <th>Tier</th>
+                        <th>Consumption Ceiling (kWh)</th>
+                        <th>Rate (₹ / kWh)</th>
+                        <th>Action</th>
+                      </tr>
+                    </thead>
+                    <tbody id="tariffSlabsTableBody">
+                      <!-- Populated via simulator.js -->
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              <!-- Test Simulation Bar -->
+              <div style="display: flex; align-items: center; justify-content: space-between; padding: 1rem; background: var(--antique-gold-subtle); border-radius: var(--radius-md); margin-bottom: 1.5rem; flex-wrap: wrap; gap: 1rem;">
+                <div style="display: flex; align-items: center; gap: 0.75rem;">
+                  <label for="calcTestKwhInput" style="font-weight: 600; font-size: 0.875rem; color: var(--text-primary); white-space: nowrap;">
+                    Simulate Consumption (kWh):
+                  </label>
+                  <input type="number" id="calcTestKwhInput" class="form-control" style="width: 140px; font-weight: 700; text-align: center;" value="350" min="1" step="10">
+                </div>
+                <button type="button" class="btn btn-primary" id="btnApplyTariffToSettings">
+                  Apply This Tariff Structure to System Settings
+                </button>
+              </div>
+
+              <!-- Live Tariff Breakdown Box -->
+              <div id="tariffCalculationBreakdown">
+                <!-- Populated via simulator.js -->
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- ==========================================
+             VIEW 6: ENERGY-SAVING TIPS & RECOMMENDATIONS
              ========================================== -->
         <section class="view-pane" id="view-recommendations" aria-label="Energy Optimization Section">
           
@@ -575,7 +980,7 @@
         </section>
 
         <!-- ==========================================
-             VIEW 5: SETTINGS & DATA MANAGEMENT
+             VIEW 7: SETTINGS & DATA MANAGEMENT
              ========================================== -->
         <section class="view-pane" id="view-settings" aria-label="Settings Section">
           <div class="settings-grid">
@@ -585,21 +990,21 @@
               <div class="card-header">
                 <div>
                   <h3 class="card-title">Electricity Tariff Configuration</h3>
-                  <p class="card-subtitle">Set your local electricity provider rate per kilowatt-hour</p>
+                  <p class="card-subtitle">Set your baseline electricity flat rate per unit</p>
                 </div>
                 <span class="badge badge-gold">Billing Engine</span>
               </div>
 
               <div class="form-group">
                 <label for="settingsElectricityRate" class="form-label">
-                  Electricity Rate (₹ per kWh / Unit):
+                  Flat Electricity Rate (₹ per kWh / Unit):
                 </label>
                 <div class="rate-stepper-wrap">
                   <button type="button" class="btn btn-secondary btn-icon" id="btnRateStepMinus" title="Decrease rate by ₹0.50">-</button>
                   <input type="number" id="settingsElectricityRate" class="form-control" step="0.25" min="0.5" max="100" value="8.00" style="font-family: var(--font-serif); font-size: 1.25rem; font-weight: 700; text-align: center;">
                   <button type="button" class="btn btn-secondary btn-icon" id="btnRateStepPlus" title="Increase rate by ₹0.50">+</button>
                 </div>
-                <div class="form-hint">Standard residential rates in India generally range from ₹6.50 to ₹12.00 per unit depending on slab and state.</div>
+                <div class="form-hint">Standard residential flat rates range from ₹6.50 to ₹12.00 per unit. (For multi-tier slab tariffs, visit the Simulators section).</div>
               </div>
 
               <!-- Quick rate presets -->
@@ -614,7 +1019,34 @@
               </div>
             </div>
 
-            <!-- Settings Card 2: Visual Theme & Appearance -->
+            <!-- Settings Card 2: Electricity Budget & Environmental Config -->
+            <div class="card settings-card">
+              <div class="card-header">
+                <div>
+                  <h3 class="card-title">Budget & Carbon Parameters</h3>
+                  <p class="card-subtitle">Set financial targets and grid carbon coefficients</p>
+                </div>
+                <span class="badge badge-cooling">Targets & Carbon</span>
+              </div>
+
+              <div class="form-group">
+                <label for="settingsMonthlyBudget" class="form-label">
+                  Monthly Electricity Budget (₹ INR):
+                </label>
+                <input type="number" id="settingsMonthlyBudget" class="form-control" step="100" min="0" value="2500" placeholder="e.g. 3000">
+                <div class="form-hint">Enables budget progress tracking and threshold notifications (75%, 90%, 100%). Enter 0 to disable.</div>
+              </div>
+
+              <div class="form-group" style="margin-top: 1rem;">
+                <label for="settingsCarbonFactor" class="form-label">
+                  Regional Grid Carbon Emission Factor (kg CO₂e / kWh):
+                </label>
+                <input type="number" id="settingsCarbonFactor" class="form-control" step="0.01" min="0.01" max="2.0" value="0.82" placeholder="e.g. 0.82">
+                <div class="form-hint">Defaults to India CEA average (0.82). Clear this input to mark carbon emissions unavailable.</div>
+              </div>
+            </div>
+
+            <!-- Settings Card 3: Visual Theme & Appearance -->
             <div class="card settings-card">
               <div class="card-header">
                 <div>
@@ -651,21 +1083,21 @@
               </div>
             </div>
 
-            <!-- Settings Card 3: Data Management & Portability -->
+            <!-- Settings Card 4: Data Management & Portability -->
             <div class="card settings-card">
               <div class="card-header">
                 <div>
-                  <h3 class="card-title">Data Backup & Portability</h3>
-                  <p class="card-subtitle">Export or import your full inventory and settings via JSON</p>
+                  <h3 class="card-title">Data Backup & Maintenance</h3>
+                  <p class="card-subtitle">Export or import full configuration & history via JSON</p>
                 </div>
                 <span class="badge badge-gold">JSON Portability</span>
               </div>
 
               <p style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 1.25rem;">
-                All WattWatch data is persisted in your browser's local storage. You can create a full JSON snapshot for backup or migrate across devices.
+                All WattWatch 2.0 data is stored in your browser. Backups contain your appliances, settings, and billing snapshots.
               </p>
 
-              <div style="display: flex; gap: 0.75rem; flex-wrap: wrap;">
+              <div style="display: flex; gap: 0.75rem; flex-wrap: wrap; margin-bottom: 1.5rem;">
                 <button type="button" class="btn btn-primary" id="btnExportJson">
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                     <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
@@ -685,40 +1117,16 @@
                 </button>
                 <input type="file" id="importJsonFileInput" accept=".json,application/json" style="display: none;">
               </div>
-            </div>
 
-            <!-- Settings Card 4: Sample Data & Reset -->
-            <div class="card settings-card">
-              <div class="card-header">
-                <div>
-                  <h3 class="card-title">Demonstration & Reset</h3>
-                  <p class="card-subtitle">Load pre-configured sample appliances or clear local storage</p>
-                </div>
-                <span class="badge badge-burgundy">Maintenance</span>
-              </div>
+              <hr class="gold-divider">
 
-              <div style="display: flex; flex-direction: column; gap: 1rem;">
-                <div>
-                  <div style="font-weight: 600; font-size: 0.875rem; color: var(--text-primary); margin-bottom: 0.25rem;">Sample Household Dataset</div>
-                  <p style="font-size: 0.8rem; color: var(--text-secondary); margin-bottom: 0.75rem;">
-                    Instantly populate 7 curated modern household appliances (Inverter AC, BLDC fans, Refrigerator, Smart TV, Geyser, LEDs, Workstation).
-                  </p>
-                  <button type="button" class="btn btn-secondary btn-sm" id="btnLoadSampleData">
-                    Load Sample Household
-                  </button>
-                </div>
-
-                <hr class="gold-divider">
-
-                <div>
-                  <div style="font-weight: 600; font-size: 0.875rem; color: #A92639; margin-bottom: 0.25rem;">Clear All Application Data</div>
-                  <p style="font-size: 0.8rem; color: var(--text-secondary); margin-bottom: 0.75rem;">
-                    Permanently delete all saved appliances, customized rates, and user preferences from your browser.
-                  </p>
-                  <button type="button" class="btn btn-danger btn-sm" id="btnClearAllData">
-                    Reset All Data
-                  </button>
-                </div>
+              <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.75rem;">
+                <button type="button" class="btn btn-secondary btn-sm" id="btnLoadSampleData">
+                  Load Sample Household
+                </button>
+                <button type="button" class="btn btn-danger btn-sm" id="btnClearAllData">
+                  Reset All Application Data
+                </button>
               </div>
             </div>
 
@@ -849,6 +1257,80 @@
   </div>
 
   <!-- ==========================================
+       MODAL: HISTORICAL SNAPSHOT DETAILS (WATTWATCH 2.0)
+       ========================================== -->
+  <div class="modal-backdrop" id="historyDetailModal" role="dialog" aria-modal="true" aria-labelledby="historyDetailTitle" aria-hidden="true">
+    <div class="modal-content" style="max-width: 680px;">
+      <div class="modal-header">
+        <h3 class="modal-title" id="historyDetailTitle">Billing Snapshot Details</h3>
+        <button type="button" class="btn btn-ghost btn-icon" onclick="WattWatchHistory.closeDetailsModal()" aria-label="Close details">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="18" y1="6" x2="6" y2="18"/>
+            <line x1="6" y1="6" x2="18" y2="18"/>
+          </svg>
+        </button>
+      </div>
+      <div class="modal-body" id="historyDetailBody">
+        <!-- Populated via history.js -->
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary btn-sm" onclick="WattWatchHistory.closeDetailsModal()">
+          Close
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==========================================
+       MODAL: PDF MONTHLY REPORT GENERATOR (WATTWATCH 2.0)
+       ========================================== -->
+  <div class="modal-backdrop" id="reportModal" role="dialog" aria-modal="true" aria-labelledby="reportModalTitle" aria-hidden="true">
+    <div class="modal-content" style="max-width: 820px;">
+      <div class="modal-header">
+        <div>
+          <h3 class="modal-title" id="reportModalTitle">Monthly Energy Audit Report</h3>
+          <p style="font-size: 0.8rem; color: var(--text-secondary); margin-top: 0.15rem;">
+            Generate an executive printable report or download as PDF
+          </p>
+        </div>
+        <button type="button" class="btn btn-ghost btn-icon" onclick="WattWatchReport.closeReportModal()" aria-label="Close report modal">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="18" y1="6" x2="6" y2="18"/>
+            <line x1="6" y1="6" x2="18" y2="18"/>
+          </svg>
+        </button>
+      </div>
+
+      <div class="modal-body">
+        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 1.25rem; flex-wrap: wrap; gap: 0.75rem;">
+          <div style="display: flex; align-items: center; gap: 0.75rem; flex: 1; min-width: 280px;">
+            <label for="reportPeriodSelect" class="form-label" style="white-space: nowrap;">Report Period:</label>
+            <select id="reportPeriodSelect" class="form-control" style="font-size: 0.85rem;"></select>
+          </div>
+          <button type="button" class="btn btn-gold btn-sm" id="btnExecutePrintReport">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="6 9 6 2 18 2 18 9"/>
+              <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/>
+              <rect x="6" y="14" width="12" height="8"/>
+            </svg>
+            <span>Print / Save as PDF</span>
+          </button>
+        </div>
+
+        <div id="reportPreviewArea" style="background: #FFFFFF; border: 1px solid var(--border-card); border-radius: var(--radius-md); padding: 1.5rem; max-height: 55vh; overflow-y: auto;">
+          <!-- Populated via report.js -->
+        </div>
+      </div>
+
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary btn-sm" onclick="WattWatchReport.closeReportModal()">
+          Close
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==========================================
        MODAL: REUSABLE CONFIRMATION DIALOG
        ========================================== -->
   <div class="modal-backdrop" id="confirmModal" role="dialog" aria-modal="true" aria-labelledby="confirmModalTitle" aria-hidden="true">
@@ -898,6 +1380,9 @@
   <script src="js/recommendations.js"></script>
   <script src="js/charts.js"></script>
   <script src="js/appliances.js"></script>
+  <script src="js/history.js"></script>
+  <script src="js/simulator.js"></script>
+  <script src="js/report.js"></script>
   <script src="js/app.js"></script>
 </body>
 </html>

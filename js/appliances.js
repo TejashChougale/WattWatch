@@ -516,6 +516,11 @@ const WattWatchAppliances = {
         </td>
         <td>
           <div class="table-actions">
+            <button type="button" class="btn btn-secondary btn-icon btn-sm" title="Simulate Energy-Efficient Upgrade" onclick="WattWatchAppliances.simulateAppliance('${app.id}')" aria-label="Simulate Replacement for ${this.escapeHtml(app.name)}" style="color: var(--text-gold);">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
+              </svg>
+            </button>
             <button type="button" class="btn btn-secondary btn-icon btn-sm" title="Edit Appliance" onclick="WattWatchAppliances.openModal('${app.id}')" aria-label="Edit ${this.escapeHtml(app.name)}">
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/>
@@ -533,6 +538,15 @@ const WattWatchAppliances = {
 
       tbody.appendChild(tr);
     });
+  },
+
+  simulateAppliance(id) {
+    WattWatchApp.navigateTo('simulator');
+    const select = document.getElementById('simApplianceSelect');
+    if (select) {
+      select.value = id;
+      WattWatchSimulator.handleApplianceSelect();
+    }
   },
 
   escapeHtml(str) {

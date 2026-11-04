@@ -27,6 +27,10 @@
   .settings-grid {
     grid-template-columns: 1fr;
   }
+
+  .sim-grid-2col {
+    grid-template-columns: 1fr;
+  }
 }
 
 /* --- Mobile Landscape & Small Tablets (<= 860px) --- */

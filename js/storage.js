@@ -1,20 +1,34 @@
 /**
- * WATTWATCH - Storage Module
- * Manages localStorage persistence, sample data loading, export, and import with schema validation.
+ * WATTWATCH 2.0 - Storage Module
+ * Manages localStorage persistence, sample data loading, historical snapshots,
+ * advanced tariff & budget settings, and backward-compatible JSON export/import.
  */
 
 const STORAGE_KEYS = {
   APPLIANCES: 'wattwatch_appliances_v1',
   SETTINGS: 'wattwatch_settings_v1',
-  THEME: 'wattwatch_theme_v1'
+  THEME: 'wattwatch_theme_v1',
+  HISTORY: 'wattwatch_history_v1'
 };
 
 const DEFAULT_SETTINGS = {
-  electricityRate: 8.00, // ₹ per kWh
+  electricityRate: 8.00, // ₹ per kWh (flat rate)
   currency: '₹',
   currencyCode: 'INR',
   billingDays: 30,
-  theme: 'light'
+  theme: 'light',
+
+  // WATTWATCH 2.0 Settings Additions
+  budgetInr: 2500, // Monthly electricity budget in INR (0 = unset)
+  tariffModel: 'flat', // 'flat' | 'slab'
+  slabConfig: [
+    { upTo: 100, rate: 4.50 },
+    { upTo: 300, rate: 7.50 },
+    { upTo: null, rate: 10.00 } // null = and above
+  ],
+  fixedCharges: 110.00, // Fixed meter/sanctioned load charge (₹/month)
+  additionalTaxPercent: 5.0, // Municipal tax / electricity duty %
+  carbonEmissionFactor: 0.82 // Grid emission factor in kg CO2e / kWh (India CEA avg; null if cleared)
 };
 
 // Curated sample appliances representing a typical modern luxury household
@@ -185,6 +199,67 @@ const WattWatchStorage = {
   },
 
   /**
+   * Retrieves historical bill snapshots
+   * @returns {Array} List of snapshot objects
+   */
+  getHistory() {
+    try {
+      const data = localStorage.getItem(STORAGE_KEYS.HISTORY);
+      if (!data) return [];
+      const parsed = JSON.parse(data);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch (e) {
+      console.error('[WattWatch Storage] Error reading history:', e);
+      return [];
+    }
+  },
+
+  /**
+   * Saves historical bill snapshots array
+   * @param {Array} history
+   * @returns {boolean}
+   */
+  saveHistory(history) {
+    try {
+      if (!Array.isArray(history)) throw new Error('History must be an array');
+      localStorage.setItem(STORAGE_KEYS.HISTORY, JSON.stringify(history));
+      return true;
+    } catch (e) {
+      console.error('[WattWatch Storage] Error saving history:', e);
+      return false;
+    }
+  },
+
+  /**
+   * Adds or updates a monthly snapshot
+   * @param {Object} snapshot
+   * @returns {boolean}
+   */
+  saveSnapshot(snapshot) {
+    const history = this.getHistory();
+    const index = history.findIndex(h => h.period === snapshot.period);
+    if (index !== -1) {
+      history[index] = { ...history[index], ...snapshot, updatedAt: Date.now() };
+    } else {
+      history.push({ ...snapshot, id: snapshot.id || `snap_${Date.now()}`, createdAt: Date.now() });
+    }
+    // Sort descending by period (e.g. 2026-10 before 2026-09)
+    history.sort((a, b) => b.period.localeCompare(a.period));
+    return this.saveHistory(history);
+  },
+
+  /**
+   * Deletes a monthly snapshot by ID
+   * @param {string} id
+   * @returns {boolean}
+   */
+  deleteSnapshot(id) {
+    const history = this.getHistory();
+    const filtered = history.filter(h => h.id !== id);
+    return this.saveHistory(filtered);
+  },
+
+  /**
    * Loads sample appliances into storage
    * @returns {Array} Loaded sample appliances
    */
@@ -195,24 +270,25 @@ const WattWatchStorage = {
   },
 
   /**
-   * Exports full application data as a downloadable JSON string
+   * Exports full application data as a downloadable JSON string (WattWatch 2.0 schema)
    * @returns {string} JSON string
    */
   exportDataJSON() {
     const exportPayload = {
-      version: '1.0',
+      version: '2.0',
       exportedAt: new Date().toISOString(),
-      generator: 'WattWatch Energy Analytics',
+      generator: 'WattWatch 2.0 Energy Analytics',
       settings: this.getSettings(),
-      appliances: this.getAppliances()
+      appliances: this.getAppliances(),
+      history: this.getHistory()
     };
     return JSON.stringify(exportPayload, null, 2);
   },
 
   /**
-   * Validates and imports JSON application data
+   * Validates and imports JSON application data with backward compatibility for v1.0 and v2.0
    * @param {string} jsonString
-   * @returns {Object} { success: boolean, count?: number, error?: string }
+   * @returns {Object} { success: boolean, count?: number, historyCount?: number, error?: string }
    */
   importDataJSON(jsonString) {
     try {
@@ -261,31 +337,80 @@ const WattWatchStorage = {
       // Save imported appliances
       this.saveAppliances(validAppliances);
 
-      // Save imported settings if valid
+      // Save imported settings if present (supporting both v1 and v2 fields)
       if (parsed.settings && typeof parsed.settings === 'object') {
-        const rate = Number(parsed.settings.electricityRate);
-        if (!isNaN(rate) && rate > 0) {
-          this.saveSettings({
-            electricityRate: rate,
-            currency: parsed.settings.currency || '₹',
-            billingDays: Number(parsed.settings.billingDays) || 30
-          });
+        const currentSettings = this.getSettings();
+        const newSettings = { ...currentSettings };
+
+        if (!isNaN(Number(parsed.settings.electricityRate)) && Number(parsed.settings.electricityRate) > 0) {
+          newSettings.electricityRate = Number(parsed.settings.electricityRate);
+        }
+        if (parsed.settings.currency) newSettings.currency = parsed.settings.currency;
+        if (parsed.settings.billingDays) newSettings.billingDays = Number(parsed.settings.billingDays) || 30;
+
+        // v2 fields
+        if (!isNaN(Number(parsed.settings.budgetInr))) newSettings.budgetInr = Number(parsed.settings.budgetInr);
+        if (parsed.settings.tariffModel === 'slab' || parsed.settings.tariffModel === 'flat') {
+          newSettings.tariffModel = parsed.settings.tariffModel;
+        }
+        if (Array.isArray(parsed.settings.slabConfig)) newSettings.slabConfig = parsed.settings.slabConfig;
+        if (!isNaN(Number(parsed.settings.fixedCharges))) newSettings.fixedCharges = Number(parsed.settings.fixedCharges);
+        if (!isNaN(Number(parsed.settings.additionalTaxPercent))) newSettings.additionalTaxPercent = Number(parsed.settings.additionalTaxPercent);
+        if (parsed.settings.carbonEmissionFactor === null || !isNaN(Number(parsed.settings.carbonEmissionFactor))) {
+          newSettings.carbonEmissionFactor = parsed.settings.carbonEmissionFactor;
+        }
+
+        this.saveSettings(newSettings);
+      }
+
+      // Save imported historical snapshots if present (v2.0 addition)
+      let importedHistoryCount = 0;
+      if (Array.isArray(parsed.history)) {
+        const validHistory = [];
+        for (const snap of parsed.history) {
+          if (snap.period && typeof snap.period === 'string' && !isNaN(Number(snap.totalKwh))) {
+            validHistory.push({
+              id: snap.id || `snap_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`,
+              period: snap.period,
+              periodLabel: snap.periodLabel || snap.period,
+              totalKwh: Number(snap.totalKwh) || 0,
+              totalCost: Number(snap.totalCost) || 0,
+              electricityRate: Number(snap.electricityRate) || 8.00,
+              tariffModel: snap.tariffModel || 'flat',
+              tariffBreakdown: snap.tariffBreakdown || null,
+              appliancesCount: Number(snap.appliancesCount) || 0,
+              totalUnits: Number(snap.totalUnits) || 0,
+              appliancesSnapshot: Array.isArray(snap.appliancesSnapshot) ? snap.appliancesSnapshot : [],
+              createdAt: snap.createdAt || Date.now(),
+              notes: snap.notes || ''
+            });
+          }
+        }
+        if (validHistory.length > 0) {
+          validHistory.sort((a, b) => b.period.localeCompare(a.period));
+          this.saveHistory(validHistory);
+          importedHistoryCount = validHistory.length;
         }
       }
 
-      return { success: true, count: validAppliances.length };
+      return {
+        success: true,
+        count: validAppliances.length,
+        historyCount: importedHistoryCount
+      };
     } catch (e) {
       return { success: false, error: 'Failed to parse JSON file: ' + e.message };
     }
   },
 
   /**
-   * Clears all appliances and resets settings to default
+   * Clears all appliances, history and resets settings to default
    */
   clearAllData() {
     try {
       localStorage.removeItem(STORAGE_KEYS.APPLIANCES);
       localStorage.removeItem(STORAGE_KEYS.SETTINGS);
+      localStorage.removeItem(STORAGE_KEYS.HISTORY);
       return true;
     } catch (e) {
       console.error('[WattWatch Storage] Error clearing data:', e);

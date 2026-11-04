@@ -1,26 +1,26 @@
-# WattWatch ⚡
+# WattWatch 2.0 ⚡
 
-### Premium Electricity Consumption & Energy Analytics Platform
+### Advanced Electricity Management & Analytics Platform
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-B99A62.svg)](https://opensource.org/licenses/MIT)
 [![Pure Vanilla JS](https://img.shields.io/badge/Stack-Vanilla%20JS%20%7C%20HTML5%20%7C%20CSS3-172B55.svg)](#technology-stack)
 [![Chart.js v4](https://img.shields.io/badge/Visuals-Chart.js%20v4-6E293F.svg)](https://www.chartjs.org/)
-[![Status](https://img.shields.io/badge/Production-Ready-2E946E.svg)](#overview)
+[![Status](https://img.shields.io/badge/Version-2.0%20Advanced-2E946E.svg)](#overview)
 
-> **WattWatch** is an enterprise-grade, client-side energy intelligence web application crafted with a distinctive **Royal Luxury Energy Technology** aesthetic. It enables homeowners, property managers, and energy consultants to accurately track appliance power draw, model estimated monthly utility bills, discover consumption bottlenecks, and receive rule-based energy conservation strategies—operating completely client-side without external server requirements or paid APIs.
+> **WattWatch 2.0** is an enterprise-grade client-side energy intelligence platform crafted in an editorial **Royal Luxury Energy Technology** aesthetic. Building upon the core inventory and calculation capabilities of WattWatch 1.0, version 2.0 introduces frozen monthly billing snapshots, an active electricity budget tracker, month-to-month comparative deltas, an interactive appliance replacement simulator, an advanced progressive slab tariff engine, a carbon footprint estimator, and native client-side PDF monthly energy audit reports.
 
 ---
 
 ## 🏛️ Visual Identity & Design System
 
-WattWatch diverges deliberately from generic neon-green or dark hacker dashboards, adopting an editorial design system inspired by high-end financial platforms, architectural journals, and luxury horology.
+WattWatch 2.0 preserves the refined visual identity inspired by high-end financial dashboards, luxury horology, and architectural journals.
 
-### Official Color Palette
+### Official Color Tokens
 
 | Token | Name | Hex Code | Purpose & Application |
 | :--- | :--- | :--- | :--- |
 | **Royal Blue** | `--royal-blue` | `#172B55` | Primary navigation, card headers, primary CTA buttons |
-| **Warm Beige** | `--warm-beige` | `#F0E5D0` | Primary ambient page background (Light Theme) |
+| **Warm Beige** | `--warm-beige` | `#F0E5D0` | Primary ambient page background (Light Theme - Default) |
 | **Deep Burgundy** | `--deep-burgundy` | `#6E293F` | Financial statistics, cost metrics, peak load indicators |
 | **Antique Gold** | `--antique-gold` | `#B99A62` | Architectural borders, luxury badges, active state indicators |
 | **Cream White** | `--cream-white` | `#FAF7F0` | Elevated card surfaces, form input containers |
@@ -32,93 +32,89 @@ WattWatch diverges deliberately from generic neon-green or dark hacker dashboard
 
 ---
 
-## ✨ Main Features
+## 🚀 Key Modules & Capabilities in WattWatch 2.0
 
-### 1. Executive Overview Dashboard
-- **Summary KPI Cards**: Real-time totals for Monthly Consumption (`kWh`), Estimated Bill (`₹`), Appliance Inventory Count (`Units`), and Average Daily Consumption (`kWh`).
-- **Primary Load Spotlight**: Automatically highlights the highest energy-consuming appliance, computing its direct percentage contribution to the monthly bill.
-- **Dynamic Charts**:
-  - **Weekly Load Projection**: 7-day cyclical consumption profile factoring in weekend load variations.
-  - **Category Breakdown Donut**: High-precision proportional distribution across appliance categories.
-- **Quick Action Bar**: One-click shortcuts for appliance registration, analytics exploration, and tariff adjustments.
+### 1. Monthly Electricity Bill History & Snapshots
+* **Frozen Immutable Snapshots**: Captures complete household state for any billing cycle (e.g., `2026-11` / November 2026), freezing units, costs, applied tariffs, and appliance breakdowns.
+* **Independent Historical Records**: Appliance edits or rate changes made in the present never mutate past snapshots.
+* **Duplicate Period Protection**: Detects existing snapshots for the selected cycle and prompts an intentional confirmation before updating.
+* **Historical Highlights**: Automatically detects and highlights the peak (highest) and lowest recorded monthly bills.
+* **Detailed Snapshot Inspector**: Deep-inspection modal displaying the frozen appliance inventory captured at the time of the snapshot.
+* **Chronological Trend Graph**: Dynamic multi-month line visualization showing the progression of units consumed and charges billed.
 
-### 2. Comprehensive Appliance Management
-- **Full CRUD Support**: Add, update, delete, and inspect appliances with instant UI reflection.
-- **Granular Parameters**:
-  - Appliance Name (e.g., *1.5 Ton 5-Star Inverter Split AC*)
-  - Category (*Cooling, Lighting, Kitchen, Entertainment, Computing, Other*)
-  - Nominal Power Rating (Watts)
-  - Daily Usage Hours (`0.0` to `24.0` hours)
-  - Operating Days per Month (`1` to `31` days)
-  - Unit Quantity (Integer $\ge 1$)
-- **Live Calculation Preview Modal**: Computes projected daily kWh, monthly kWh, and monthly cost in real time as values are typed into the form.
-- **Standard Preset Library**: 16 realistic built-in presets (e.g., BLDC fans, induction cooktops, OLED TVs, microwave ovens, water geysers) for instant auto-filling.
-- **Search, Filter & Sort**: Live instant search by appliance name/category, multi-category pill filtering, and sorting by consumption, cost, power, or operational hours.
+### 2. Electricity Budget Tracker
+* **Configurable Allowance**: Users set a monthly budget in INR (₹) within Settings or directly from the dashboard.
+* **Real-Time Utilization Progress Bar**: Dynamic visual progress indicator with color transitions matching safety tiers:
+  * **Safe** ($< 75\%$): Royal Blue / Antique Gold.
+  * **Caution** ($75\% - 89.9\%$): Antique Gold / Amber.
+  * **Critical** ($90\% - 99.9\%$): Deep Burgundy.
+  * **Exceeded** ($\ge 100\%$): High-contrast warning red.
+* **Non-Intrusive Notifications**: Automatic toast alerts when spending crosses the 75%, 90%, and 100% threshold boundaries.
+* **Real-Time Remaining Balance**: Clearly displays remaining funds or exact overage amounts.
 
-### 3. Consumption Analytics Engine
-- **Multi-Horizon Projections**:
-  - **Diurnal (24h)**: Realistic residential load curve modeling morning and evening peak demand.
-  - **Weekly Cycle**: 4-week billing progression.
-  - **Monthly Horizon**: 6-month projected horizon.
-- **Cost Allocation Donut**: Visualizes where currency is allocated per category in INR.
-- **Appliance-Wise Ranking**: Horizontal comparative bar chart highlighting top-tier consumers.
-- **Granular Consumption Matrix**: Complete tabular ledger itemizing wattage, schedules, monthly kWh, and percentage share.
+### 3. Month-to-Month Comparative Analytics
+* **Bi-Period Delta Engine**: Select and compare any two historical billing snapshots (Baseline Period A vs. Target Period B).
+* **Quantified Metric Variances**:
+  * Energy variance: $\Delta \text{kWh}$ and $\% \Delta \text{kWh}$.
+  * Financial variance: $\Delta ₹$ and $\% \Delta ₹$.
+* **Zero-Division Protection**: Robust mathematical fallbacks prevent runtime exceptions when comparing periods with zero baseline consumption.
+* **Grouped Comparison Chart**: Dual-bar comparison visual comparing energy units and financial charges side-by-side.
 
-### 4. Rule-Based Energy Optimization Engine
-- **Data-Driven Diagnostics**: Algorithmic assessment based on actual inventory rather than generic static tips:
-  - *Dominant Share Alert*: Flags appliances consuming $> 22\%$ of total household electricity.
-  - *Extended Run-Time Warning*: Identifies devices with $> 600\text{W}$ running $> 4\text{ hours/day}$.
-  - *Thermostat Eco-Optimization*: Calculates savings for cooling appliances operating at baseline 24°C standards ($12\%$ average compressor relief).
-  - *Water Heating Schedule*: Advises on pre-bath heating vs. continuous standby cycles.
-  - *Solid-State Lighting Retrofits*: Compares installed lighting wattage with modern 9W LED standards.
-  - *Vampire / Standby Elimination*: Quantifies residual parasitic draw on entertainment clusters.
-- **Transparent Quantified Savings**: Computes exact monthly kilowatt-hours saved, monthly monetary savings in INR, and projected annual financial impact.
-- **Clear Utility Disclaimers**: Explicitly notes calculations are mathematical approximations, avoiding unsubstantiated utility guarantees.
+### 4. Appliance Replacement Simulator & ROI Payback
+* **Interactive Model Comparison**: Select any existing appliance and compare it against a prospective energy-efficient alternative.
+* **Live Differential Math**: Computes exact monthly energy conservation (kWh), monthly financial savings (₹), annual savings, and percentage reduction.
+* **ROI Payback Period Estimator**: Enter prospective purchase cost in INR to instantly calculate the break-even timeframe in months.
+* **Clear Simulation Disclaimers**: Clarifies results are mathematical approximations based on nominal ratings.
 
-### 5. System Settings & Data Portability
-- **Adjustable Tariff Engine**: Configure price per unit (₹/kWh) with precision stepper buttons and quick preset buttons (`₹6.50`, `₹8.00`, `₹10.00`, `₹12.50`).
-- **Complete JSON Portability**:
-  - **Export**: One-click download of timestamped configuration file (`wattwatch-data-YYYY-MM-DD.json`).
-  - **Import**: Full schema validation verifying data types, positive power ratings, and hour constraints with informative toast error feedback.
-- **Curated Demonstration Dataset**: Instantly populates a realistic 7-appliance household for demonstration and review.
-- **Factory Reset**: Safety confirmation dialog to wipe local storage cleanly.
+### 5. Advanced Electricity Tariff Engine & Sandbox
+* **Dual Tariff Architecture**:
+  * **Flat Tariff**: Standard uniform rate per unit (default ₹8.00 / kWh preserved).
+  * **Progressive Multi-Slab Tariff**: Configurable tiered limits and slab rates (e.g., 0–100 kWh @ ₹4.50, 101–300 kWh @ ₹7.50, >300 kWh @ ₹10.00).
+* **Fixed Charges & Taxes**: Incorporates monthly meter rent/sanctioned load charges and percentage-based electricity duty/surcharges.
+* **Interactive Sandbox**: Test hypothetical monthly consumption figures in real time with a slab-by-slab breakdown.
+* **One-Click Promotion**: Easily promote custom sandbox tariffs directly into permanent application settings.
+
+### 6. Carbon Footprint Estimator
+* **Quantified Environmental Impact**: Translates electrical consumption into estimated greenhouse gas emissions ($\text{kg CO}_2\text{e}$ and Metric Tons).
+* **Configurable Grid Factor**: User-customizable carbon intensity factor ($\text{kg CO}_2/\text{kWh}$, default $0.82$ reflecting India CEA baseline). Clear indicator when unconfigured or disabled.
+* **Urban Tree Offsetting Metric**: Calculates the number of mature trees required to sequester annual household electrical emissions (EPA benchmark of $21.77\text{ kg CO}_2/\text{year}$ per tree).
+* **Category Emission Allocation Chart**: Visual bar breakdown illustrating which appliance domains generate the greatest environmental impact.
+
+### 7. Client-Side PDF Monthly Audit Report Generator
+* **Executive Document Formatting**: Formats a print-ready executive report with WattWatch logo, metadata, KPI strip, appliance breakdown table, budget status, and recommendations.
+* **Period Flexibility**: Select either the current live estimate or any frozen historical snapshot.
+* **Zero Heavy Dependencies**: Uses high-fidelity `@media print` rules for browser-native "Save as PDF" generation, outputting clean vector PDFs with zero bloat.
+* **Legal Disclaimers**: Prominently notes that generated documents are analytical approximations and not official DISCOM utility invoices.
+
+### 8. Data Storage, Portability & Backward Compatibility
+* **Schema Version 2.0**: Seamlessly persists historical snapshots (`wattwatch_history_v1`), budget targets, multi-slab configurations, fixed charges, and emission coefficients.
+* **100% Backward Compatibility**: Full support for importing WattWatch 1.0 backup files without data loss or schema conflicts.
+* **Client-Side Privacy**: Data stays in local browser storage; zero external server sync or unauthorized telemetry.
 
 ---
 
-## 🧮 Electricity Calculation Engine
+## 🧮 Mathematical Formulas & Models
 
-WattWatch adheres strictly to standard electrical physics formulas:
-
-### 1. Daily Energy Consumption ($E_{\text{daily}}$)
+### 1. Energy Consumption Formulas
 $$E_{\text{daily}} = \frac{P \times Q \times H_{\text{daily}}}{1000} \quad [\text{kWh}]$$
 
-### 2. Monthly Energy Consumption ($E_{\text{monthly}}$)
 $$E_{\text{monthly}} = \frac{P \times Q \times H_{\text{daily}} \times D_{\text{operating}}}{1000} \quad [\text{kWh}]$$
 
-### 3. Estimated Electricity Cost ($C_{\text{monthly}}$)
-$$C_{\text{monthly}} = E_{\text{monthly}} \times R_{\text{tariff}} \quad [₹]$$
+### 2. Multi-Slab Tariff Formulation
+For $N$ progressive consumption tiers with upper bounds $U_i$ and rates $R_i$:
+$$C_{\text{energy}} = \sum_{i=1}^{N} \text{Units}_i \times R_i$$
 
-Where:
-- $P$ = Nominal Power Rating in Watts ($\text{W}$)
-- $Q$ = Unit Quantity
-- $H_{\text{daily}}$ = Daily Active Operating Hours ($0 \le H \le 24$)
-- $D_{\text{operating}}$ = Operational Days per Month ($1 \le D \le 31$, default $30$)
-- $R_{\text{tariff}}$ = Utility Tariff Rate in Indian Rupees per unit ($₹/\text{kWh}$, default $₹8.00/\text{kWh}$)
+$$C_{\text{total}} = (C_{\text{energy}} + C_{\text{fixed}}) \times \left(1 + \frac{\text{Tax}\%}{100}\right) \quad [₹]$$
 
-*All monetary and energy values are formatted to two decimal places consistently.*
+### 3. Month-to-Month Comparative Deltas
+$$\Delta E = E_B - E_A \quad [\text{kWh}], \qquad \Delta C = C_B - C_A \quad [₹]$$
 
----
+$$\% \Delta E = \begin{cases} \left(\frac{E_B - E_A}{E_A}\right) \times 100\% & E_A > 0 \\ 100\% & E_A = 0 \text{ and } E_B > 0 \\ 0\% & E_A = 0 \text{ and } E_B = 0 \end{cases}$$
 
-## 💻 Technology Stack
+### 4. Carbon Emissions Formulation
+$$\text{Emissions}_{\text{monthly}} = E_{\text{monthly}} \times F_{\text{grid}} \quad [\text{kg CO}_2\text{e}]$$
 
-| Layer | Technology | Rationale |
-| :--- | :--- | :--- |
-| **Markup** | HTML5 Semantic Architecture | Standards-compliant, accessible structure (`<nav>`, `<aside>`, `<main>`, `<section>`) with ARIA dialog roles. |
-| **Styling** | Vanilla CSS3 (Custom Design System) | Modern CSS custom properties (variables), responsive flexbox and CSS grid layouts, zero CSS frameworks. |
-| **Logic** | Vanilla ES6+ JavaScript | Strict modular architecture, zero runtime compilation or bundlers required. |
-| **Data Visualizations** | Chart.js v4.4.7 (UMD) | Interactive canvas-based charts utilizing the official royal luxury palette. Bundled locally with fallback. |
-| **Persistence** | Web Storage API (`localStorage`) | Secure client-side persistence for appliances, user settings, tariff configurations, and theme preferences. |
-| **Vector Assets** | Custom SVG Emblems | Scalable luxury emblem and system icons embedded with zero external icon font dependencies. |
+$$\text{Trees Equivalent} = \left\lceil \frac{\text{Emissions}_{\text{annual}}}{21.77} \right\rceil$$
 
 ---
 
@@ -128,16 +124,20 @@ Where:
 WattWatch-Web/
 ├── index.html                   # Master single-page application document
 ├── README.md                    # Comprehensive documentation and portfolio guide
+├── LICENSE                      # MIT Open Source License
 │
 ├── css/
 │   ├── style.css                # Royal luxury design tokens, variables, typography, buttons, toasts
-│   ├── dashboard.css            # Component styles: sidebar, metric cards, tables, charts, presets
+│   ├── dashboard.css            # Component styles: sidebar, budget card, history, simulator, print
 │   └── responsive.css           # Breakpoints (desktop, tablet, mobile) and drawer transitions
 │
 ├── js/
 │   ├── app.js                   # Application controller, view routing, modals, toasts, event bindings
-│   ├── calculations.js          # Core electrical physics math engine and currency formatters
+│   ├── calculations.js          # Core physical formulas for energy, tariffs, budget, and carbon
 │   ├── appliances.js            # Appliance CRUD, input validation, live preview, presets, filters
+│   ├── history.js               # Historical snapshot management & month-to-month comparison
+│   ├── simulator.js             # Replacement simulator and advanced tariff calculator sandbox
+│   ├── report.js                # Monthly executive audit report & client-side PDF generator
 │   ├── charts.js                # Chart.js instances, color schemas, responsive resizing, empty states
 │   ├── storage.js               # LocalStorage management, schema validator, JSON import/export
 │   ├── recommendations.js       # Rule-based diagnostic algorithms for quantified energy conservation
@@ -149,76 +149,41 @@ WattWatch-Web/
 
 ---
 
-## 🚀 Installation & Local Execution
+## 🧪 Comprehensive Quality Control Matrix
 
-WattWatch does not require Node.js, npm, compilers, or server processes. It is completely portable and operates locally directly in any modern browser.
-
-### Option 1: Direct File Launch
-1. Clone or download the repository:
-   ```bash
-   git clone https://github.com/your-username/WattWatch-Web.git
-   ```
-2. Navigate into the folder:
-   ```bash
-   cd WattWatch-Web
-   ```
-3. Open `index.html` directly in your preferred web browser:
-   - **Windows**: Double-click `index.html` or run `start index.html`
-   - **macOS**: `open index.html`
-   - **Linux**: `xdg-open index.html`
-
-### Option 2: Local Static Server (Optional)
-If you prefer serving over a local development server:
-```bash
-# Using Python 3
-python -m http.server 8080
-
-# Using Node npx
-npx serve .
-```
-Then navigate to `http://localhost:8080` in your browser.
-
----
-
-## 🧪 Quality Control & Verification Matrix
-
-The application has been verified against the 16 core test cases:
+Verified against the 20 test specifications:
 
 | Test ID | Verification Scope | Status | Notes |
 | :---: | :--- | :---: | :--- |
-| **TC-01** | Adding an appliance | ✅ PASSED | Validates inputs, renders live cost preview, stores to localStorage, updates all views. |
-| **TC-02** | Editing an appliance | ✅ PASSED | Pre-populates modal inputs, preserves ID, updates calculations across views. |
-| **TC-03** | Deleting an appliance | ✅ PASSED | Triggered via custom confirmation dialog, re-aggregates totals, updates badge counts. |
-| **TC-04** | Multiple appliance calculations | ✅ PASSED | Verified against independent arithmetic equations; accurately handles mixed quantities. |
-| **TC-05** | Electricity rate changes | ✅ PASSED | Immediate reactive recalculation across summary cards, analytics charts, and tips. |
-| **TC-06** | Daily consumption calculations | ✅ PASSED | Accurate formulas: $(W \times Q \times H)/1000$, formatted to 2 decimals. |
-| **TC-07** | Monthly consumption calculations | ✅ PASSED | Accurate formulas: $(W \times Q \times H \times D)/1000$, formatted to 2 decimals. |
-| **TC-08** | Dashboard updates | ✅ PASSED | Instantaneous updates to 4 metric cards and primary load spotlight. |
-| **TC-09** | Charts & filtering | ✅ PASSED | Dynamic redraw of 5 interactive charts; category filters and search execute seamlessly. |
-| **TC-10** | LocalStorage persistence | ✅ PASSED | All appliances, active rate, and theme restored flawlessly on browser refresh. |
-| **TC-11** | JSON export & import | ✅ PASSED | Validates payload structure, checks positive values, rejects corrupted files safely. |
-| **TC-12** | Invalid input handling | ✅ PASSED | Inline error messages displayed for $W \le 0$, hours $> 24$, and empty names. |
-| **TC-13** | Mobile responsiveness | ✅ PASSED | Off-canvas sliding drawer, touch targets $\ge 44\text{px}$, responsive charts, zero horizontal overflow. |
-| **TC-14** | Empty states | ✅ PASSED | Custom luxury empty states displayed when 0 appliances match or exist. |
-| **TC-15** | Navigation between sections | ✅ PASSED | Smooth tab switching across Overview, Appliances, Analytics, Tips, and Settings. |
-| **TC-16** | Theme switching | ✅ PASSED | Royal Beige Light Mode (default) and Royal Dark Mode switch with full chart palette adaptation. |
+| **TC-01** | Creating monthly bill snapshots | ✅ PASSED | Freezes deep-cloned appliance inventory, units, and applied tariff coefficients. |
+| **TC-02** | Preventing accidental duplicate snapshots | ✅ PASSED | Detects existing period record and requires explicit overwrite confirmation. |
+| **TC-03** | Editing and deleting historical records | ✅ PASSED | Snapshot details modal inspects frozen inventory; deletion requires confirmation. |
+| **TC-04** | Budget calculations | ✅ PASSED | Accurately models utilization percentage, remaining balance, and overage. |
+| **TC-05** | Budget warning thresholds | ✅ PASSED | Correctly triggers caution ($75\%$), critical ($90\%$), and exceeded ($\ge 100\%$) states. |
+| **TC-06** | Month-to-month comparisons | ✅ PASSED | Calculates energy and cost deltas; safe against zero-division errors. |
+| **TC-07** | Appliance replacement calculations | ✅ PASSED | Accurately computes monthly and annual savings and payback break-even months. |
+| **TC-08** | Flat tariff calculations | ✅ PASSED | Verified against flat rate arithmetic with 2-decimal precision. |
+| **TC-09** | Slab tariff calculations | ✅ PASSED | Verified against sample tiered multi-slab values with fixed charges and duty. |
+| **TC-10** | Carbon factor configuration | ✅ PASSED | Accurately calculates monthly and annual emissions; displays disabled state when cleared. |
+| **TC-11** | PDF report generation | ✅ PASSED | Formats executive document; invokes native print preview without server dependencies. |
+| **TC-12** | JSON export and import with new data | ✅ PASSED | Exports full v2.0 schema including history; validates structure on import. |
+| **TC-13** | Existing data migration | ✅ PASSED | Backward-compatible import parses v1.0 JSON payloads without errors. |
+| **TC-14** | LocalStorage persistence | ✅ PASSED | All appliances, historical snapshots, settings, and theme persist across reloads. |
+| **TC-15** | Desktop responsiveness | ✅ PASSED | Full sidebar layout, multi-column metric grids, and side-by-side simulator panes. |
+| **TC-16** | Mobile responsiveness | ✅ PASSED | Collapsible navigation drawer, touch targets $\ge 44\text{px}$, single-column stacking. |
+| **TC-17** | Light and dark themes | ✅ PASSED | Royal Beige Light Mode (default) and Royal Dark Mode switch cleanly with chart palette adaptation. |
+| **TC-18** | Existing appliance CRUD operations | ✅ PASSED | Full add, edit, delete, search, category filter, and sorting operations preserved. |
+| **TC-19** | Existing dashboard calculations | ✅ PASSED | All 4 summary KPI cards and primary load spotlight react automatically to state changes. |
+| **TC-20** | Browser console integrity | ✅ PASSED | Zero JavaScript syntax errors, missing DOM references, or unhandled exceptions. |
 
 ---
 
-## ⚠️ Known Limitations & Assumptions
+## 🚀 How to Run the Application
 
-1. **Utility Tariff Simplicity**: Utility bills often feature stepped slab tariffs (e.g., ₹4.50 for first 100 units, ₹7.50 for next 200 units), fixed meter rents, and municipal electricity duty. WattWatch intentionally uses a single flat rate per unit ($₹/\text{kWh}$) to maintain transparency without making arbitrary assumptions regarding local state regulations.
-2. **Duty Cycles**: Certain appliances like refrigerators and inverter air conditioners cycle their compressors depending on ambient weather conditions. The calculation engine accepts nominal effective active hours or rated compressor hours.
-3. **Local Storage Bound**: Persistence is tied to the specific browser profile. For multi-device synchronization, use the JSON Export/Import feature.
+WattWatch 2.0 requires no build steps, compilers, or server processes:
 
----
-
-## 🔮 Future Enhancements
-
-- [ ] **Multi-Tier Slab Tariff Calculator**: Optional user-configurable progressive billing slabs (e.g. 0-100 units, 101-300 units, 301+ units).
-- [ ] **Solar PV Offsetting Calculator**: Model potential rooftop solar generation (in kWp) to calculate net zero utility offset.
-- [ ] **PDF Executive Energy Report**: Client-side formatted PDF generation suitable for printing household energy audits.
-- [ ] **Multi-Room Grouping**: Group appliances by location (Master Bedroom, Kitchen, Home Office, Living Room).
+1. Open [`index.html`](index.html) directly in any modern browser (Chrome, Edge, Firefox, Safari).
+2. The application will initialize, restore your local data (or load the curated sample household for first-time evaluation), and render all interactive charts and management tools.
 
 ---
 
@@ -226,6 +191,4 @@ The application has been verified against the 16 core test cases:
 
 This project is licensed under the MIT License — see the [LICENSE](LICENSE) file for details.
 
----
-
-*Crafted with precision for modern energy intelligence.*
+*WattWatch 2.0 — Precision Energy Intelligence.*
