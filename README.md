@@ -76,8 +76,8 @@ WattWatch 2.0 preserves the refined visual identity inspired by high-end financi
 
 ### 6. Carbon Footprint Estimator
 * **Quantified Environmental Impact**: Translates electrical consumption into estimated greenhouse gas emissions ($\text{kg CO}_2\text{e}$ and Metric Tons).
-* **Configurable Grid Factor**: User-customizable carbon intensity factor ($\text{kg CO}_2/\text{kWh}$, default $0.82$ reflecting India CEA baseline). Clear indicator when unconfigured or disabled.
-* **Urban Tree Offsetting Metric**: Calculates the number of mature trees required to sequester annual household electrical emissions (EPA benchmark of $21.77\text{ kg CO}_2/\text{year}$ per tree).
+* **Configurable Grid Factor**: User-customizable carbon intensity factor ($\text{kg CO}_2/\text{kWh}$, default $0.82$, an estimation assumption whose source has not yet been independently verified). Clear indicator when unconfigured or disabled.
+* **Urban Tree Offsetting Metric**: Calculates the estimated number of mature trees required to sequester annual household electrical emissions (using an estimation assumption of $21.77\text{ kg CO}_2/\text{year}$ per tree, whose source has not yet been independently verified).
 * **Category Emission Allocation Chart**: Visual bar breakdown illustrating which appliance domains generate the greatest environmental impact.
 
 ### 7. Client-Side PDF Monthly Audit Report Generator
@@ -149,32 +149,70 @@ WattWatch-Web/
 
 ---
 
-## 🧪 Comprehensive Quality Control Matrix
+## 📋 Current Verification Status
 
-Verified against the 20 test specifications:
+To ensure complete engineering transparency, the verification status of WattWatch 2.0 is categorized below into automated development checks reported during implementation, features manually verified by the project owner, and capabilities awaiting manual testing following examinations.
 
-| Test ID | Verification Scope | Status | Notes |
+> [!NOTE]
+> The development report reported 20 passing automated checks during implementation; however, independent verification of the complete test suite is pending.
+
+### 🤖 Automated Checks (Development Process)
+* **Mathematical & Physical Formulas**: Automated checks verified calculations for daily and monthly energy consumption ($E_{\text{daily}}, E_{\text{monthly}}$), progressive multi-slab tier allocation, fixed meter charges, and percentage surcharge taxes.
+* **Bi-Period Delta Arithmetic**: Automated checks verified differential calculations ($\Delta E, \Delta C, \% \Delta E, \% \Delta C$) including zero-division protections for zero-baseline billing cycles.
+* **Environmental Impact Calculations**: Automated checks verified carbon emission and tree offset calculations using the default estimation assumptions ($0.82\text{ kg CO}_2/\text{kWh}$ and $21.77\text{ kg CO}_2/\text{tree/year}$); these figures are estimation assumptions whose external sources have not yet been independently verified.
+* **Schema Serialization & Migration**: Automated checks validated LocalStorage persistence routines, JSON backup export, and backward-compatible ingestion of legacy WattWatch 1.0 payloads into v2.0 schema structures.
+* **Syntax Integrity & Code Hygiene**: Automated code audits confirmed zero trailing whitespace (`git diff --check`) and clean console execution without unhandled exceptions.
+
+### 👤 Manually Verified by Project Owner
+* **Overview Dashboard Calculation**: Confirmed that the overview dashboard displayed an estimated bill of ₹228 from 22.8 kWh at ₹10/unit.
+* **Appliance Calculations**: Confirmed specific appliance calculations for the initial items:
+  * Fan: 18 kWh / ₹180
+  * Bulb: 4.8 kWh / ₹48
+* **Analytics Screen**: Confirmed that the Analytics screen opened and displayed its energy and carbon estimates.
+* **Bill History View**: Confirmed that the Bill History section opened and displayed its expected empty state.
+
+*(Note: Manual testing of appliance CRUD operations, table sorting, theme switching, electricity rate adjustments, and other unverified features has not yet been performed and remains to be tested.)*
+
+### ⏳ Awaiting Manual Testing (Post-Examinations)
+* **Appliance Management & Operations**: Testing end-to-end appliance creation, editing, deletion, category filtering, live searching, and table sorting.
+* **Electricity Rate & Configuration Adjustments**: Modifying electricity rates, currency symbols, and billing cycle days in Settings, then confirming application-wide recalculation.
+* **Theme Switching**: Toggling between Light (Warm Beige) and Royal Dark themes across all views and verifying chart color palette adaptation.
+* **Multi-Cycle Billing Snapshots**: Creating, inspecting frozen inventories, and deleting historical snapshots across multiple real billing periods.
+* **Budget Warning Threshold Notifications**: Testing real-world sequential toast alerts as simulated usage crosses 75% (Caution), 90% (Critical), and 100% (Exceeded) limits.
+* **Progressive Slab Tariff Sandbox**: Testing custom multi-slab limits, fixed charges, and tax surcharges against real regional utility tariff cards (e.g., BESCOM, MSEDCL, TNEB).
+* **Appliance Replacement Simulator**: Scenario testing of the ROI payback break-even calculations across varying appliance wattages and daily usage hours.
+* **Client-Side PDF Monthly Audit Report**: Verifying `@media print` formatting and PDF export across different browsers (Chrome, Edge, Firefox, Safari) and operating systems.
+* **Data Portability**: Testing full JSON export, file downloads, and importing existing backups.
+* **Mobile Responsiveness & Touch Ergonomics**: Verifying mobile navigation drawer toggles and responsive single-column layouts on physical mobile devices.
+
+---
+
+## 🧪 Quality Control & Test Specification Matrix
+
+The matrix below lists the 20 test specifications defined for WattWatch 2.0 and the outcomes reported by the automated development process. As noted in the [Current Verification Status](#-current-verification-status) section above, independent verification of the complete test suite is pending.
+
+| Test ID | Verification Scope | Dev Report Status | Notes |
 | :---: | :--- | :---: | :--- |
-| **TC-01** | Creating monthly bill snapshots | ✅ PASSED | Freezes deep-cloned appliance inventory, units, and applied tariff coefficients. |
-| **TC-02** | Preventing accidental duplicate snapshots | ✅ PASSED | Detects existing period record and requires explicit overwrite confirmation. |
-| **TC-03** | Editing and deleting historical records | ✅ PASSED | Snapshot details modal inspects frozen inventory; deletion requires confirmation. |
-| **TC-04** | Budget calculations | ✅ PASSED | Accurately models utilization percentage, remaining balance, and overage. |
-| **TC-05** | Budget warning thresholds | ✅ PASSED | Correctly triggers caution ($75\%$), critical ($90\%$), and exceeded ($\ge 100\%$) states. |
-| **TC-06** | Month-to-month comparisons | ✅ PASSED | Calculates energy and cost deltas; safe against zero-division errors. |
-| **TC-07** | Appliance replacement calculations | ✅ PASSED | Accurately computes monthly and annual savings and payback break-even months. |
-| **TC-08** | Flat tariff calculations | ✅ PASSED | Verified against flat rate arithmetic with 2-decimal precision. |
-| **TC-09** | Slab tariff calculations | ✅ PASSED | Verified against sample tiered multi-slab values with fixed charges and duty. |
-| **TC-10** | Carbon factor configuration | ✅ PASSED | Accurately calculates monthly and annual emissions; displays disabled state when cleared. |
-| **TC-11** | PDF report generation | ✅ PASSED | Formats executive document; invokes native print preview without server dependencies. |
-| **TC-12** | JSON export and import with new data | ✅ PASSED | Exports full v2.0 schema including history; validates structure on import. |
-| **TC-13** | Existing data migration | ✅ PASSED | Backward-compatible import parses v1.0 JSON payloads without errors. |
-| **TC-14** | LocalStorage persistence | ✅ PASSED | All appliances, historical snapshots, settings, and theme persist across reloads. |
-| **TC-15** | Desktop responsiveness | ✅ PASSED | Full sidebar layout, multi-column metric grids, and side-by-side simulator panes. |
-| **TC-16** | Mobile responsiveness | ✅ PASSED | Collapsible navigation drawer, touch targets $\ge 44\text{px}$, single-column stacking. |
-| **TC-17** | Light and dark themes | ✅ PASSED | Royal Beige Light Mode (default) and Royal Dark Mode switch cleanly with chart palette adaptation. |
-| **TC-18** | Existing appliance CRUD operations | ✅ PASSED | Full add, edit, delete, search, category filter, and sorting operations preserved. |
-| **TC-19** | Existing dashboard calculations | ✅ PASSED | All 4 summary KPI cards and primary load spotlight react automatically to state changes. |
-| **TC-20** | Browser console integrity | ✅ PASSED | Zero JavaScript syntax errors, missing DOM references, or unhandled exceptions. |
+| **TC-01** | Creating monthly bill snapshots | Reported Passing | Freezes deep-cloned appliance inventory, units, and applied tariff coefficients. |
+| **TC-02** | Preventing accidental duplicate snapshots | Reported Passing | Detects existing period record and requires explicit overwrite confirmation. |
+| **TC-03** | Editing and deleting historical records | Reported Passing | Snapshot details modal inspects frozen inventory; deletion requires confirmation. |
+| **TC-04** | Budget calculations | Reported Passing | Accurately models utilization percentage, remaining balance, and overage. |
+| **TC-05** | Budget warning thresholds | Reported Passing | Correctly triggers caution ($75\%$), critical ($90\%$), and exceeded ($\ge 100\%$) states. |
+| **TC-06** | Month-to-month comparisons | Reported Passing | Calculates energy and cost deltas; safe against zero-division errors. |
+| **TC-07** | Appliance replacement calculations | Reported Passing | Accurately computes monthly and annual savings and payback break-even months. |
+| **TC-08** | Flat tariff calculations | Reported Passing | Verified against flat rate arithmetic with 2-decimal precision. |
+| **TC-09** | Slab tariff calculations | Reported Passing | Verified against sample tiered multi-slab values with fixed charges and duty. |
+| **TC-10** | Carbon factor configuration | Reported Passing | Accurately calculates monthly and annual emissions; displays disabled state when cleared. |
+| **TC-11** | PDF report generation | Reported Passing | Formats executive document; invokes native print preview without server dependencies. |
+| **TC-12** | JSON export and import with new data | Reported Passing | Exports full v2.0 schema including history; validates structure on import. |
+| **TC-13** | Existing data migration | Reported Passing | Backward-compatible import parses v1.0 JSON payloads without errors. |
+| **TC-14** | LocalStorage persistence | Reported Passing | All appliances, historical snapshots, settings, and theme persist across reloads. |
+| **TC-15** | Desktop responsiveness | Reported Passing | Full sidebar layout, multi-column metric grids, and side-by-side simulator panes. |
+| **TC-16** | Mobile responsiveness | Reported Passing | Collapsible navigation drawer, touch targets $\ge 44\text{px}$, single-column stacking. |
+| **TC-17** | Light and dark themes | Reported Passing | Royal Beige Light Mode (default) and Royal Dark Mode switch cleanly with chart palette adaptation. |
+| **TC-18** | Existing appliance CRUD operations | Reported Passing | Full add, edit, delete, search, category filter, and sorting operations preserved. |
+| **TC-19** | Existing dashboard calculations | Reported Passing | All 4 summary KPI cards and primary load spotlight react automatically to state changes. |
+| **TC-20** | Browser console integrity | Reported Passing | Zero JavaScript syntax errors, missing DOM references, or unhandled exceptions. |
 
 ---
 
