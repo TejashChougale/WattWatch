@@ -1,5 +1,5 @@
 /**
- * WATTWATCH 2.0 - Simulators Module
+ * WATTWATCH - Simulators Module
  * Contains the Appliance Replacement Simulator and the Advanced Electricity Tariff Calculator.
  */
 

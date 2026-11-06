@@ -1,5 +1,5 @@
 /**
- * WATTWATCH 2.0 - Main Application Controller
+ * WATTWATCH - Main Application Controller
  * Coordinates navigation, dashboard updates, budget tracking, analytics,
  * historical snapshots, simulators, PDF reporting, modals, and toasts.
  */
@@ -14,7 +14,7 @@ const WattWatchApp = {
    * Application bootstrap
    */
   init() {
-    console.log('[WattWatch 2.0] Initializing Advanced Energy Management & Analytics Platform...');
+    console.log('[WattWatch] Initializing Advanced Energy Management & Analytics Platform...');
 
     // Restore theme preference
     this.initTheme();
@@ -35,7 +35,7 @@ const WattWatchApp = {
     if (existing.length === 0 && !localStorage.getItem('wattwatch_onboarded_v1')) {
       WattWatchStorage.loadSampleHousehold();
       localStorage.setItem('wattwatch_onboarded_v1', 'true');
-      this.showToast('Curated sample household data loaded for preview', 'info', 'Welcome to WattWatch 2.0');
+      this.showToast('Curated sample household data loaded for preview', 'info', 'Welcome to WattWatch');
     }
 
     // Refresh all views, summaries and charts
@@ -192,7 +192,7 @@ const WattWatchApp = {
       settings: { title: 'System Settings', sub: 'Configure tariffs, budget limits, carbon factors, data portability, and display' }
     };
 
-    const info = titleMap[viewId] || { title: 'WattWatch 2.0 Dashboard', sub: 'Advanced Energy Analytics' };
+    const info = titleMap[viewId] || { title: 'WattWatch Dashboard', sub: 'Advanced Energy Analytics' };
     const titleEl = document.getElementById('topbarPageTitle');
     const subEl = document.getElementById('topbarPageSubtitle');
 

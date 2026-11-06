@@ -1,5 +1,5 @@
 /**
- * WATTWATCH 2.0 - Storage Module
+ * WATTWATCH - Storage Module
  * Manages localStorage persistence, sample data loading, historical snapshots,
  * advanced tariff & budget settings, and backward-compatible JSON export/import.
  */
@@ -18,7 +18,7 @@ const DEFAULT_SETTINGS = {
   billingDays: 30,
   theme: 'light',
 
-  // WATTWATCH 2.0 Settings Additions
+  // Advanced Settings Additions (Budget, Tariffs, Emissions)
   budgetInr: 2500, // Monthly electricity budget in INR (0 = unset)
   tariffModel: 'flat', // 'flat' | 'slab'
   slabConfig: [
@@ -270,14 +270,14 @@ const WattWatchStorage = {
   },
 
   /**
-   * Exports full application data as a downloadable JSON string (WattWatch 2.0 schema)
+   * Exports full application data as a downloadable JSON string
    * @returns {string} JSON string
    */
   exportDataJSON() {
     const exportPayload = {
       version: '2.0',
       exportedAt: new Date().toISOString(),
-      generator: 'WattWatch 2.0 Energy Analytics',
+      generator: 'WattWatch Energy Analytics',
       settings: this.getSettings(),
       appliances: this.getAppliances(),
       history: this.getHistory()

@@ -1,5 +1,5 @@
 /**
- * WATTWATCH 2.0 - Electricity Calculation Engine
+ * WATTWATCH - Electricity Calculation Engine
  * Implements physical formulas for electrical consumption, flat and multi-slab tariffs,
  * budget tracking thresholds, appliance replacement simulations, month-to-month deltas,
  * and grid carbon emission analytics.

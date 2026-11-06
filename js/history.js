@@ -1,5 +1,5 @@
 /**
- * WATTWATCH 2.0 - Bill History & Month-to-Month Comparison Module
+ * WATTWATCH - Bill History & Month-to-Month Comparison Module
  * Manages permanent monthly bill snapshots, duplicate period protection,
  * historical breakdown inspection, and comparative deltas.
  */

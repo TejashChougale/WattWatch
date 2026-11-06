@@ -1,5 +1,5 @@
 /**
- * WATTWATCH 2.0 - Charts Engine (Chart.js Integration)
+ * WATTWATCH - Charts Engine (Chart.js Integration)
  * Renders luxury-themed interactive visualizations using official brand colors.
  * Includes Overview trends, Category shares, Multi-horizon Analytics,
  * Historical Bill Trends, Month-to-Month Comparisons, and Carbon Emissions.
@@ -541,7 +541,7 @@ const WattWatchCharts = {
   },
 
   /**
-   * Carbon Emissions Breakdown Chart (WATTWATCH 2.0)
+   * Carbon Emissions Breakdown Chart
    */
   renderCarbonChart(summary, emissionFactor) {
     const canvas = document.getElementById('analyticsCarbonChart');
@@ -623,7 +623,7 @@ const WattWatchCharts = {
   },
 
   /**
-   * Historical Bill & Consumption Trend Chart (WATTWATCH 2.0)
+   * Historical Bill & Consumption Trend Chart
    */
   renderHistoryTrendChart(history) {
     const canvas = document.getElementById('historyTrendChart');
@@ -708,7 +708,7 @@ const WattWatchCharts = {
   },
 
   /**
-   * Month-to-Month Comparative Grouped Bar Chart (WATTWATCH 2.0)
+   * Month-to-Month Comparative Grouped Bar Chart
    */
   renderComparisonChart(comp) {
     const canvas = document.getElementById('historyComparisonChart');

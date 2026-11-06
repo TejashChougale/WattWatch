@@ -1,5 +1,5 @@
 /**
- * WATTWATCH 2.0 - PDF Monthly Report Generator Module
+ * WATTWATCH - PDF Monthly Report Generator Module
  * Generates an executive, print-perfect energy intelligence report
  * complete with logo, billing period, appliance matrix, budget status, and disclaimers.
  */

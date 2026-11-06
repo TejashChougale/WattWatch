@@ -1,19 +1,19 @@
-# WattWatch 2.0 ⚡
+# WattWatch ⚡
 
 ### Advanced Electricity Management & Analytics Platform
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-B99A62.svg)](https://opensource.org/licenses/MIT)
 [![Pure Vanilla JS](https://img.shields.io/badge/Stack-Vanilla%20JS%20%7C%20HTML5%20%7C%20CSS3-172B55.svg)](#technology-stack)
 [![Chart.js v4](https://img.shields.io/badge/Visuals-Chart.js%20v4-6E293F.svg)](https://www.chartjs.org/)
-[![Status](https://img.shields.io/badge/Version-2.0%20Advanced-2E946E.svg)](#overview)
+[![Status](https://img.shields.io/badge/Status-Active-2E946E.svg)](#overview)
 
-> **WattWatch 2.0** is an enterprise-grade client-side energy intelligence platform crafted in an editorial **Royal Luxury Energy Technology** aesthetic. Building upon the core inventory and calculation capabilities of WattWatch 1.0, version 2.0 introduces frozen monthly billing snapshots, an active electricity budget tracker, month-to-month comparative deltas, an interactive appliance replacement simulator, an advanced progressive slab tariff engine, a carbon footprint estimator, and native client-side PDF monthly energy audit reports.
+> **WattWatch** is an enterprise-grade client-side energy intelligence platform crafted in an editorial **Royal Luxury Energy Technology** aesthetic. WattWatch provides comprehensive household energy monitoring, frozen monthly billing snapshots, an active electricity budget tracker, month-to-month comparative deltas, an interactive appliance replacement simulator, an advanced progressive slab tariff engine, a carbon footprint estimator, and native client-side PDF monthly energy audit reports.
 
 ---
 
 ## 🏛️ Visual Identity & Design System
 
-WattWatch 2.0 preserves the refined visual identity inspired by high-end financial dashboards, luxury horology, and architectural journals.
+WattWatch preserves the refined visual identity inspired by high-end financial dashboards, luxury horology, and architectural journals.
 
 ### Official Color Tokens
 
@@ -32,7 +32,7 @@ WattWatch 2.0 preserves the refined visual identity inspired by high-end financi
 
 ---
 
-## 🚀 Key Modules & Capabilities in WattWatch 2.0
+## 🚀 Key Modules & Capabilities
 
 ### 1. Monthly Electricity Bill History & Snapshots
 * **Frozen Immutable Snapshots**: Captures complete household state for any billing cycle (e.g., `2026-11` / November 2026), freezing units, costs, applied tariffs, and appliance breakdowns.
@@ -87,8 +87,8 @@ WattWatch 2.0 preserves the refined visual identity inspired by high-end financi
 * **Legal Disclaimers**: Prominently notes that generated documents are analytical approximations and not official DISCOM utility invoices.
 
 ### 8. Data Storage, Portability & Backward Compatibility
-* **Schema Version 2.0**: Seamlessly persists historical snapshots (`wattwatch_history_v1`), budget targets, multi-slab configurations, fixed charges, and emission coefficients.
-* **100% Backward Compatibility**: Full support for importing WattWatch 1.0 backup files without data loss or schema conflicts.
+* **Schema Persistence**: Seamlessly persists historical snapshots (`wattwatch_history_v1`), budget targets, multi-slab configurations, fixed charges, and emission coefficients.
+* **100% Backward Compatibility**: Full support for importing legacy backup files without data loss or schema conflicts.
 * **Client-Side Privacy**: Data stays in local browser storage; zero external server sync or unauthorized telemetry.
 
 ---
@@ -151,7 +151,7 @@ WattWatch-Web/
 
 ## 📋 Current Verification Status
 
-To ensure complete engineering transparency, the verification status of WattWatch 2.0 is categorized below into automated development checks reported during implementation, features manually verified by the project owner, and capabilities awaiting manual testing following examinations.
+To ensure complete engineering transparency, the verification status of WattWatch is categorized below into automated development checks reported during implementation, features manually verified by the project owner, and capabilities awaiting manual testing following examinations.
 
 > [!NOTE]
 > The development report reported 20 passing automated checks during implementation; however, independent verification of the complete test suite is pending.
@@ -160,7 +160,7 @@ To ensure complete engineering transparency, the verification status of WattWatc
 * **Mathematical & Physical Formulas**: Automated checks verified calculations for daily and monthly energy consumption ($E_{\text{daily}}, E_{\text{monthly}}$), progressive multi-slab tier allocation, fixed meter charges, and percentage surcharge taxes.
 * **Bi-Period Delta Arithmetic**: Automated checks verified differential calculations ($\Delta E, \Delta C, \% \Delta E, \% \Delta C$) including zero-division protections for zero-baseline billing cycles.
 * **Environmental Impact Calculations**: Automated checks verified carbon emission and tree offset calculations using the default estimation assumptions ($0.82\text{ kg CO}_2/\text{kWh}$ and $21.77\text{ kg CO}_2/\text{tree/year}$); these figures are estimation assumptions whose external sources have not yet been independently verified.
-* **Schema Serialization & Migration**: Automated checks validated LocalStorage persistence routines, JSON backup export, and backward-compatible ingestion of legacy WattWatch 1.0 payloads into v2.0 schema structures.
+* **Schema Serialization & Migration**: Automated checks validated LocalStorage persistence routines, JSON backup export, and backward-compatible ingestion of legacy backup payloads into current schema structures.
 * **Syntax Integrity & Code Hygiene**: Automated code audits confirmed zero trailing whitespace (`git diff --check`) and clean console execution without unhandled exceptions.
 
 ### 👤 Manually Verified by Project Owner
@@ -189,7 +189,7 @@ To ensure complete engineering transparency, the verification status of WattWatc
 
 ## 🧪 Quality Control & Test Specification Matrix
 
-The matrix below lists the 20 test specifications defined for WattWatch 2.0 and the outcomes reported by the automated development process. As noted in the [Current Verification Status](#-current-verification-status) section above, independent verification of the complete test suite is pending.
+The matrix below lists the 20 test specifications defined for WattWatch and the outcomes reported by the automated development process. As noted in the [Current Verification Status](#-current-verification-status) section above, independent verification of the complete test suite is pending.
 
 | Test ID | Verification Scope | Dev Report Status | Notes |
 | :---: | :--- | :---: | :--- |
@@ -204,8 +204,8 @@ The matrix below lists the 20 test specifications defined for WattWatch 2.0 and 
 | **TC-09** | Slab tariff calculations | Reported Passing | Verified against sample tiered multi-slab values with fixed charges and duty. |
 | **TC-10** | Carbon factor configuration | Reported Passing | Accurately calculates monthly and annual emissions; displays disabled state when cleared. |
 | **TC-11** | PDF report generation | Reported Passing | Formats executive document; invokes native print preview without server dependencies. |
-| **TC-12** | JSON export and import with new data | Reported Passing | Exports full v2.0 schema including history; validates structure on import. |
-| **TC-13** | Existing data migration | Reported Passing | Backward-compatible import parses v1.0 JSON payloads without errors. |
+| **TC-12** | JSON export and import with new data | Reported Passing | Exports full schema including history; validates structure on import. |
+| **TC-13** | Existing data migration | Reported Passing | Backward-compatible import parses legacy JSON payloads without errors. |
 | **TC-14** | LocalStorage persistence | Reported Passing | All appliances, historical snapshots, settings, and theme persist across reloads. |
 | **TC-15** | Desktop responsiveness | Reported Passing | Full sidebar layout, multi-column metric grids, and side-by-side simulator panes. |
 | **TC-16** | Mobile responsiveness | Reported Passing | Collapsible navigation drawer, touch targets $\ge 44\text{px}$, single-column stacking. |
@@ -218,7 +218,7 @@ The matrix below lists the 20 test specifications defined for WattWatch 2.0 and 
 
 ## 🚀 How to Run the Application
 
-WattWatch 2.0 requires no build steps, compilers, or server processes:
+WattWatch requires no build steps, compilers, or server processes:
 
 1. Open [`index.html`](index.html) directly in any modern browser (Chrome, Edge, Firefox, Safari).
 2. The application will initialize, restore your local data (or load the curated sample household for first-time evaluation), and render all interactive charts and management tools.
@@ -229,4 +229,4 @@ WattWatch 2.0 requires no build steps, compilers, or server processes:
 
 This project is licensed under the MIT License — see the [LICENSE](LICENSE) file for details.
 
-*WattWatch 2.0 — Precision Energy Intelligence.*
+*WattWatch — Precision Energy Intelligence.*
