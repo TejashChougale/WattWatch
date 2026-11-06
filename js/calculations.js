@@ -58,9 +58,20 @@ const WattWatchCalculations = {
   calculateAdvancedTariff(totalKwh, settings = {}) {
     const kwh = Math.max(0, Number(totalKwh) || 0);
     const model = settings.tariffModel || 'flat';
-    const flatRate = Math.max(0, Number(settings.electricityRate) || 8.00);
-    const fixedCharge = Math.max(0, Number(settings.fixedCharges) || 0);
-    const taxPercent = Math.max(0, Number(settings.additionalTaxPercent) || 0);
+    const rawFlat = Number(settings.electricityRate);
+    const flatRate = (settings.electricityRate !== undefined && settings.electricityRate !== null && settings.electricityRate !== '' && !isNaN(rawFlat))
+      ? Math.max(0, rawFlat)
+      : 8.00;
+
+    const rawFixed = Number(settings.fixedCharges);
+    const fixedCharge = (settings.fixedCharges !== undefined && settings.fixedCharges !== null && settings.fixedCharges !== '' && !isNaN(rawFixed))
+      ? Math.max(0, rawFixed)
+      : 0;
+
+    const rawTax = Number(settings.additionalTaxPercent);
+    const taxPercent = (settings.additionalTaxPercent !== undefined && settings.additionalTaxPercent !== null && settings.additionalTaxPercent !== '' && !isNaN(rawTax))
+      ? Math.max(0, rawTax)
+      : 0;
 
     let energyCharges = 0;
     const slabBreakdown = [];
@@ -245,16 +256,18 @@ const WattWatchCalculations = {
   /**
    * Appliance Replacement Simulator: Evaluates energy, bill, and ROI payback
    * between an existing baseline appliance and a prospective alternative.
+   * Supports both uniform flat rates and active progressive multi-slab tariffs.
    * @param {Object} baselineAppliance
    * @param {number} altWatts - Prospective alternative power rating
    * @param {number} altDailyHours - Prospective daily operating hours
    * @param {number} altDays - Operating days per month
    * @param {number} altQty - Units quantity
-   * @param {number} electricityRate - Tariff per kWh
+   * @param {number|Object} rateOrSettings - Electricity tariff rate or full settings object
    * @param {number} purchaseCostInr - Optional upfront purchase cost of new appliance
+   * @param {number} householdTotalKwh - Optional total household monthly consumption for marginal slab savings
    * @returns {Object} Comparative metrics & savings
    */
-  simulateReplacement(baselineAppliance, altWatts, altDailyHours, altDays, altQty, electricityRate = 8.00, purchaseCostInr = 0) {
+  simulateReplacement(baselineAppliance, altWatts, altDailyHours, altDays, altQty, rateOrSettings = 8.00, purchaseCostInr = 0, householdTotalKwh = 0) {
     const baseW = Number(baselineAppliance.powerWatts) || 0;
     const baseH = Number(baselineAppliance.dailyHours) || 0;
     const baseD = Number(baselineAppliance.operatingDays) || 30;
@@ -264,17 +277,52 @@ const WattWatchCalculations = {
     const newH = Math.min(24, Math.max(0, Number(altDailyHours) || 0));
     const newD = Math.min(31, Math.max(1, Number(altDays) || baseD));
     const newQ = Math.max(1, Number(altQty) || baseQ);
-    const rate = Math.max(0, Number(electricityRate) || 8.00);
 
     const baseMonthlyKwh = this.calculateMonthlyKwh(baseW, baseQ, baseH, baseD);
-    const baseMonthlyCost = this.calculateCost(baseMonthlyKwh, rate);
-
     const newMonthlyKwh = this.calculateMonthlyKwh(newW, newQ, newH, newD);
-    const newMonthlyCost = this.calculateCost(newMonthlyKwh, rate);
-
     const monthlyKwhSaved = baseMonthlyKwh - newMonthlyKwh;
-    const monthlyCostSaved = baseMonthlyCost - newMonthlyCost;
     const annualKwhSaved = monthlyKwhSaved * 12;
+
+    let baseMonthlyCost = 0;
+    let newMonthlyCost = 0;
+    let monthlyCostSaved = 0;
+    let tariffMode = 'flat';
+    let effectiveRate = 8.00;
+
+    if (typeof rateOrSettings === 'object' && rateOrSettings !== null && rateOrSettings.tariffModel === 'slab') {
+      tariffMode = 'slab';
+      const settings = rateOrSettings;
+      const flatRate = Math.max(0, Number(settings.electricityRate) || 8.00);
+
+      // Evaluate household baseline bill and post-replacement bill to determine exact marginal reduction
+      const curHouseholdKwh = Math.max(baseMonthlyKwh, Number(householdTotalKwh) || 0);
+      const baseTariff = this.calculateAdvancedTariff(curHouseholdKwh, settings);
+      const postHouseholdKwh = Math.max(0, curHouseholdKwh - monthlyKwhSaved);
+      const postTariff = this.calculateAdvancedTariff(postHouseholdKwh, settings);
+
+      effectiveRate = baseTariff.effectiveRatePerKwh;
+      monthlyCostSaved = baseTariff.totalCost - postTariff.totalCost;
+      baseMonthlyCost = baseMonthlyKwh * effectiveRate;
+      newMonthlyCost = Math.max(0, baseMonthlyCost - monthlyCostSaved);
+    } else {
+      let rawVal = null;
+      if (typeof rateOrSettings === 'object' && rateOrSettings !== null) {
+        rawVal = rateOrSettings.electricityRate;
+      } else {
+        rawVal = rateOrSettings;
+      }
+
+      const numVal = Number(rawVal);
+      const rate = (rawVal !== undefined && rawVal !== null && rawVal !== '' && !isNaN(numVal) && numVal >= 0)
+        ? numVal
+        : 8.00;
+
+      effectiveRate = rate;
+      baseMonthlyCost = this.calculateCost(baseMonthlyKwh, rate);
+      newMonthlyCost = this.calculateCost(newMonthlyKwh, rate);
+      monthlyCostSaved = baseMonthlyCost - newMonthlyCost;
+    }
+
     const annualCostSaved = monthlyCostSaved * 12;
 
     let percentSaved = 0;
@@ -316,7 +364,9 @@ const WattWatchCalculations = {
         isSaving: monthlyCostSaved > 0,
         upfrontCost,
         paybackMonths
-      }
+      },
+      tariffMode,
+      effectiveRate
     };
   },
 
@@ -382,24 +432,74 @@ const WattWatchCalculations = {
   },
 
   /**
-   * Aggregates complete household consumption metrics across all appliances
+   * Aggregates complete household consumption metrics across all appliances.
+   * Supports both uniform flat rates and active progressive multi-slab tariffs.
+   * In slab mode, individual appliance costs and categories are proportionally
+   * allocated according to the active tariff's effective rate so all costs
+   * sum exactly to the advanced tariff total bill.
    * @param {Array} appliances
-   * @param {number} ratePerKwh
+   * @param {number|Object} rateOrSettings
    * @returns {Object} Comprehensive summary metrics
    */
-  calculateHouseholdSummary(appliances = [], ratePerKwh = 8.00) {
+  calculateHouseholdSummary(appliances = [], rateOrSettings = 8.00) {
+    let settings = null;
+    let rate = 8.00;
+    let isSlab = false;
+
+    if (typeof rateOrSettings === 'object' && rateOrSettings !== null) {
+      settings = rateOrSettings;
+      const rawRate = Number(settings.electricityRate);
+      rate = (settings.electricityRate !== undefined && settings.electricityRate !== null && settings.electricityRate !== '' && !isNaN(rawRate))
+        ? Math.max(0, rawRate)
+        : 8.00;
+      isSlab = settings.tariffModel === 'slab';
+    } else {
+      const rawRate = Number(rateOrSettings);
+      rate = (rateOrSettings !== undefined && rateOrSettings !== null && rateOrSettings !== '' && !isNaN(rawRate))
+        ? Math.max(0, rawRate)
+        : 8.00;
+    }
+
+    // First pass: aggregate total consumption
     let totalDailyKwh = 0;
     let totalMonthlyKwh = 0;
-    let totalMonthlyCost = 0;
     let totalUnits = 0;
 
+    appliances.forEach(app => {
+      const dailyKwh = this.calculateDailyKwh(app.powerWatts, app.quantity, app.dailyHours);
+      const monthlyKwh = this.calculateMonthlyKwh(app.powerWatts, app.quantity, app.dailyHours, app.operatingDays);
+      totalDailyKwh += dailyKwh;
+      totalMonthlyKwh += monthlyKwh;
+      totalUnits += Number(app.quantity) || 1;
+    });
+
+    let advancedTariff = null;
+    let effectiveRate = rate;
+    let totalMonthlyCost = 0;
+
+    if (isSlab && settings) {
+      advancedTariff = this.calculateAdvancedTariff(totalMonthlyKwh, settings);
+      effectiveRate = advancedTariff.effectiveRatePerKwh;
+      totalMonthlyCost = advancedTariff.totalCost;
+    } else {
+      totalMonthlyCost = totalMonthlyKwh * rate;
+      effectiveRate = rate;
+    }
+
+    // Second pass: enrich appliances with costs using the effective tariff rate
     const enrichedList = appliances.map(app => {
-      const enriched = this.enrichAppliance(app, ratePerKwh);
-      totalDailyKwh += enriched.dailyKwh;
-      totalMonthlyKwh += enriched.monthlyKwh;
-      totalMonthlyCost += enriched.monthlyCost;
-      totalUnits += Number(enriched.quantity) || 1;
-      return enriched;
+      const dailyKwh = this.calculateDailyKwh(app.powerWatts, app.quantity, app.dailyHours);
+      const monthlyKwh = this.calculateMonthlyKwh(app.powerWatts, app.quantity, app.dailyHours, app.operatingDays);
+      const monthlyCost = monthlyKwh * effectiveRate;
+      const dailyCost = dailyKwh * effectiveRate;
+
+      return {
+        ...app,
+        dailyKwh,
+        monthlyKwh,
+        dailyCost,
+        monthlyCost
+      };
     });
 
     // Compute percentage contribution of each appliance
@@ -449,7 +549,10 @@ const WattWatchCalculations = {
       totalMonthlyCost,
       totalAppliancesCount: appliances.length,
       totalUnits,
-      ratePerKwh,
+      ratePerKwh: effectiveRate,
+      effectiveRatePerKwh: effectiveRate,
+      tariffModel: isSlab ? 'slab' : 'flat',
+      advancedTariff,
       highestAppliance,
       categoryBreakdown,
       appliances: enrichedWithShares

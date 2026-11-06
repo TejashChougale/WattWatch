@@ -74,9 +74,8 @@ const WattWatchReport = {
 
     if (selectedVal === 'current') {
       const appliances = WattWatchStorage.getAppliances();
-      const rate = settings.electricityRate || 8.00;
-      const summary = WattWatchCalculations.calculateHouseholdSummary(appliances, rate);
-      const tariff = WattWatchCalculations.calculateAdvancedTariff(summary.totalMonthlyKwh, settings);
+      const summary = WattWatchCalculations.calculateHouseholdSummary(appliances, settings);
+      const tariff = summary.advancedTariff || WattWatchCalculations.calculateAdvancedTariff(summary.totalMonthlyKwh, settings);
 
       const now = new Date();
       const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
@@ -86,8 +85,9 @@ const WattWatchReport = {
         period: `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`,
         periodLabel,
         totalKwh: summary.totalMonthlyKwh,
-        totalCost: settings.tariffModel === 'slab' ? tariff.totalCost : summary.totalMonthlyCost,
-        rate: rate,
+        totalCost: summary.totalMonthlyCost,
+        rate: summary.ratePerKwh,
+        effectiveRate: summary.effectiveRatePerKwh,
         tariffModel: settings.tariffModel || 'flat',
         tariffDetails: tariff,
         appliances: summary.appliances,
@@ -106,6 +106,7 @@ const WattWatchReport = {
         totalKwh: snap.totalKwh,
         totalCost: snap.totalCost,
         rate: snap.electricityRate,
+        effectiveRate: Number(snap.effectiveRate || snap.tariffBreakdown?.effectiveRatePerKwh || snap.electricityRate),
         tariffModel: snap.tariffModel || 'flat',
         tariffDetails: snap.tariffBreakdown,
         appliances: snap.appliancesSnapshot || [],
@@ -185,9 +186,9 @@ const WattWatchReport = {
           <div style="background: #FAF7F0; border: 1px solid rgba(185, 154, 98, 0.35); padding: 0.85rem; border-radius: 6px;">
             <div style="font-size: 0.7rem; text-transform: uppercase; color: #687386; font-weight: 600;">Tariff Model</div>
             <div style="font-family: 'Playfair Display', serif; font-size: 1.15rem; font-weight: 600; color: #172B55;">
-              ${reportData.tariffModel === 'slab' ? 'Slab Tariff' : 'Flat ₹' + Number(reportData.rate).toFixed(2) + '/u'}
+              ${reportData.tariffModel === 'slab' ? 'Slab (Eff. ₹' + Number(reportData.effectiveRate || reportData.rate).toFixed(2) + '/u)' : 'Flat ₹' + Number(reportData.rate).toFixed(2) + '/u'}
             </div>
-            <div style="font-size: 0.7rem; color: #687386;">Base Tariff</div>
+            <div style="font-size: 0.7rem; color: #687386;">${reportData.tariffModel === 'slab' ? 'Effective Tariff Rate' : 'Base Tariff'}</div>
           </div>
 
           <div style="background: #FAF7F0; border: 1px solid rgba(185, 154, 98, 0.35); padding: 0.85rem; border-radius: 6px;">

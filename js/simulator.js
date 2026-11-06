@@ -70,8 +70,9 @@ const WattWatchSimulator = {
     }
 
     const settings = WattWatchStorage.getSettings();
-    const rate = settings.electricityRate || 8.00;
-    const enriched = WattWatchCalculations.enrichAppliance(app, rate);
+    const curAppliances = WattWatchStorage.getAppliances();
+    const curSummary = WattWatchCalculations.calculateHouseholdSummary(curAppliances, settings);
+    const enriched = curSummary.appliances.find(a => a.id === id) || WattWatchCalculations.enrichAppliance(app, curSummary.effectiveRatePerKwh);
 
     if (baseInfo) {
       baseInfo.innerHTML = `
@@ -81,7 +82,7 @@ const WattWatchSimulator = {
         <div style="font-size: 0.825rem; color: var(--text-secondary); line-height: 1.5;">
           <strong>${app.powerWatts} Watts</strong> · ${app.dailyHours} hrs/day · ${app.operatingDays} days/mo · ${app.quantity} unit(s)<br>
           Current Monthly Energy: <strong style="color: var(--royal-blue);">${WattWatchCalculations.formatKwh(enriched.monthlyKwh)}</strong><br>
-          Current Monthly Cost: <strong style="color: var(--deep-burgundy);">${WattWatchCalculations.formatCurrency(enriched.monthlyCost)}</strong>
+          Current Monthly Cost: <strong style="color: var(--deep-burgundy);">${WattWatchCalculations.formatCurrency(enriched.monthlyCost)}</strong>${settings.tariffModel === 'slab' ? ` <span style="font-size: 0.72rem; color: var(--text-secondary);">(at ₹${curSummary.effectiveRatePerKwh.toFixed(2)}/u eff.)</span>` : ''}
         </div>
       `;
     }
@@ -135,7 +136,8 @@ const WattWatchSimulator = {
     }
 
     const settings = WattWatchStorage.getSettings();
-    const rate = settings.electricityRate || 8.00;
+    const curAppliances = WattWatchStorage.getAppliances();
+    const curSummary = WattWatchCalculations.calculateHouseholdSummary(curAppliances, settings);
 
     const sim = WattWatchCalculations.simulateReplacement(
       baseApp,
@@ -143,15 +145,16 @@ const WattWatchSimulator = {
       altHours,
       altDays,
       altQty,
-      rate,
-      purchaseCost
+      settings,
+      purchaseCost,
+      curSummary.totalMonthlyKwh
     );
 
     const isSaving = sim.savings.isSaving;
     const percentStr = `${Math.abs(sim.savings.percentSaved).toFixed(1)}%`;
     const paybackInfo = sim.savings.paybackMonths !== null
       ? `<div style="font-size: 0.85rem; color: var(--text-gold); font-weight: 600; margin-top: 0.4rem;">
-          Est. Payback Period: ${sim.savings.paybackMonths < 1 ? 'Under 1 Month' : sim.savings.paybackMonths.toFixed(1) + ' Months'} (at current tariff)
+          Est. Payback Period: ${sim.savings.paybackMonths < 1 ? 'Under 1 Month' : sim.savings.paybackMonths.toFixed(1) + ' Months'} (${sim.tariffMode === 'slab' ? 'at active slab tariff' : 'at ₹' + Number(sim.effectiveRate).toFixed(2) + '/u'})
         </div>`
       : '';
 
@@ -179,7 +182,7 @@ const WattWatchSimulator = {
           <div class="metric-value" style="color: ${isSaving ? 'var(--deep-burgundy)' : 'var(--text-primary)'};">
             ${isSaving ? '+' : '-'}${WattWatchCalculations.formatCurrency(Math.abs(sim.savings.monthlyCostSaved))}
           </div>
-          <div class="metric-subtext">${isSaving ? 'Conserves ' + sim.savings.monthlyKwhSaved.toFixed(2) + ' kWh/mo' : 'Consumes more energy'}</div>
+          <div class="metric-subtext">${isSaving ? (sim.tariffMode === 'slab' ? `Slab marginal savings (${sim.savings.monthlyKwhSaved.toFixed(1)} kWh)` : `Saves ${sim.savings.monthlyKwhSaved.toFixed(1)} kWh/mo`) : 'Consumes more energy'}</div>
         </div>
 
         <div class="metric-card">
@@ -251,10 +254,25 @@ const WattWatchSimulator = {
     const taxInput = document.getElementById('calcTaxPercent');
     const slabGroup = document.getElementById('tariffSlabsEditorGroup');
 
+    const rawRate = Number(settings.electricityRate);
+    const flatRate = (settings.electricityRate !== undefined && settings.electricityRate !== null && settings.electricityRate !== '' && !isNaN(rawRate))
+      ? Math.max(0, rawRate)
+      : 8.00;
+
+    const rawFixed = Number(settings.fixedCharges);
+    const fixedCharges = (settings.fixedCharges !== undefined && settings.fixedCharges !== null && settings.fixedCharges !== '' && !isNaN(rawFixed))
+      ? Math.max(0, rawFixed)
+      : 110.00;
+
+    const rawTax = Number(settings.additionalTaxPercent);
+    const taxPercent = (settings.additionalTaxPercent !== undefined && settings.additionalTaxPercent !== null && settings.additionalTaxPercent !== '' && !isNaN(rawTax))
+      ? Math.max(0, rawTax)
+      : 5.0;
+
     if (modelSelect) modelSelect.value = settings.tariffModel || 'flat';
-    if (flatInput) flatInput.value = (settings.electricityRate || 8.00).toFixed(2);
-    if (fixedInput) fixedInput.value = (settings.fixedCharges || 110.00).toFixed(2);
-    if (taxInput) taxInput.value = (settings.additionalTaxPercent || 5.0).toFixed(1);
+    if (flatInput) flatInput.value = flatRate.toFixed(2);
+    if (fixedInput) fixedInput.value = fixedCharges.toFixed(2);
+    if (taxInput) taxInput.value = taxPercent.toFixed(1);
 
     if (slabGroup) slabGroup.style.display = settings.tariffModel === 'slab' ? 'block' : 'none';
 
@@ -264,7 +282,7 @@ const WattWatchSimulator = {
     const testKwhInput = document.getElementById('calcTestKwhInput');
     if (testKwhInput) {
       const appliances = WattWatchStorage.getAppliances();
-      const summary = WattWatchCalculations.calculateHouseholdSummary(appliances, settings.electricityRate);
+      const summary = WattWatchCalculations.calculateHouseholdSummary(appliances, settings);
       testKwhInput.value = summary.totalMonthlyKwh > 0 ? summary.totalMonthlyKwh.toFixed(1) : '350.0';
     }
 
@@ -362,9 +380,12 @@ const WattWatchSimulator = {
   runTariffCalculation() {
     const testKwh = parseFloat(document.getElementById('calcTestKwhInput')?.value) || 0;
     const model = document.getElementById('calcTariffModelSelect')?.value || 'flat';
-    const flatRate = parseFloat(document.getElementById('calcFlatRateInput')?.value) || 8.00;
-    const fixedCharges = parseFloat(document.getElementById('calcFixedCharges')?.value) || 0;
-    const taxPercent = parseFloat(document.getElementById('calcTaxPercent')?.value) || 0;
+    const rawFlat = parseFloat(document.getElementById('calcFlatRateInput')?.value);
+    const flatRate = (!isNaN(rawFlat) && rawFlat >= 0) ? rawFlat : 8.00;
+    const rawFixed = parseFloat(document.getElementById('calcFixedCharges')?.value);
+    const fixedCharges = (!isNaN(rawFixed) && rawFixed >= 0) ? rawFixed : 0;
+    const rawTax = parseFloat(document.getElementById('calcTaxPercent')?.value);
+    const taxPercent = (!isNaN(rawTax) && rawTax >= 0) ? rawTax : 0;
     const slabs = this.readCurrentSlabsFromUI();
 
     const mockSettings = {
@@ -434,9 +455,12 @@ const WattWatchSimulator = {
    */
   applyTariffToSettings() {
     const model = document.getElementById('calcTariffModelSelect')?.value || 'flat';
-    const flatRate = parseFloat(document.getElementById('calcFlatRateInput')?.value) || 8.00;
-    const fixedCharges = parseFloat(document.getElementById('calcFixedCharges')?.value) || 0;
-    const taxPercent = parseFloat(document.getElementById('calcTaxPercent')?.value) || 0;
+    const rawFlat = parseFloat(document.getElementById('calcFlatRateInput')?.value);
+    const flatRate = (!isNaN(rawFlat) && rawFlat >= 0) ? rawFlat : 8.00;
+    const rawFixed = parseFloat(document.getElementById('calcFixedCharges')?.value);
+    const fixedCharges = (!isNaN(rawFixed) && rawFixed >= 0) ? rawFixed : 0;
+    const rawTax = parseFloat(document.getElementById('calcTaxPercent')?.value);
+    const taxPercent = (!isNaN(rawTax) && rawTax >= 0) ? rawTax : 0;
     const slabs = this.readCurrentSlabsFromUI();
 
     WattWatchStorage.saveSettings({

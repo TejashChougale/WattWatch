@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Slab Render Test</title>
+</head>
+<body>
+  <div id="test-output">Running...</div>
+  <script src="../js/calculations.js"></script>
+  <script src="../js/storage.js"></script>
+  <script>
+    // Configure slab in storage
+    WattWatchStorage.saveSettings({
+      tariffModel: 'slab',
+      electricityRate: 8.00,
+      fixedCharges: 110,
+      additionalTaxPercent: 5,
+      slabConfig: [
+        { upTo: 100, rate: 4.50 },
+        { upTo: 300, rate: 7.50 },
+        { upTo: null, rate: 10.00 }
+      ]
+    });
+    WattWatchStorage.loadSampleHousehold();
+
+    const settings = WattWatchStorage.getSettings();
+    const appliances = WattWatchStorage.getAppliances();
+    const summary = WattWatchCalculations.calculateHouseholdSummary(appliances, settings);
+    const advanced = summary.advancedTariff;
+
+    const out = {
+      isSlab: settings.tariffModel === 'slab',
+      totalKwh: summary.totalMonthlyKwh,
+      effectiveRate: summary.effectiveRatePerKwh,
+      totalCost: summary.totalMonthlyCost,
+      advancedTotalCost: advanced.totalCost,
+      appSumCost: summary.appliances.reduce((a, b) => a + b.monthlyCost, 0)
+    };
+
+    document.getElementById('test-output').textContent = JSON.stringify(out, null, 2);
+  </script>
+</body>
+</html>

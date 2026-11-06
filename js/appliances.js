@@ -146,7 +146,17 @@ const WattWatchAppliances = {
     const days = parseInt(document.getElementById('modalOperatingDays')?.value, 10) || 0;
 
     const settings = WattWatchStorage.getSettings();
-    const rate = settings.electricityRate || 8.00;
+    let rate = 8.00;
+    if (settings.tariffModel === 'slab') {
+      const curAppliances = WattWatchStorage.getAppliances();
+      const curSummary = WattWatchCalculations.calculateHouseholdSummary(curAppliances, settings);
+      rate = curSummary.effectiveRatePerKwh;
+    } else {
+      const rawRate = Number(settings.electricityRate);
+      rate = (settings.electricityRate !== undefined && settings.electricityRate !== null && settings.electricityRate !== '' && !isNaN(rawRate) && rawRate >= 0)
+        ? rawRate
+        : 8.00;
+    }
 
     const dailyKwh = WattWatchCalculations.calculateDailyKwh(power, qty, hours);
     const monthlyKwh = WattWatchCalculations.calculateMonthlyKwh(power, qty, hours, days);
@@ -454,9 +464,8 @@ const WattWatchAppliances = {
 
     const rawAppliances = WattWatchStorage.getAppliances();
     const settings = WattWatchStorage.getSettings();
-    const rate = settings.electricityRate || 8.00;
 
-    const filteredList = this.getFilteredAndSortedAppliances(rawAppliances, rate);
+    const filteredList = this.getFilteredAndSortedAppliances(rawAppliances, settings);
 
     if (rawAppliances.length === 0) {
       if (tableWrap) tableWrap.style.display = 'none';

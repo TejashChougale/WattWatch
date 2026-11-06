@@ -1226,10 +1226,42 @@
   .app-topbar,
   .quick-actions-bar,
   .theme-toggle-btn,
-  .modal-backdrop,
+  .modal-backdrop:not(#reportModal),
   .btn,
   .toast-container {
     display: none !important;
+  }
+
+  #reportModal {
+    display: block !important;
+    position: static !important;
+    background: transparent !important;
+    padding: 0 !important;
+    opacity: 1 !important;
+    visibility: visible !important;
+  }
+
+  #reportModal .modal-content {
+    max-width: 100% !important;
+    border: none !important;
+    box-shadow: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    background: transparent !important;
+  }
+
+  #reportModal .modal-header,
+  #reportModal .modal-footer,
+  #reportModal .modal-body > div:first-child {
+    display: none !important;
+  }
+
+  #reportPreviewArea {
+    max-height: none !important;
+    overflow: visible !important;
+    border: none !important;
+    padding: 0 !important;
+    background: #FFFFFF !important;
   }
 
   .app-main {

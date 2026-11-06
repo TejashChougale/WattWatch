@@ -270,7 +270,7 @@
                 </div>
               </div>
               <div class="metric-value" id="metricEstimatedMonthlyBill">₹0.00</div>
-              <div class="metric-subtext">
+              <div class="metric-subtext" id="metricBillSubtext">
                 <span>Estimated charges based on tariff</span>
               </div>
             </div>
@@ -992,7 +992,24 @@
                   <h3 class="card-title">Electricity Tariff Configuration</h3>
                   <p class="card-subtitle">Set your baseline electricity flat rate per unit</p>
                 </div>
-                <span class="badge badge-gold">Billing Engine</span>
+                <span class="badge badge-gold" id="settingsTariffModeBadge">Billing Engine</span>
+              </div>
+
+              <!-- Active Tariff Mode Status Banner -->
+              <div class="tariff-status-banner" id="settingsActiveTariffBanner" style="margin-bottom: 1.25rem; padding: 0.85rem; border-radius: var(--radius-md); background: var(--soft-blue); border: 1px solid rgba(23, 43, 85, 0.15);">
+                <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem;">
+                  <div>
+                    <div style="font-size: 0.72rem; text-transform: uppercase; color: var(--text-secondary); font-weight: 600;">Active Billing Model:</div>
+                    <div style="font-family: var(--font-serif); font-size: 1.1rem; font-weight: 700; color: var(--royal-blue);" id="settingsActiveModelName">Uniform Flat Rate</div>
+                  </div>
+                  <div style="text-align: right;">
+                    <div style="font-size: 0.72rem; text-transform: uppercase; color: var(--text-secondary); font-weight: 600;">Current Effective Rate:</div>
+                    <div style="font-family: var(--font-serif); font-size: 1.1rem; font-weight: 700; color: var(--deep-burgundy);" id="settingsEffectiveRateVal">₹8.00 / kWh</div>
+                  </div>
+                </div>
+                <div id="settingsTariffActionPrompt" style="margin-top: 0.6rem; font-size: 0.8rem; color: var(--text-secondary);">
+                  Current billing uses a uniform flat rate. To configure progressive tiered slabs and fixed charges, <a href="#simulator" onclick="WattWatchApp.navigateTo('simulator'); return false;" style="color: var(--royal-blue); font-weight: 600; text-decoration: underline;">Open Tariff Calculator &rarr;</a>
+                </div>
               </div>
 
               <div class="form-group">

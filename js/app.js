@@ -73,7 +73,7 @@ const WattWatchApp = {
     // Refresh charts to adapt to palette
     const settings = WattWatchStorage.getSettings();
     const appliances = WattWatchStorage.getAppliances();
-    const summary = WattWatchCalculations.calculateHouseholdSummary(appliances, settings.electricityRate);
+    const summary = WattWatchCalculations.calculateHouseholdSummary(appliances, settings);
 
     if (this.currentView === 'overview') {
       WattWatchCharts.renderOverviewCharts(summary);
@@ -145,7 +145,7 @@ const WattWatchApp = {
 
         const settings = WattWatchStorage.getSettings();
         const appliances = WattWatchStorage.getAppliances();
-        const summary = WattWatchCalculations.calculateHouseholdSummary(appliances, settings.electricityRate);
+        const summary = WattWatchCalculations.calculateHouseholdSummary(appliances, settings);
         WattWatchCharts.renderAnalyticsTimelineChart(summary, this.analyticsTimeframe);
       });
     });
@@ -210,19 +210,18 @@ const WattWatchApp = {
   refreshAll() {
     const settings = WattWatchStorage.getSettings();
     const appliances = WattWatchStorage.getAppliances();
-    const rate = settings.electricityRate || 8.00;
 
-    const summary = WattWatchCalculations.calculateHouseholdSummary(appliances, rate);
-    const advancedTariff = WattWatchCalculations.calculateAdvancedTariff(summary.totalMonthlyKwh, settings);
+    const summary = WattWatchCalculations.calculateHouseholdSummary(appliances, settings);
+    const advancedTariff = summary.advancedTariff || WattWatchCalculations.calculateAdvancedTariff(summary.totalMonthlyKwh, settings);
 
     // Determine final estimated bill (flat or advanced slab)
-    const effectiveBill = settings.tariffModel === 'slab' ? advancedTariff.totalCost : summary.totalMonthlyCost;
+    const effectiveBill = summary.totalMonthlyCost;
 
     // Update topbar & sidebar indicators
     this.updateGlobalTariffPills(summary, settings, effectiveBill, advancedTariff);
 
     // Update Overview View (metrics & budget tracker)
-    this.renderOverviewMetrics(summary, effectiveBill, settings);
+    this.renderOverviewMetrics(summary, effectiveBill, settings, advancedTariff);
 
     // Update Appliances View
     WattWatchAppliances.renderApplianceTable();
@@ -238,7 +237,7 @@ const WattWatchApp = {
     this.renderAnalyticsData(summary, effectiveBill, settings);
 
     // Update Recommendations View
-    this.renderRecommendationsView(appliances, rate);
+    this.renderRecommendationsView(appliances, summary.ratePerKwh);
 
     // Update Settings View Inputs
     this.populateSettingsFields(settings);
@@ -257,9 +256,16 @@ const WattWatchApp = {
    * Updates topbar pills and sidebar tariff badges
    */
   updateGlobalTariffPills(summary, settings, effectiveBill, advancedTariff) {
-    const rateStr = settings.tariffModel === 'slab'
-      ? `Slab Tariff (₹${advancedTariff.effectiveRatePerKwh.toFixed(2)}/kWh avg)`
-      : `${settings.currency || '₹'}${Number(settings.electricityRate).toFixed(2)} / kWh`;
+    const isSlab = settings.tariffModel === 'slab';
+    const rawRate = Number(settings.electricityRate);
+    const flatRate = (settings.electricityRate !== undefined && settings.electricityRate !== null && settings.electricityRate !== '' && !isNaN(rawRate) && rawRate >= 0)
+      ? rawRate
+      : 8.00;
+    const effectiveRate = isSlab ? advancedTariff.effectiveRatePerKwh : flatRate;
+
+    const rateStr = isSlab
+      ? `Slab Tariff (₹${effectiveRate.toFixed(2)}/kWh avg)`
+      : `${settings.currency || '₹'}${effectiveRate.toFixed(2)} / kWh`;
 
     const topbarTariff = document.getElementById('topbarTariffRate');
     if (topbarTariff) topbarTariff.textContent = rateStr;
@@ -269,9 +275,17 @@ const WattWatchApp = {
 
     const sidebarRate = document.getElementById('sidebarTariffVal');
     if (sidebarRate) {
-      sidebarRate.textContent = settings.tariffModel === 'slab'
-        ? `Slab Mode`
-        : `${settings.currency || '₹'}${Number(settings.electricityRate).toFixed(2)}`;
+      sidebarRate.textContent = isSlab
+        ? `₹${effectiveRate.toFixed(2)}/u`
+        : `${settings.currency || '₹'}${effectiveRate.toFixed(2)}`;
+      sidebarRate.title = isSlab
+        ? `Progressive Slab Tariff: Effective rate is ₹${effectiveRate.toFixed(2)}/kWh across ${summary.totalMonthlyKwh.toFixed(1)} kWh`
+        : `Uniform Flat Rate: ₹${effectiveRate.toFixed(2)} per kWh`;
+    }
+
+    const sidebarLabel = document.querySelector('.sidebar-tariff-card .tariff-info-label');
+    if (sidebarLabel) {
+      sidebarLabel.textContent = isSlab ? 'Effective Tariff' : 'Active Tariff';
     }
 
     const badge = document.getElementById('navApplianceCountBadge');
@@ -283,7 +297,7 @@ const WattWatchApp = {
   /**
    * Populates Overview metrics and the Electricity Budget Tracker widget
    */
-  renderOverviewMetrics(summary, effectiveBill, settings) {
+  renderOverviewMetrics(summary, effectiveBill, settings, advancedTariff) {
     const elKwh = document.getElementById('metricTotalMonthlyKwh');
     const elBill = document.getElementById('metricEstimatedMonthlyBill');
     const elCount = document.getElementById('metricAppliancesCount');
@@ -293,6 +307,22 @@ const WattWatchApp = {
     if (elBill) elBill.textContent = WattWatchCalculations.formatCurrency(effectiveBill);
     if (elCount) elCount.textContent = `${summary.totalAppliancesCount} (${summary.totalUnits} Units)`;
     if (elDaily) elDaily.textContent = WattWatchCalculations.formatKwh(summary.totalDailyKwh);
+
+    // Update metric bill subtext with Effective Rate in slab mode
+    const elBillSubtext = document.getElementById('metricBillSubtext');
+    if (elBillSubtext) {
+      const rawRate = Number(settings.electricityRate);
+      const flatRate = (settings.electricityRate !== undefined && settings.electricityRate !== null && settings.electricityRate !== '' && !isNaN(rawRate) && rawRate >= 0)
+        ? rawRate
+        : 8.00;
+
+      if (settings.tariffModel === 'slab') {
+        const effRate = advancedTariff ? advancedTariff.effectiveRatePerKwh : (summary.totalMonthlyKwh > 0 ? effectiveBill / summary.totalMonthlyKwh : flatRate);
+        elBillSubtext.innerHTML = `<span>Effective Rate: <strong style="color: var(--royal-blue);">₹${effRate.toFixed(2)} / kWh</strong> (Slab)</span>`;
+      } else {
+        elBillSubtext.innerHTML = `<span>Flat rate at ₹${flatRate.toFixed(2)} / kWh</span>`;
+      }
+    }
 
     // Spotlight Banner
     const spotlightTitle = document.getElementById('spotlightApplianceTitle');
@@ -538,7 +568,7 @@ const WattWatchApp = {
     if (rateInput) {
       rateInput.addEventListener('change', (e) => {
         let val = parseFloat(e.target.value);
-        if (isNaN(val) || val <= 0) val = 8.00;
+        if (isNaN(val) || val < 0) val = 8.00;
         WattWatchStorage.saveSettings({ electricityRate: val });
         this.refreshAll();
         this.showToast(`Electricity flat rate updated to ₹${val.toFixed(2)}/kWh`, 'success', 'Rate Updated');
@@ -695,7 +725,11 @@ const WattWatchApp = {
   populateSettingsFields(settings) {
     const rateInput = document.getElementById('settingsElectricityRate');
     if (rateInput && document.activeElement !== rateInput) {
-      rateInput.value = Number(settings.electricityRate || 8.00).toFixed(2);
+      const rawRate = Number(settings.electricityRate);
+      const flatRate = (settings.electricityRate !== undefined && settings.electricityRate !== null && settings.electricityRate !== '' && !isNaN(rawRate) && rawRate >= 0)
+        ? rawRate
+        : 8.00;
+      rateInput.value = flatRate.toFixed(2);
     }
 
     const budgetInput = document.getElementById('settingsMonthlyBudget');
@@ -706,6 +740,49 @@ const WattWatchApp = {
     const carbonInput = document.getElementById('settingsCarbonFactor');
     if (carbonInput && document.activeElement !== carbonInput) {
       carbonInput.value = settings.carbonEmissionFactor !== null ? Number(settings.carbonEmissionFactor).toFixed(2) : '';
+    }
+
+    // Active Tariff Mode Banner updates
+    const modelBadge = document.getElementById('settingsTariffModeBadge');
+    const modelName = document.getElementById('settingsActiveModelName');
+    const effRateVal = document.getElementById('settingsEffectiveRateVal');
+    const actionPrompt = document.getElementById('settingsTariffActionPrompt');
+
+    const appliances = WattWatchStorage.getAppliances();
+    const summary = WattWatchCalculations.calculateHouseholdSummary(appliances, settings);
+    const isSlab = settings.tariffModel === 'slab';
+
+    if (modelBadge) {
+      modelBadge.className = isSlab ? 'badge badge-gold' : 'badge badge-blue';
+      modelBadge.textContent = isSlab ? 'Slab Mode Active' : 'Flat Mode Active';
+    }
+    if (modelName) {
+      modelName.textContent = isSlab ? 'Progressive Multi-Slab Tariff' : 'Uniform Flat Rate';
+    }
+    const rawFlat = Number(settings.electricityRate);
+    const flatRate = (settings.electricityRate !== undefined && settings.electricityRate !== null && settings.electricityRate !== '' && !isNaN(rawFlat))
+      ? Math.max(0, rawFlat)
+      : 8.00;
+
+    const rawFixed = Number(settings.fixedCharges);
+    const fixedCharges = (settings.fixedCharges !== undefined && settings.fixedCharges !== null && settings.fixedCharges !== '' && !isNaN(rawFixed))
+      ? Math.max(0, rawFixed)
+      : 110.00;
+
+    const rawTax = Number(settings.additionalTaxPercent);
+    const taxPercent = (settings.additionalTaxPercent !== undefined && settings.additionalTaxPercent !== null && settings.additionalTaxPercent !== '' && !isNaN(rawTax))
+      ? Math.max(0, rawTax)
+      : 5.0;
+
+    if (effRateVal) {
+      effRateVal.textContent = isSlab
+        ? `₹${summary.effectiveRatePerKwh.toFixed(2)} / kWh (Effective)`
+        : `₹${flatRate.toFixed(2)} / kWh`;
+    }
+    if (actionPrompt) {
+      actionPrompt.innerHTML = isSlab
+        ? `Progressive tiers, fixed meter charge (₹${fixedCharges.toFixed(2)}), and duty (${taxPercent.toFixed(1)}%) are active. <a href="#simulator" onclick="WattWatchApp.navigateTo('simulator'); return false;" style="color: var(--royal-blue); font-weight: 600; text-decoration: underline;">Configure Slabs in Simulator &rarr;</a>`
+        : `Current billing uses a uniform flat rate. To configure progressive tiered slabs and fixed charges, <a href="#simulator" onclick="WattWatchApp.navigateTo('simulator'); return false;" style="color: var(--royal-blue); font-weight: 600; text-decoration: underline;">Open Tariff Calculator &rarr;</a>`;
     }
   },
 

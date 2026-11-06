@@ -86,21 +86,29 @@ const WattWatchHistory = {
       return;
     }
 
-    const rate = settings.electricityRate || 8.00;
-    const summary = WattWatchCalculations.calculateHouseholdSummary(appliances, rate);
-    const tariffDetails = WattWatchCalculations.calculateAdvancedTariff(summary.totalMonthlyKwh, settings);
+    const summary = WattWatchCalculations.calculateHouseholdSummary(appliances, settings);
+    const tariffDetails = summary.advancedTariff || WattWatchCalculations.calculateAdvancedTariff(summary.totalMonthlyKwh, settings);
 
     // Deep-clone appliances snapshot so subsequent edits to appliances never alter past records
     const frozenAppliances = JSON.parse(JSON.stringify(summary.appliances));
+
+    const isSlab = settings.tariffModel === 'slab';
+    const rawFlat = Number(settings.electricityRate);
+    const flatRate = (settings.electricityRate !== undefined && settings.electricityRate !== null && settings.electricityRate !== '' && !isNaN(rawFlat) && rawFlat >= 0)
+      ? rawFlat
+      : 8.00;
+    const effectiveRate = isSlab ? tariffDetails.effectiveRatePerKwh : flatRate;
 
     const snapshot = {
       id: `snap_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`,
       period,
       periodLabel,
       totalKwh: summary.totalMonthlyKwh,
-      totalCost: settings.tariffModel === 'slab' ? tariffDetails.totalCost : summary.totalMonthlyCost,
-      electricityRate: rate,
-      tariffModel: settings.tariffModel || 'flat',
+      totalCost: isSlab ? tariffDetails.totalCost : summary.totalMonthlyCost,
+      electricityRate: effectiveRate,
+      flatRate: flatRate,
+      effectiveRate: effectiveRate,
+      tariffModel: isSlab ? 'slab' : 'flat',
       tariffBreakdown: tariffDetails,
       appliancesCount: summary.totalAppliancesCount,
       totalUnits: summary.totalUnits,
@@ -150,9 +158,18 @@ const WattWatchHistory = {
         year: 'numeric'
       });
 
-      const modelBadge = record.tariffModel === 'slab'
-        ? `<span class="badge badge-gold" title="Progressive Slab Tariff">Slab</span>`
-        : `<span class="badge badge-blue" title="Flat Rate">Flat</span>`;
+      const isSlab = record.tariffModel === 'slab';
+      const rawEff = record.effectiveRate ?? record.tariffBreakdown?.effectiveRatePerKwh ?? record.electricityRate;
+      const numEff = Number(rawEff);
+      const effRate = (!isNaN(numEff) && numEff >= 0) ? numEff : 8.00;
+
+      const rawFlatRecord = record.flatRate ?? record.electricityRate;
+      const numFlatRecord = Number(rawFlatRecord);
+      const flatRateDisp = (!isNaN(numFlatRecord) && numFlatRecord >= 0) ? numFlatRecord : 8.00;
+
+      const modelBadge = isSlab
+        ? `<span class="badge badge-gold" title="Progressive Slab Tariff: Effective rate is ₹${effRate.toFixed(2)}/kWh">Slab</span>`
+        : `<span class="badge badge-blue" title="Flat Rate: ₹${flatRateDisp.toFixed(2)}/kWh">Flat</span>`;
 
       tr.innerHTML = `
         <td>
@@ -170,7 +187,7 @@ const WattWatchHistory = {
         <td>
           ${modelBadge}
           <span style="font-size: 0.8rem; color: var(--text-secondary); margin-left: 0.25rem;">
-            ₹${Number(record.electricityRate).toFixed(2)}/u
+            ₹${effRate.toFixed(2)}/u${isSlab ? ' (eff.)' : ''}
           </span>
         </td>
         <td>
@@ -316,13 +333,13 @@ const WattWatchHistory = {
         <div class="metric-card">
           <span class="metric-title">${comp.periodLabelA} (Baseline)</span>
           <div class="metric-value">${WattWatchCalculations.formatCurrency(comp.costA)}</div>
-          <div class="metric-subtext">${comp.kwhA.toFixed(2)} kWh · ₹${snapA.electricityRate}/unit</div>
+          <div class="metric-subtext">${comp.kwhA.toFixed(2)} kWh · ₹${Number(snapA.effectiveRate ?? snapA.tariffBreakdown?.effectiveRatePerKwh ?? snapA.electricityRate ?? 0).toFixed(2)}/u${snapA.tariffModel === 'slab' ? ' (eff.)' : ''}</div>
         </div>
 
         <div class="metric-card">
           <span class="metric-title">${comp.periodLabelB} (Target)</span>
           <div class="metric-value">${WattWatchCalculations.formatCurrency(comp.costB)}</div>
-          <div class="metric-subtext">${comp.kwhB.toFixed(2)} kWh · ₹${snapB.electricityRate}/unit</div>
+          <div class="metric-subtext">${comp.kwhB.toFixed(2)} kWh · ₹${Number(snapB.effectiveRate ?? snapB.tariffBreakdown?.effectiveRatePerKwh ?? snapB.electricityRate ?? 0).toFixed(2)}/u${snapB.tariffModel === 'slab' ? ' (eff.)' : ''}</div>
         </div>
 
         <div class="metric-card">
@@ -398,7 +415,12 @@ const WattWatchHistory = {
         </div>
         <div style="background: var(--antique-gold-subtle); padding: 0.85rem; border-radius: var(--radius-md);">
           <div style="font-size: 0.72rem; color: var(--text-secondary); text-transform: uppercase;">Tariff Applied</div>
-          <div style="font-family: var(--font-serif); font-size: 1.35rem; font-weight: 700; color: var(--text-gold);">₹${Number(snap.electricityRate).toFixed(2)}/u</div>
+          <div style="font-family: var(--font-serif); font-size: 1.35rem; font-weight: 700; color: var(--text-gold);">
+            ₹${Number(snap.effectiveRate ?? snap.tariffBreakdown?.effectiveRatePerKwh ?? snap.electricityRate ?? 0).toFixed(2)}/u
+          </div>
+          <div style="font-size: 0.72rem; color: var(--text-secondary); margin-top: 0.2rem;">
+            ${snap.tariffModel === 'slab' ? 'Progressive Slab (Effective Avg)' : 'Uniform Flat Rate'}
+          </div>
         </div>
       </div>
 

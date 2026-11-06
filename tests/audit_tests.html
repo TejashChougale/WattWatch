@@ -1,0 +1,523 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>WattWatch 2.0 - Automated Test Suite</title>
+</head>
+<body>
+  <h1>WattWatch 2.0 Test Suite Runner</h1>
+  <div id="test-results">Running tests...</div>
+
+  <!-- Load Application Modules -->
+  <script src="../js/calculations.js"></script>
+  <script src="../js/storage.js"></script>
+  <script src="../js/recommendations.js"></script>
+  <script>
+    window.WattWatchApp = {
+      showToast: () => {},
+      refreshAll: () => {},
+      navigateTo: () => {}
+    };
+  </script>
+  <script src="../js/appliances.js"></script>
+  <script src="../js/history.js"></script>
+
+  <script>
+    const results = [];
+    function assert(condition, testName, details = '') {
+      if (condition) {
+        results.push({ name: testName, passed: true, details });
+      } else {
+        results.push({ name: testName, passed: false, details });
+        console.error('FAIL: ' + testName + ' | ' + details);
+      }
+    }
+
+    function assertAlmostEqual(actual, expected, testName, precision = 0.01) {
+      const diff = Math.abs(actual - expected);
+      assert(diff <= precision, testName, `Expected ~${expected}, got ${actual} (diff: ${diff.toFixed(4)})`);
+    }
+
+    function runAllTests() {
+      try {
+      // 1. Core Energy Calculations
+      assertAlmostEqual(WattWatchCalculations.calculateDailyKwh(1000, 1, 1), 1.0, 'Daily kWh (1000W, 1 unit, 1h)');
+      assertAlmostEqual(WattWatchCalculations.calculateDailyKwh(75, 2, 8), 1.2, 'Daily kWh (75W, 2 units, 8h)');
+      assertAlmostEqual(WattWatchCalculations.calculateDailyKwh(100, 1, 0), 0.0, 'Daily kWh with 0 hours');
+      assertAlmostEqual(WattWatchCalculations.calculateDailyKwh(100, 1, 30), 2.4, 'Daily kWh clamps hours > 24 to 24');
+      assertAlmostEqual(WattWatchCalculations.calculateMonthlyKwh(1000, 1, 1, 30), 30.0, 'Monthly kWh (1000W, 1h/d, 30d)');
+      assertAlmostEqual(WattWatchCalculations.calculateMonthlyKwh(1000, 1, 1, 35), 31.0, 'Monthly kWh clamps days > 31 to 31');
+      assertAlmostEqual(WattWatchCalculations.calculateCost(100, 8.5), 850.0, 'Flat cost calculation (100 kWh @ 8.50)');
+
+      // 2. Advanced Tariff Calculator
+      const flatSettings = { tariffModel: 'flat', electricityRate: 8.00, fixedCharges: 100, additionalTaxPercent: 5 };
+      const flatRes = WattWatchCalculations.calculateAdvancedTariff(200, flatSettings);
+      assertAlmostEqual(flatRes.energyCharges, 1600.0, 'Flat tariff energy charges');
+      assertAlmostEqual(flatRes.fixedCharge, 100.0, 'Flat tariff fixed charges');
+      assertAlmostEqual(flatRes.taxCharges, 85.0, 'Flat tariff tax (5% of 1700)');
+      assertAlmostEqual(flatRes.totalCost, 1785.0, 'Flat tariff total bill');
+      assertAlmostEqual(flatRes.effectiveRatePerKwh, 8.925, 'Flat tariff effective rate');
+
+      const slabSettings = {
+        tariffModel: 'slab',
+        electricityRate: 8.00,
+        fixedCharges: 110,
+        additionalTaxPercent: 5,
+        slabConfig: [
+          { upTo: 100, rate: 4.50 },
+          { upTo: 300, rate: 7.50 },
+          { upTo: null, rate: 10.00 }
+        ]
+      };
+      // Test 50 kWh (inside slab 1)
+      const slab50 = WattWatchCalculations.calculateAdvancedTariff(50, slabSettings);
+      assertAlmostEqual(slab50.energyCharges, 225.0, 'Slab tariff (50 kWh in Tier 1 @ 4.50)');
+      assertAlmostEqual(slab50.totalCost, (225 + 110) * 1.05, 'Slab tariff total bill (50 kWh)');
+
+      // Test 250 kWh (100 in Tier 1, 150 in Tier 2)
+      const slab250 = WattWatchCalculations.calculateAdvancedTariff(250, slabSettings);
+      const expectedEnergy250 = (100 * 4.50) + (150 * 7.50); // 450 + 1125 = 1575
+      assertAlmostEqual(slab250.energyCharges, 1575.0, 'Slab tariff (250 kWh crossing Tiers 1 and 2)');
+      assertAlmostEqual(slab250.totalCost, (1575 + 110) * 1.05, 'Slab tariff total bill (250 kWh)');
+
+      // Test 450 kWh (100 in Tier 1, 200 in Tier 2, 150 in Tier 3)
+      const slab450 = WattWatchCalculations.calculateAdvancedTariff(450, slabSettings);
+      const expectedEnergy450 = (100 * 4.50) + (200 * 7.50) + (150 * 10.00); // 450 + 1500 + 1500 = 3450
+      assertAlmostEqual(slab450.energyCharges, 3450.0, 'Slab tariff (450 kWh crossing all 3 tiers)');
+      assertAlmostEqual(slab450.totalCost, (3450 + 110) * 1.05, 'Slab tariff total bill (450 kWh)');
+      assertAlmostEqual(slab450.effectiveRatePerKwh, slab450.totalCost / 450, 'Slab tariff effective rate (450 kWh)');
+
+      // Test 0 kWh edge case
+      const slab0 = WattWatchCalculations.calculateAdvancedTariff(0, slabSettings);
+      assertAlmostEqual(slab0.energyCharges, 0.0, 'Slab tariff 0 kWh energy charges');
+      assert(!isNaN(slab0.effectiveRatePerKwh) && isFinite(slab0.effectiveRatePerKwh), 'Slab tariff 0 kWh effective rate is safe number');
+
+      // 3. Budget Status
+      const bUnset = WattWatchCalculations.calculateBudgetStatus(1500, 0);
+      assert(bUnset.hasBudget === false, 'Budget tracker handles unset budget (0 INR)');
+
+      const bSafe = WattWatchCalculations.calculateBudgetStatus(1200, 2000);
+      assert(bSafe.status === 'safe' && bSafe.warningLevel === null, 'Budget tracker handles safe utilization (60%)');
+
+      const bWarn = WattWatchCalculations.calculateBudgetStatus(1600, 2000);
+      assert(bWarn.status === 'warning' && bWarn.warningLevel === 75, 'Budget tracker triggers Caution at 80% (>= 75%)');
+
+      const bCrit = WattWatchCalculations.calculateBudgetStatus(1850, 2000);
+      assert(bCrit.status === 'critical' && bCrit.warningLevel === 90, 'Budget tracker triggers Critical at 92.5% (>= 90%)');
+
+      const bExceed = WattWatchCalculations.calculateBudgetStatus(2200, 2000);
+      assert(bExceed.status === 'exceeded' && bExceed.warningLevel === 100, 'Budget tracker triggers Exceeded at 110% (>= 100%)');
+      assertAlmostEqual(bExceed.remaining, -200, 'Budget tracker calculates exact overage amount');
+
+      // 4. Month-to-Month Snapshot Comparison
+      const snap1 = { period: '2026-09', totalKwh: 200, totalCost: 1600 };
+      const snap2 = { period: '2026-10', totalKwh: 250, totalCost: 2000 };
+      const comp = WattWatchCalculations.compareSnapshots(snap1, snap2);
+      assertAlmostEqual(comp.kwhDiff, 50, 'Comparison kWh difference (+50 kWh)');
+      assertAlmostEqual(comp.costDiff, 400, 'Comparison cost difference (+₹400)');
+      assertAlmostEqual(comp.kwhPercentDiff, 25.0, 'Comparison kWh percent diff (+25%)');
+      assertAlmostEqual(comp.costPercentDiff, 25.0, 'Comparison cost percent diff (+25%)');
+
+      // Zero-division comparison edge cases
+      const snapZero = { period: '2026-08', totalKwh: 0, totalCost: 0 };
+      const compZeroBase = WattWatchCalculations.compareSnapshots(snapZero, snap1);
+      assert(!isNaN(compZeroBase.kwhPercentDiff) && isFinite(compZeroBase.kwhPercentDiff), 'Zero baseline comparison does not produce NaN/Infinity');
+      assertAlmostEqual(compZeroBase.kwhPercentDiff, 100.0, 'Zero baseline to non-zero handles 100% delta');
+
+      const compBothZero = WattWatchCalculations.compareSnapshots(snapZero, snapZero);
+      assertAlmostEqual(compBothZero.kwhPercentDiff, 0.0, 'Both zero comparison gives 0% delta');
+      assert(compBothZero.isIdentical === true, 'Both zero comparison flags identical');
+
+      // 5. Carbon Footprint Calculations
+      const carbon = WattWatchCalculations.calculateCarbonFootprint(300, 0.82);
+      assert(carbon.isAvailable === true, 'Carbon footprint is available with factor');
+      assertAlmostEqual(carbon.monthlyKgCO2, 246.0, 'Carbon monthly kg CO2 (300 kWh * 0.82)');
+      assertAlmostEqual(carbon.annualMetricTons, (246.0 * 12) / 1000, 'Carbon annual metric tons');
+      assertAlmostEqual(carbon.treesEquivalent, Math.round((246.0 * 12) / 21.77), 'Carbon mature tree equivalents');
+
+      const carbonDisabled = WattWatchCalculations.calculateCarbonFootprint(300, null);
+      assert(carbonDisabled.isAvailable === false, 'Carbon footprint gracefully handles null factor');
+
+      // 6. JSON Import / Export & Schema Migration
+      const sampleExport = WattWatchStorage.exportDataJSON();
+      assert(typeof sampleExport === 'string' && sampleExport.toLowerCase().includes('wattwatch'), 'JSON export produces valid payload string');
+
+      // Test legacy v1 JSON import
+      const v1Json = JSON.stringify({
+        appVersion: '1.0',
+        settings: { electricityRate: 7.50, currency: '₹' },
+        appliances: [
+          { name: 'Legacy Fan', category: 'Cooling', powerWatts: 50, dailyHours: 8, operatingDays: 30, quantity: 2 }
+        ]
+      });
+      const importV1Res = WattWatchStorage.importDataJSON(v1Json);
+      assert(importV1Res.success === true, 'Backward compatible import handles v1.0 JSON');
+      assert(importV1Res.count === 1, 'Imported 1 legacy appliance');
+
+      // Test invalid JSON import
+      const invalidRes = WattWatchStorage.importDataJSON('Not Valid JSON');
+      assert(invalidRes.success === false, 'Storage rejects invalid JSON safely');
+
+      // 7. Household Summary & Tariff Consistency
+      const testApps = [
+        { id: 't1', name: 'AC', powerWatts: 1500, dailyHours: 6, operatingDays: 30, quantity: 1, category: 'Cooling' },
+        { id: 't2', name: 'Fridge', powerWatts: 200, dailyHours: 12, operatingDays: 30, quantity: 1, category: 'Kitchen' },
+        { id: 't3', name: 'Fan', powerWatts: 50, dailyHours: 10, operatingDays: 30, quantity: 2, category: 'Cooling' }
+      ];
+      // Monthly kWh: AC = 270 kWh, Fridge = 72 kWh, Fan = 30 kWh -> Total = 372 kWh
+      const flatSummary = WattWatchCalculations.calculateHouseholdSummary(testApps, flatSettings);
+      assertAlmostEqual(flatSummary.totalMonthlyKwh, 372.0, 'Household summary total monthly kWh');
+      let sumFlatAppCosts = flatSummary.appliances.reduce((acc, a) => acc + a.monthlyCost, 0);
+      assertAlmostEqual(sumFlatAppCosts, 372.0 * 8.00, 'Flat mode sum of appliance costs matches total energy charge');
+
+      const slabSummary = WattWatchCalculations.calculateHouseholdSummary(testApps, slabSettings);
+      assertAlmostEqual(slabSummary.totalMonthlyCost, slabSummary.advancedTariff.totalCost, 'Slab mode household summary total cost matches advanced tariff total');
+      let sumSlabAppCosts = slabSummary.appliances.reduce((acc, a) => acc + a.monthlyCost, 0);
+      assertAlmostEqual(sumSlabAppCosts, slabSummary.totalMonthlyCost, 'Slab mode sum of appliance costs exactly matches total bill');
+      assertAlmostEqual(slabSummary.effectiveRatePerKwh, slabSummary.totalMonthlyCost / 372.0, 'Slab mode summary effective rate per kWh is exact');
+
+      // 8. Simulator Replacement Under Flat and Progressive Slab Tariffs
+      const baseApp = testApps[0]; // 1500W AC -> 270 kWh/mo
+      // Simulate replacing with 900W AC (same hours: 6h/d, 30d -> 162 kWh/mo, saving 108 kWh/mo)
+      const simFlat = WattWatchCalculations.simulateReplacement(baseApp, 900, 6, 30, 1, flatSettings, 30000, 372);
+      assertAlmostEqual(simFlat.savings.monthlyKwhSaved, 108.0, 'Simulator monthly kWh saved (108 kWh)');
+      assertAlmostEqual(simFlat.savings.monthlyCostSaved, 108.0 * 8.00, 'Simulator flat cost saved (108 * 8.00 = ₹864)');
+      assertAlmostEqual(simFlat.savings.paybackMonths, 30000 / 864, 'Simulator flat payback period (34.72 months)');
+
+      // Under Slab settings (372 kWh is in Tier 3 @ ₹10.00/kWh). Saving 108 kWh drops usage from 372 to 264 kWh (crossing into Tier 2 @ ₹7.50/kWh)!
+      const simSlab = WattWatchCalculations.simulateReplacement(baseApp, 900, 6, 30, 1, slabSettings, 30000, 372);
+      assert(simSlab.tariffMode === 'slab', 'Simulator identifies active slab tariff');
+      assert(simSlab.savings.monthlyCostSaved > simFlat.savings.monthlyCostSaved, 'Slab mode captures higher marginal tier savings vs flat rate');
+      const billBefore = WattWatchCalculations.calculateAdvancedTariff(372, slabSettings).totalCost;
+      const billAfter = WattWatchCalculations.calculateAdvancedTariff(264, slabSettings).totalCost;
+      assertAlmostEqual(simSlab.savings.monthlyCostSaved, billBefore - billAfter, 'Simulator slab monthly savings matches exact marginal bill reduction');
+      assertAlmostEqual(simSlab.savings.paybackMonths, 30000 / (billBefore - billAfter), 'Simulator slab payback period matches exact marginal payback');
+
+      // Edge case: replacement consumes more energy (negative savings)
+      const simHigher = WattWatchCalculations.simulateReplacement(baseApp, 2000, 6, 30, 1, slabSettings, 10000, 372);
+      assert(simHigher.savings.isSaving === false, 'Simulator correctly flags negative energy savings');
+      assert(simHigher.savings.paybackMonths === null, 'Simulator sets paybackMonths null when no financial savings');
+
+      // 9. Bill History Snapshot with Slab Effective Rate
+      WattWatchStorage.saveSettings(slabSettings);
+      const testSnap = {
+        period: '2026-11',
+        periodLabel: 'November 2026',
+        totalKwh: slabSummary.totalMonthlyKwh,
+        totalCost: slabSummary.totalMonthlyCost,
+        electricityRate: slabSummary.effectiveRatePerKwh,
+        tariffModel: 'slab',
+        tariffBreakdown: slabSummary.advancedTariff,
+        appliancesCount: 3,
+        totalUnits: 4,
+        appliancesSnapshot: JSON.parse(JSON.stringify(slabSummary.appliances))
+      };
+      WattWatchStorage.saveSnapshot(testSnap);
+      const historyList = WattWatchStorage.getHistory();
+      const savedSnap = historyList.find(h => h.period === '2026-11');
+      assert(savedSnap !== undefined, 'Snapshot saved and retrieved from storage');
+      assertAlmostEqual(savedSnap.electricityRate, slabSummary.effectiveRatePerKwh, 'Snapshot preserves exact effective rate in slab mode');
+      assertAlmostEqual(savedSnap.appliancesSnapshot.reduce((acc, a) => acc + a.monthlyCost, 0), savedSnap.totalCost, 'Frozen appliance costs in snapshot sum to total cost');
+
+      // Cleanup test snapshot
+      WattWatchStorage.deleteSnapshot(savedSnap.id);
+
+      // 10. Zero-Value Tariff Settings Preservation (Audit Fixes)
+      const zeroFixedSettings = {
+        tariffModel: 'slab',
+        electricityRate: 8.00,
+        fixedCharges: 0,
+        additionalTaxPercent: 5.0,
+        slabConfig: [
+          { upTo: 100, rate: 5.00 },
+          { upTo: null, rate: 8.00 }
+        ]
+      };
+      const resZeroFixed = WattWatchCalculations.calculateAdvancedTariff(150, zeroFixedSettings);
+      assertAlmostEqual(resZeroFixed.fixedCharge, 0.0, 'Tariff engine preserves explicit fixedCharges = 0');
+      assertAlmostEqual(resZeroFixed.taxCharges, 45.0, 'Tax calculation with fixedCharges = 0 applies only to energy charges');
+      assertAlmostEqual(resZeroFixed.totalCost, 945.0, 'Total bill with fixedCharges = 0 is exact');
+
+      const zeroTaxSettings = {
+        tariffModel: 'slab',
+        electricityRate: 8.00,
+        fixedCharges: 110,
+        additionalTaxPercent: 0,
+        slabConfig: [
+          { upTo: 100, rate: 5.00 },
+          { upTo: null, rate: 8.00 }
+        ]
+      };
+      const resZeroTax = WattWatchCalculations.calculateAdvancedTariff(150, zeroTaxSettings);
+      assertAlmostEqual(resZeroTax.taxPercent, 0.0, 'Tariff engine preserves explicit additionalTaxPercent = 0');
+      assertAlmostEqual(resZeroTax.taxCharges, 0.0, 'Tax charge with additionalTaxPercent = 0 is exactly 0 INR');
+      assertAlmostEqual(resZeroTax.totalCost, 1010.0, 'Total bill with additionalTaxPercent = 0 is exact');
+
+      const bothZeroSettings = {
+        tariffModel: 'slab',
+        electricityRate: 8.00,
+        fixedCharges: 0,
+        additionalTaxPercent: 0,
+        slabConfig: [
+          { upTo: 100, rate: 5.00 },
+          { upTo: null, rate: 8.00 }
+        ]
+      };
+      const resBothZero = WattWatchCalculations.calculateAdvancedTariff(150, bothZeroSettings);
+      assertAlmostEqual(resBothZero.totalCost, 900.0, 'Total bill with both zero fixed and zero tax equals pure energy charges');
+      assertAlmostEqual(resBothZero.effectiveRatePerKwh, 6.0, 'Effective rate with zero fixed/tax is pure energy rate');
+
+      // 11. Numeric-String Settings Handling & Type Coercion
+      const stringSettings = {
+        tariffModel: 'slab',
+        electricityRate: '8.50',
+        fixedCharges: '120.00',
+        additionalTaxPercent: '5.5',
+        slabConfig: [
+          { upTo: '100', rate: '4.50' },
+          { upTo: '300', rate: '7.50' },
+          { upTo: null, rate: '10.00' }
+        ]
+      };
+      const resStringTariff = WattWatchCalculations.calculateAdvancedTariff(250, stringSettings);
+      assert(!isNaN(resStringTariff.totalCost) && isFinite(resStringTariff.totalCost), 'Tariff calculation with numeric strings does not produce NaN');
+      assertAlmostEqual(resStringTariff.fixedCharge, 120.0, 'Fixed charge parsed accurately from numeric string');
+      assertAlmostEqual(resStringTariff.taxPercent, 5.5, 'Tax percentage parsed accurately from numeric string');
+      assertAlmostEqual(resStringTariff.totalCost, 1788.225, 'Total bill with numeric string settings is mathematically accurate');
+
+      const stringZeroSettings = {
+        tariffModel: 'slab',
+        electricityRate: '8.00',
+        fixedCharges: '0',
+        additionalTaxPercent: '0',
+        slabConfig: [
+          { upTo: '100', rate: '5.00' },
+          { upTo: null, rate: '8.00' }
+        ]
+      };
+      const resStringZero = WattWatchCalculations.calculateAdvancedTariff(100, stringZeroSettings);
+      assertAlmostEqual(resStringZero.fixedCharge, 0.0, 'Numeric string "0" for fixedCharges correctly evaluates to 0');
+      assertAlmostEqual(resStringZero.taxPercent, 0.0, 'Numeric string "0" for additionalTaxPercent correctly evaluates to 0');
+      assertAlmostEqual(resStringZero.totalCost, 500.0, 'Total bill with string "0" settings is pure energy cost');
+
+      // 12. Missing and Invalid Settings Resilience
+      const resEmpty = WattWatchCalculations.calculateAdvancedTariff(100, {});
+      assert(!isNaN(resEmpty.totalCost) && isFinite(resEmpty.totalCost), 'Advanced tariff with empty settings object does not crash or return NaN');
+      assert(resEmpty.fixedCharge >= 0, 'Fixed charge defaults safely with empty settings');
+      assert(resEmpty.taxPercent >= 0, 'Tax percent defaults safely with empty settings');
+
+      const invalidSettings = {
+        tariffModel: 'slab',
+        electricityRate: 'invalid_rate',
+        fixedCharges: 'invalid_fixed',
+        additionalTaxPercent: null,
+        slabConfig: null
+      };
+      const resInvalid = WattWatchCalculations.calculateAdvancedTariff(100, invalidSettings);
+      assert(!isNaN(resInvalid.totalCost) && isFinite(resInvalid.totalCost), 'Advanced tariff with invalid string/null settings falls back gracefully without NaN');
+
+      const summaryEmpty = WattWatchCalculations.calculateHouseholdSummary(testApps, {});
+      assert(!isNaN(summaryEmpty.totalMonthlyCost) && isFinite(summaryEmpty.totalMonthlyCost), 'Household summary with empty settings calculates safe finite cost');
+      assert(summaryEmpty.tariffModel === 'flat', 'Household summary with empty settings defaults safely to flat tariff model');
+
+      // 13. Active Tariff Model Persistence (Theme & Timeframe Changes)
+      WattWatchStorage.saveSettings(slabSettings);
+      const activeSettings = WattWatchStorage.getSettings();
+      assert(activeSettings.tariffModel === 'slab', 'Storage correctly returns slab tariff model');
+
+      // Test setTheme contract: passing active settings preserves slab tariff
+      const themeSummary = WattWatchCalculations.calculateHouseholdSummary(testApps, activeSettings);
+      assert(themeSummary.tariffModel === 'slab', 'Theme update summary preserves active slab tariff model');
+      assert(themeSummary.advancedTariff !== null, 'Theme update summary contains advanced tariff breakdown');
+      assertAlmostEqual(themeSummary.totalMonthlyCost, slabSummary.totalMonthlyCost, 'Theme update summary total cost matches progressive slab bill');
+      assert(themeSummary.totalMonthlyCost !== (themeSummary.totalMonthlyKwh * activeSettings.electricityRate), 'Theme update summary does not accidentally calculate flat rate in slab mode');
+
+      // Test timeframe change contract: passing active settings preserves slab tariff
+      const timeframeSummary = WattWatchCalculations.calculateHouseholdSummary(testApps, activeSettings);
+      assert(timeframeSummary.tariffModel === 'slab', 'Timeframe update summary preserves active slab tariff model');
+      assertAlmostEqual(timeframeSummary.ratePerKwh, slabSummary.effectiveRatePerKwh, 'Timeframe update summary ratePerKwh matches active slab effective rate');
+      assertAlmostEqual(timeframeSummary.effectiveRatePerKwh, slabSummary.effectiveRatePerKwh, 'Timeframe update summary effectiveRatePerKwh matches active slab effective rate');
+
+      // 14. UI Format Previews for Zero, Numeric Strings, and Missing Fallbacks
+      function formatFixedChargesPreview(val) {
+        const rawFixed = Number(val);
+        const fixed = (val !== undefined && val !== null && val !== '' && !isNaN(rawFixed))
+          ? Math.max(0, rawFixed)
+          : 110.00;
+        return fixed.toFixed(2);
+      }
+
+      function formatTaxPercentPreview(val) {
+        const rawTax = Number(val);
+        const tax = (val !== undefined && val !== null && val !== '' && !isNaN(rawTax))
+          ? Math.max(0, rawTax)
+          : 5.0;
+        return tax.toFixed(1);
+      }
+
+      assert(formatFixedChargesPreview(0) === '0.00', 'UI preview format preserves numeric 0 fixed charges ("0.00")');
+      assert(formatFixedChargesPreview('0') === '0.00', 'UI preview format preserves string "0" fixed charges ("0.00")');
+      assert(formatFixedChargesPreview('150.5') === '150.50', 'UI preview format parses string "150.5" to "150.50"');
+      assert(formatFixedChargesPreview(undefined) === '110.00', 'UI preview format falls back to default "110.00" when undefined');
+      assert(formatFixedChargesPreview('invalid') === '110.00', 'UI preview format falls back to default "110.00" when invalid string');
+
+      assert(formatTaxPercentPreview(0) === '0.0', 'UI preview format preserves numeric 0 tax percent ("0.0")');
+      assert(formatTaxPercentPreview('0') === '0.0', 'UI preview format preserves string "0" tax percent ("0.0")');
+      assert(formatTaxPercentPreview('7.5') === '7.5', 'UI preview format parses string "7.5" to "7.5"');
+      assert(formatTaxPercentPreview(null) === '5.0', 'UI preview format falls back to default "5.0" when null');
+      assert(formatTaxPercentPreview('') === '5.0', 'UI preview format falls back to default "5.0" when empty string');
+
+      // 15. Zero Flat-Rate Preservation & Simulator Replacement Tests
+      // Numeric 0 scalar
+      const simZeroScalar = WattWatchCalculations.simulateReplacement(baseApp, 900, 6, 30, 1, 0, 10000, 372);
+      assert(simZeroScalar.effectiveRate === 0, 'Simulator replacement preserves scalar 0 flat rate');
+      assertAlmostEqual(simZeroScalar.baseline.monthlyCost, 0, 'Baseline monthly cost is 0 with 0 flat rate');
+      assertAlmostEqual(simZeroScalar.replacement.monthlyCost, 0, 'Replacement monthly cost is 0 with 0 flat rate');
+      assertAlmostEqual(simZeroScalar.savings.monthlyCostSaved, 0, 'Monthly cost saved is 0 with 0 flat rate');
+
+      // Numeric 0 in settings object
+      const simZeroObj = WattWatchCalculations.simulateReplacement(baseApp, 900, 6, 30, 1, { electricityRate: 0, tariffModel: 'flat' }, 10000, 372);
+      assert(simZeroObj.effectiveRate === 0, 'Simulator replacement preserves object { electricityRate: 0 }');
+      assertAlmostEqual(simZeroObj.savings.monthlyCostSaved, 0, 'Monthly cost saved is 0 with object 0 flat rate');
+
+      // String "0" scalar and in settings object
+      const simStringZeroScalar = WattWatchCalculations.simulateReplacement(baseApp, 900, 6, 30, 1, '0', 10000, 372);
+      assert(simStringZeroScalar.effectiveRate === 0, 'Simulator replacement preserves scalar string "0" flat rate');
+      assertAlmostEqual(simStringZeroScalar.savings.monthlyCostSaved, 0, 'Monthly cost saved is 0 with scalar string "0"');
+
+      const simStringZeroObj = WattWatchCalculations.simulateReplacement(baseApp, 900, 6, 30, 1, { electricityRate: '0', tariffModel: 'flat' }, 10000, 372);
+      assert(simStringZeroObj.effectiveRate === 0, 'Simulator replacement preserves object string "0" flat rate');
+
+      // Positive numeric strings
+      const simStringRate = WattWatchCalculations.simulateReplacement(baseApp, 900, 6, 30, 1, '9.50', 10000, 372);
+      assertAlmostEqual(simStringRate.effectiveRate, 9.50, 'Simulator replacement parses scalar string "9.50" accurately');
+      assertAlmostEqual(simStringRate.savings.monthlyCostSaved, 108.0 * 9.50, 'Simulator replacement computes accurate savings with string "9.50" (1026 INR)');
+
+      const simStringRateObj = WattWatchCalculations.simulateReplacement(baseApp, 900, 6, 30, 1, { electricityRate: '9.50', tariffModel: 'flat' }, 10000, 372);
+      assertAlmostEqual(simStringRateObj.effectiveRate, 9.50, 'Simulator replacement parses object string "9.50" accurately');
+      assertAlmostEqual(simStringRateObj.savings.monthlyCostSaved, 108.0 * 9.50, 'Simulator replacement computes accurate savings with object string "9.50"');
+
+      // Missing and invalid flat-rate fallbacks
+      const simMissing = WattWatchCalculations.simulateReplacement(baseApp, 900, 6, 30, 1, {}, 10000, 372);
+      assertAlmostEqual(simMissing.effectiveRate, 8.00, 'Simulator replacement defaults missing electricityRate to 8.00');
+
+      const simInvalid = WattWatchCalculations.simulateReplacement(baseApp, 900, 6, 30, 1, { electricityRate: 'invalid' }, 10000, 372);
+      assertAlmostEqual(simInvalid.effectiveRate, 8.00, 'Simulator replacement defaults invalid string electricityRate to 8.00');
+
+      const simNegative = WattWatchCalculations.simulateReplacement(baseApp, 900, 6, 30, 1, { electricityRate: -5.00 }, 10000, 372);
+      assertAlmostEqual(simNegative.effectiveRate, 8.00, 'Simulator replacement rejects negative electricityRate and falls back to 8.00');
+
+      // Simulator UI flat-rate input parser validation contract
+      function parseSimulatorFlatRate(inputVal) {
+        const raw = parseFloat(inputVal);
+        return (!isNaN(raw) && raw >= 0) ? raw : 8.00;
+      }
+
+      assert(parseSimulatorFlatRate('0') === 0, 'Simulator parser preserves string "0" (evaluates to 0)');
+      assert(parseSimulatorFlatRate(0) === 0, 'Simulator parser preserves numeric 0 (evaluates to 0)');
+      assert(parseSimulatorFlatRate('9.5') === 9.5, 'Simulator parser parses "9.5" to 9.5');
+      assert(parseSimulatorFlatRate('') === 8.00, 'Simulator parser defaults empty input to 8.00');
+      assert(parseSimulatorFlatRate('abc') === 8.00, 'Simulator parser defaults invalid input to 8.00');
+      assert(parseSimulatorFlatRate('-4') === 8.00, 'Simulator parser rejects negative input and defaults to 8.00');
+
+      // Dashboard Global Pills & Overview Subtext Resolution Contract
+      function getDisplayEffectiveRate(settings, advTariff = null) {
+        const isSlab = settings.tariffModel === 'slab';
+        const rawRate = Number(settings.electricityRate);
+        const flatRate = (settings.electricityRate !== undefined && settings.electricityRate !== null && settings.electricityRate !== '' && !isNaN(rawRate) && rawRate >= 0)
+          ? rawRate
+          : 8.00;
+        return isSlab && advTariff ? advTariff.effectiveRatePerKwh : flatRate;
+      }
+
+      assert(getDisplayEffectiveRate({ tariffModel: 'flat', electricityRate: 0 }) === 0, 'Global display resolves numeric 0 flat rate to 0');
+      assert(getDisplayEffectiveRate({ tariffModel: 'flat', electricityRate: '0' }) === 0, 'Global display resolves string "0" flat rate to 0');
+      assert(getDisplayEffectiveRate({ tariffModel: 'flat', electricityRate: '12.50' }) === 12.5, 'Global display resolves string "12.50" to 12.5');
+      assert(getDisplayEffectiveRate({ tariffModel: 'flat' }) === 8.00, 'Global display defaults missing electricityRate to 8.00');
+      assert(getDisplayEffectiveRate({ tariffModel: 'flat', electricityRate: -10 }) === 8.00, 'Global display rejects negative electricityRate and defaults to 8.00');
+
+      // 16. Regression Tests: Zero Flat-Rate in Appliances & History Snapshots
+      // A. Appliance Calculations with Numeric Zero and String Zero
+      // Numeric 0
+      const appsFlatZeroNum = WattWatchAppliances.getFilteredAndSortedAppliances(testApps, { tariffModel: 'flat', electricityRate: 0 });
+      assert(appsFlatZeroNum.length === testApps.length, 'Appliances list filtered with numeric 0 flat rate returns all appliances');
+      appsFlatZeroNum.forEach(app => {
+        assert(app.monthlyCost === 0, `Appliance ${app.name} monthly cost is 0 with numeric 0 flat rate`);
+        assert(app.dailyCost === 0, `Appliance ${app.name} daily cost is 0 with numeric 0 flat rate`);
+      });
+
+      // String "0"
+      const appsFlatZeroStr = WattWatchAppliances.getFilteredAndSortedAppliances(testApps, { tariffModel: 'flat', electricityRate: '0' });
+      assert(appsFlatZeroStr.length === testApps.length, 'Appliances list filtered with string "0" flat rate returns all appliances');
+      appsFlatZeroStr.forEach(app => {
+        assert(app.monthlyCost === 0, `Appliance ${app.name} monthly cost is 0 with string "0" flat rate`);
+      });
+
+      // Positive string rate parsing in appliances table
+      const appsFlatRateStr = WattWatchAppliances.getFilteredAndSortedAppliances(testApps, { tariffModel: 'flat', electricityRate: '10.00' });
+      appsFlatRateStr.forEach(app => {
+        assertAlmostEqual(app.monthlyCost, app.monthlyKwh * 10.00, `Appliance ${app.name} cost accurately uses string rate "10.00"`);
+      });
+
+      // B. History Snapshots with Numeric Zero and String Zero Flat Rate
+      // Save snapshot with numeric 0 flat rate
+      WattWatchStorage.saveSettings({ tariffModel: 'flat', electricityRate: 0, fixedCharges: 0, additionalTaxPercent: 0 });
+      WattWatchHistory.executeSaveSnapshot('2026-12', 'December 2026');
+      const allHistory = WattWatchStorage.getHistory();
+      const snapZeroNum = allHistory.find(h => h.period === '2026-12');
+      assert(snapZeroNum !== undefined, 'History snapshot with numeric 0 flat rate saved successfully');
+      assert(snapZeroNum.electricityRate === 0, 'Saved snapshot electricityRate preserves numeric 0');
+      assert(snapZeroNum.flatRate === 0, 'Saved snapshot flatRate preserves numeric 0');
+      assert(snapZeroNum.effectiveRate === 0, 'Saved snapshot effectiveRate preserves numeric 0');
+      assert(snapZeroNum.totalCost === 0, 'Saved snapshot totalCost is 0 with 0 flat rate');
+      assert(snapZeroNum.appliancesSnapshot.every(a => a.monthlyCost === 0), 'Every appliance in saved snapshot has 0 monthly cost');
+
+      // Save snapshot with string "0" flat rate
+      WattWatchStorage.saveSettings({ tariffModel: 'flat', electricityRate: '0', fixedCharges: 0, additionalTaxPercent: 0 });
+      WattWatchHistory.executeSaveSnapshot('2027-01', 'January 2027');
+      const allHistory2 = WattWatchStorage.getHistory();
+      const snapZeroStr = allHistory2.find(h => h.period === '2027-01');
+      assert(snapZeroStr !== undefined, 'History snapshot with string "0" flat rate saved successfully');
+      assert(snapZeroStr.electricityRate === 0, 'Saved snapshot electricityRate preserves string "0"');
+      assert(snapZeroStr.flatRate === 0, 'Saved snapshot flatRate preserves string "0"');
+      assert(snapZeroStr.effectiveRate === 0, 'Saved snapshot effectiveRate preserves string "0"');
+      assert(snapZeroStr.totalCost === 0, 'Saved snapshot totalCost is 0 with string "0" flat rate');
+
+      // Clean up test snapshots
+      if (snapZeroNum) WattWatchStorage.deleteSnapshot(snapZeroNum.id);
+      if (snapZeroStr) WattWatchStorage.deleteSnapshot(snapZeroStr.id);
+
+      // C. Progressive Slab Snapshot Unchanged
+      WattWatchStorage.saveAppliances(testApps);
+      WattWatchStorage.saveSettings(slabSettings);
+      WattWatchHistory.executeSaveSnapshot('2027-02', 'February 2027');
+      const historySlab = WattWatchStorage.getHistory().find(h => h.period === '2027-02');
+      assert(historySlab !== undefined, 'Slab snapshot created successfully');
+      assert(historySlab.tariffModel === 'slab', 'Slab snapshot preserves slab tariffModel');
+      assertAlmostEqual(historySlab.effectiveRate, slabSummary.effectiveRatePerKwh, 'Slab snapshot effectiveRate matches slab effective rate');
+      assertAlmostEqual(historySlab.totalCost, slabSummary.totalMonthlyCost, 'Slab snapshot totalCost matches slab advanced tariff cost');
+      if (historySlab) WattWatchStorage.deleteSnapshot(historySlab.id);
+
+      // Restore sample data for further tests
+      WattWatchStorage.loadSampleHousehold();
+
+      // Render summary on DOM
+      const passedCount = results.filter(r => r.passed).length;
+      const failedCount = results.filter(r => !r.passed).length;
+      const totalCount = results.length;
+
+      let html = `<div id="summary">TEST_RESULTS: TOTAL=${totalCount} PASSED=${passedCount} FAILED=${failedCount}</div><ul>`;
+      results.forEach(r => {
+        html += `<li class="${r.passed ? 'pass' : 'fail'}">${r.passed ? 'PASS' : 'FAIL'}: ${r.name} ${r.details ? '(' + r.details + ')' : ''}</li>`;
+      });
+      html += '</ul>';
+      document.getElementById('test-results').innerHTML = html;
+      } catch (err) {
+        document.getElementById('test-results').innerHTML = `<div id="error">ERROR: ${err.message}\n${err.stack}</div>`;
+      }
+    }
+
+    window.addEventListener('DOMContentLoaded', runAllTests);
+  </script>
+</body>
+</html>
