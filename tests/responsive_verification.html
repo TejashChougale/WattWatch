@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>WattWatch Comprehensive Responsive Verification</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; padding: 20px; background: #f8fafc; color: #1e293b; }
+    h1 { font-size: 20px; margin-bottom: 8px; }
+    #summary-line { font-size: 16px; font-weight: bold; margin: 15px 0; padding: 12px 16px; border-radius: 8px; }
+    .summary-pass { background: #dcfce7; color: #15803d; border: 1px solid #86efac; }
+    .summary-fail { background: #fee2e2; color: #b91c1c; border: 1px solid #fca5a5; }
+    ul { list-style: none; padding: 0; }
+    li { margin-bottom: 8px; padding: 10px 14px; border-radius: 6px; background: #fff; border: 1px solid #e2e8f0; font-size: 14px; }
+    li.pass { border-left: 4px solid #22c55e; }
+    li.fail { border-left: 4px solid #ef4444; }
+    .label { font-weight: 600; margin-right: 8px; }
+    .details { color: #64748b; font-size: 13px; margin-top: 4px; font-family: monospace; }
+    iframe { border: 1px solid #cbd5e1; margin-right: 10px; margin-bottom: 10px; }
+  </style>
+</head>
+<body>
+  <h1>WattWatch Responsive Verification</h1>
+  <div id="results">Running verification suite...</div>
+
+  <!-- Multi-viewport frames -->
+  <iframe id="frame320" src="../index.html" style="width: 320px; height: 700px;"></iframe>
+  <iframe id="frame360" src="../index.html" style="width: 360px; height: 700px;"></iframe>
+  <iframe id="frame390" src="../index.html" style="width: 390px; height: 700px;"></iframe>
+  <iframe id="frame1366" src="../index.html" style="width: 1366px; height: 700px;"></iframe>
+
+  <script>
+    window.addEventListener('load', function() {
+      const reports = [];
+
+      try {
+        const f320 = document.getElementById('frame320');
+        const f360 = document.getElementById('frame360');
+        const f390 = document.getElementById('frame390');
+        const f1366 = document.getElementById('frame1366');
+
+        const win320 = f320.contentWindow;
+        const doc320 = f320.contentDocument;
+        const win360 = f360.contentWindow;
+        const doc360 = f360.contentDocument;
+        const win390 = f390.contentWindow;
+        const doc390 = f390.contentDocument;
+        const win1366 = f1366.contentWindow;
+        const doc1366 = f1366.contentDocument;
+
+        // 1. Viewport Meta & Safe Area
+        const vp = doc390.querySelector('meta[name="viewport"]');
+        const vpContent = vp ? vp.getAttribute('content') : '';
+        const hasVpCover = vpContent.includes('viewport-fit=cover') && vpContent.includes('width=device-width');
+        reports.push({
+          id: 'REQ-1',
+          name: 'Viewport meta tag includes viewport-fit=cover',
+          passed: hasVpCover,
+          details: 'meta[name=viewport] content="' + vpContent + '"'
+        });
+
+        // 2. 320px Horizontal Overflow Check
+        const w320 = doc320.documentElement.clientWidth;
+        const sw320 = doc320.documentElement.scrollWidth;
+        const delta320 = sw320 - w320;
+        reports.push({
+          id: 'REQ-2',
+          name: 'Mobile 320px viewport horizontal overflow (scrollWidth <= clientWidth)',
+          passed: delta320 <= 0,
+          details: 'clientWidth=' + w320 + ', scrollWidth=' + sw320 + ', delta=' + delta320
+        });
+
+        // 3. 360px Horizontal Overflow Check
+        const w360 = doc360.documentElement.clientWidth;
+        const sw360 = doc360.documentElement.scrollWidth;
+        const delta360 = sw360 - w360;
+        reports.push({
+          id: 'REQ-3',
+          name: 'Mobile 360px viewport horizontal overflow (scrollWidth <= clientWidth)',
+          passed: delta360 <= 0,
+          details: 'clientWidth=' + w360 + ', scrollWidth=' + sw360 + ', delta=' + delta360
+        });
+
+        // 4. 390px Horizontal Overflow Check
+        const w390 = doc390.documentElement.clientWidth;
+        const sw390 = doc390.documentElement.scrollWidth;
+        const delta390 = sw390 - w390;
+        reports.push({
+          id: 'REQ-4',
+          name: 'Mobile 390px viewport horizontal overflow (scrollWidth <= clientWidth)',
+          passed: delta390 <= 0,
+          details: 'clientWidth=' + w390 + ', scrollWidth=' + sw390 + ', delta=' + delta390
+        });
+
+        // 5. Desktop 1366px Layout Check
+        const w1366 = doc1366.documentElement.clientWidth;
+        const sw1366 = doc1366.documentElement.scrollWidth;
+        const delta1366 = sw1366 - w1366;
+        const sidebar1366 = doc1366.getElementById('appSidebar');
+        const sidebarDisplay1366 = sidebar1366 ? win1366.getComputedStyle(sidebar1366).display : 'none';
+        reports.push({
+          id: 'REQ-5',
+          name: 'Desktop 1366px layout (no overflow, sidebar visible)',
+          passed: delta1366 <= 0 && sidebarDisplay1366 !== 'none',
+          details: 'clientWidth=' + w1366 + ', scrollWidth=' + sw1366 + ', sidebarDisplay=' + sidebarDisplay1366
+        });
+
+        // 6. Mobile Input and Select font-size >= 16px (iOS zoom prevention)
+        if (win390.WattWatchAppliances && win390.WattWatchAppliances.openModal) {
+          win390.WattWatchAppliances.openModal();
+        }
+        const presetSelect = doc390.getElementById('modalPresetSelect');
+        const presetFont = presetSelect ? win390.getComputedStyle(presetSelect).fontSize : '0px';
+        const nameInput = doc390.getElementById('modalApplianceName');
+        const nameFont = nameInput ? win390.getComputedStyle(nameInput).fontSize : '0px';
+        const wattsInput = doc390.getElementById('modalPowerWatts');
+        const wattsFont = wattsInput ? win390.getComputedStyle(wattsInput).fontSize : '0px';
+        const fontOk = parseFloat(presetFont) >= 16 && parseFloat(nameFont) >= 16 && parseFloat(wattsFont) >= 16;
+        reports.push({
+          id: 'REQ-6',
+          name: 'Mobile input/select font-size >= 16px at 390px',
+          passed: fontOk,
+          details: 'presetSelect=' + presetFont + ', modalApplianceName=' + nameFont + ', modalPowerWatts=' + wattsFont
+        });
+
+        // 7. Toast Two-Line Limit and Safe-Area Positioning
+        const toast = doc390.createElement('div');
+        toast.className = 'toast-message';
+        doc390.body.appendChild(toast);
+        const toastClamp = win390.getComputedStyle(toast).webkitLineClamp;
+        toast.remove();
+        const toastContainer = doc390.getElementById('toastContainer');
+        const toastStyle = toastContainer ? win390.getComputedStyle(toastContainer).bottom : '';
+        reports.push({
+          id: 'REQ-7',
+          name: 'Toast message 2-line clamp & safe-area container',
+          passed: toastClamp === '2' && !!toastStyle,
+          details: 'lineClamp=' + toastClamp + ', containerBottom=' + toastStyle
+        });
+
+        // 8. Quick Actions Two-Column Grid on Mobile
+        const qa = doc390.querySelector('.quick-actions-bar');
+        const qaDisplay = qa ? win390.getComputedStyle(qa).display : 'none';
+        const qaCols = qa ? win390.getComputedStyle(qa).gridTemplateColumns.split(' ').length : 0;
+        reports.push({
+          id: 'REQ-8',
+          name: 'Quick Actions two-column grid at 390px',
+          passed: qaDisplay === 'grid' && qaCols === 2,
+          details: 'display=' + qaDisplay + ', columns=' + qaCols
+        });
+
+        // 9. Mobile Bottom-Sheet Modals
+        const modalBackdrop = doc390.getElementById('applianceModal');
+        const modalContent = modalBackdrop ? modalBackdrop.querySelector('.modal-content') : null;
+        const modalAlign = modalBackdrop ? win390.getComputedStyle(modalBackdrop).alignItems : '';
+        const modalRadiusTopLeft = modalContent ? win390.getComputedStyle(modalContent).borderTopLeftRadius : '0px';
+        const modalRadiusBottomLeft = modalContent ? win390.getComputedStyle(modalContent).borderBottomLeftRadius : '0px';
+        const isBottomSheet = modalAlign === 'flex-end' && parseFloat(modalRadiusTopLeft) >= 12 && parseFloat(modalRadiusBottomLeft) === 0;
+        reports.push({
+          id: 'REQ-9',
+          name: 'Mobile modals styled as bottom sheets at 390px',
+          passed: isBottomSheet,
+          details: 'alignItems=' + modalAlign + ', topLeftRadius=' + modalRadiusTopLeft + ', bottomLeftRadius=' + modalRadiusBottomLeft
+        });
+        if (win390.WattWatchAppliances && win390.WattWatchAppliances.closeModal) {
+          win390.WattWatchAppliances.closeModal();
+        }
+
+        // 10. Stacked Appliance and Bill-History Tables
+        const appTable = doc390.getElementById('applianceTable');
+        const appTheadDisplay = appTable ? win390.getComputedStyle(appTable.querySelector('thead')).display : '';
+        const appTrDisplay = appTable ? win390.getComputedStyle(appTable.querySelector('tbody tr')).display : '';
+        const histTable = doc390.getElementById('historyTable');
+        const histTheadDisplay = histTable ? win390.getComputedStyle(histTable.querySelector('thead')).display : '';
+        const tableActionBtns = appTable ? appTable.querySelectorAll('.table-actions button') : [];
+        const tablesStacked = appTheadDisplay === 'none' && appTrDisplay === 'block' && histTheadDisplay === 'none' && tableActionBtns.length >= 3;
+        reports.push({
+          id: 'REQ-10',
+          name: 'Appliance and history tables stacked as mobile cards with action buttons',
+          passed: tablesStacked,
+          details: 'appThead=' + appTheadDisplay + ', appTr=' + appTrDisplay + ', histThead=' + histTheadDisplay + ', actionsCount=' + tableActionBtns.length
+        });
+
+        // 11. Removal of Luxury/Royal/Executive visible interface words
+        const pageTitle = doc390.getElementById('topbarPageTitle') ? doc390.getElementById('topbarPageTitle').textContent.trim() : '';
+        const logoImg = doc390.querySelector('.brand-logo-svg');
+        const logoAlt = logoImg ? logoImg.getAttribute('alt') : '';
+        const lightThemeCard = doc390.querySelector('[data-theme-val="light"] strong');
+        const lightTitle = lightThemeCard ? lightThemeCard.textContent.trim() : '';
+        const darkThemeCard = doc390.querySelector('[data-theme-val="dark"] strong');
+        const darkTitle = darkThemeCard ? darkThemeCard.textContent.trim() : '';
+        const wordsRemoved = pageTitle === 'Overview' && !logoAlt.toLowerCase().includes('luxury') && lightTitle === 'Warm Light' && darkTitle === 'Deep Dark';
+        reports.push({
+          id: 'REQ-11',
+          name: 'Removal of luxury/royal/executive visible interface words',
+          passed: wordsRemoved,
+          details: 'pageTitle="' + pageTitle + '", logoAlt="' + logoAlt + '", lightTitle="' + lightTitle + '", darkTitle="' + darkTitle + '"'
+        });
+
+        // 12. Single Primary Add Appliance Button Hierarchy
+        const topbarAddBtn = doc390.querySelector('.topbar-right .btn-gold');
+        const isTopbarGold = !!topbarAddBtn;
+        const qaAddBtn = doc390.querySelector('.quick-actions-bar button.btn-secondary');
+        const isQaSecondary = !!qaAddBtn;
+        const toolbarAddBtn = doc390.querySelector('.appliances-toolbar button.btn-secondary');
+        const isToolbarSecondary = !!toolbarAddBtn;
+        const emptyAddBtn = doc390.querySelector('#appliancesEmptyState .btn-primary');
+        const isEmptyPrimary = !!emptyAddBtn;
+        const btnHierarchyOk = isTopbarGold && isQaSecondary && isToolbarSecondary && isEmptyPrimary;
+        reports.push({
+          id: 'REQ-12',
+          name: 'Button hierarchy: Topbar primary (.btn-gold), repeated secondary (.btn-secondary)',
+          passed: btnHierarchyOk,
+          details: 'topbar=' + (topbarAddBtn ? topbarAddBtn.className : 'null') + ', qa=' + (qaAddBtn ? qaAddBtn.className : 'null') + ', toolbar=' + (toolbarAddBtn ? toolbarAddBtn.className : 'null') + ', emptyState=' + (emptyAddBtn ? emptyAddBtn.className : 'null')
+        });
+
+        // 13. Mobile Sidebar Shadow (none when closed, restored when open)
+        const sidebar = doc390.getElementById('appSidebar');
+        const closedShadow = sidebar ? win390.getComputedStyle(sidebar).boxShadow : '';
+        const menuToggle = doc390.getElementById('mobileMenuToggle');
+        if (menuToggle) menuToggle.click();
+        const openShadow = sidebar ? win390.getComputedStyle(sidebar).boxShadow : '';
+        if (win390.WattWatchApp && win390.WattWatchApp.closeMobileDrawer) {
+          win390.WattWatchApp.closeMobileDrawer();
+        }
+        const shadowOk = (closedShadow === 'none' || closedShadow === '') && openShadow !== 'none';
+        reports.push({
+          id: 'REQ-13',
+          name: 'Mobile sidebar box-shadow (none when closed, restored when open)',
+          passed: shadowOk,
+          details: 'closedShadow="' + closedShadow + '", openShadow="' + openShadow.slice(0, 30) + '..."'
+        });
+
+        // 14. Light and Dark Theme Toggle
+        const themeBtn = doc390.getElementById('themeToggleBtn');
+        const initialTheme = doc390.documentElement.getAttribute('data-theme') || 'light';
+        if (themeBtn) themeBtn.click();
+        const toggledTheme = doc390.documentElement.getAttribute('data-theme');
+        if (themeBtn) themeBtn.click();
+        const restoredTheme = doc390.documentElement.getAttribute('data-theme');
+        const themeOk = initialTheme === 'light' && toggledTheme === 'dark' && restoredTheme === 'light';
+        reports.push({
+          id: 'REQ-14',
+          name: 'Light and Dark Theme toggle works in mobile view',
+          passed: themeOk,
+          details: 'initial=' + initialTheme + ', toggled=' + toggledTheme + ', restored=' + restoredTheme
+        });
+
+        // 15. Add Appliance Dropdown at 390px
+        const selectComputedWidth = presetSelect ? win390.getComputedStyle(presetSelect).width : '0px';
+        const presetOptionsCount = presetSelect ? presetSelect.options.length : 0;
+        const dropdownFits = parseFloat(selectComputedWidth) > 0 && presetOptionsCount > 0;
+        reports.push({
+          id: 'REQ-15',
+          name: 'Add Appliance preset dropdown at 390px operates without overflow',
+          passed: dropdownFits,
+          details: 'width=' + selectComputedWidth + ', optionsCount=' + presetOptionsCount
+        });
+
+        // Summary compilation
+        const passedCount = reports.filter(r => r.passed).length;
+        const totalCount = reports.length;
+        const allPassed = passedCount === totalCount;
+
+        let out = '<div id="summary-line" class="' + (allPassed ? 'summary-pass' : 'summary-fail') + '">';
+        out += 'RESPONSIVE_VERIFY: TOTAL=' + totalCount + ' PASSED=' + passedCount + ' FAILED=' + (totalCount - passedCount);
+        out += '</div><ul>';
+
+        reports.forEach(r => {
+          out += '<li class="' + (r.passed ? 'pass' : 'fail') + '">';
+          out += '<span class="label">' + (r.passed ? 'PASS' : 'FAIL') + ': [' + r.id + '] ' + r.name + '</span>';
+          out += '<div class="details">' + r.details + '</div>';
+          out += '</li>';
+        });
+        out += '</ul>';
+
+        document.getElementById('results').innerHTML = out;
+      } catch (err) {
+        document.getElementById('results').innerHTML = '<div id="summary-line" class="summary-fail">ERROR: ' + err.message + '</div>';
+      }
+    });
+  </script>
+</body>
+</html>

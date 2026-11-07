@@ -8,7 +8,12 @@
     --sidebar-width: 240px;
   }
 
-  .metrics-grid {
+  .metrics-grid,
+  .metrics-grid-3col {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .tariff-config-grid {
     grid-template-columns: repeat(2, 1fr);
   }
 
@@ -37,12 +42,15 @@
 @media screen and (max-width: 860px) {
   .app-sidebar {
     transform: translateX(-100%);
-    box-shadow: 10px 0 30px rgba(0, 0, 0, 0.4);
+    box-shadow: none;
     z-index: 1000;
+    padding-top: max(0rem, env(safe-area-inset-top, 0px));
+    padding-bottom: max(0rem, env(safe-area-inset-bottom, 0px));
   }
 
   .app-sidebar.is-open {
     transform: translateX(0);
+    box-shadow: 10px 0 30px rgba(0, 0, 0, 0.4);
   }
 
   .app-main {
@@ -72,7 +80,7 @@
   }
 
   .app-topbar {
-    padding: 0 1.25rem;
+    padding: 0 max(1.25rem, env(safe-area-inset-right, 0px)) 0 max(1.25rem, env(safe-area-inset-left, 0px));
   }
 
   .app-content {
@@ -107,20 +115,161 @@
 
 /* --- Mobile Phones (<= 640px) --- */
 @media screen and (max-width: 640px) {
-  .metrics-grid {
-    grid-template-columns: 1fr;
+  /* Mobile Horizontal Overflow Prevention */
+  .app-main,
+  .app-content,
+  .view-pane,
+  .card,
+  .metric-card,
+  .form-group,
+  .modal-content {
+    min-width: 0;
+  }
+
+  /* Safe-area insets & Mobile Topbar Adjustments */
+  .app-topbar {
+    padding-top: max(0rem, env(safe-area-inset-top, 0px));
+    padding-left: max(0.85rem, env(safe-area-inset-left, 0px));
+    padding-right: max(0.85rem, env(safe-area-inset-right, 0px));
+    gap: 0.5rem;
+  }
+
+  .topbar-left {
+    flex: 1;
+    min-width: 0;
+    gap: 0.5rem;
+  }
+
+  .mobile-menu-toggle {
+    flex-shrink: 0;
+  }
+
+  .topbar-heading-group {
+    min-width: 0;
+    overflow: hidden;
+  }
+
+  .topbar-page,
+  .topbar-page-title {
+    font-size: 1.15rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .topbar-page-subtitle {
+    display: none;
+  }
+
+  .topbar-right {
+    gap: 0.4rem;
+    flex-shrink: 0;
   }
 
   .topbar-right .topbar-chip {
     display: none;
   }
 
-  .topbar-page-title {
-    font-size: 1.15rem;
+  /* Hide .btn-label inside .topbar-right */
+  .topbar-right .btn-label {
+    display: none;
   }
 
-  .topbar-page-subtitle {
-    display: none;
+  /* Make PDF Report and Add Appliance buttons 40px × 40px icon-only buttons */
+  .topbar-right #btnOpenReportModal,
+  .topbar-right .btn-gold {
+    width: 40px;
+    height: 40px;
+    min-width: 40px;
+    max-width: 40px;
+    padding: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0;
+    flex-shrink: 0;
+    border-radius: var(--radius-md);
+  }
+
+  /* Keep their icons visible */
+  .topbar-right #btnOpenReportModal svg,
+  .topbar-right .btn-gold svg {
+    display: block;
+    margin: 0 auto;
+    flex-shrink: 0;
+  }
+
+  .topbar-right #btnTopbarAuth {
+    padding: 0.4rem 0.55rem;
+    flex-shrink: 0;
+  }
+
+  .theme-toggle-btn {
+    flex-shrink: 0;
+  }
+
+  .app-content {
+    padding-top: 1rem;
+    padding-bottom: max(2rem, calc(1.5rem + env(safe-area-inset-bottom, 0px)));
+    padding-left: max(0.75rem, env(safe-area-inset-left, 0px));
+    padding-right: max(0.75rem, env(safe-area-inset-right, 0px));
+  }
+
+  /* Item 2: Prevent iOS Safari auto-zoom on input focus (minimum 16px font-size) */
+  input,
+  select,
+  textarea,
+  .form-control,
+  #modalPresetSelect {
+    font-size: 16px !important;
+  }
+
+  .preset-picker-row {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.5rem;
+  }
+
+  .preset-picker-row .preset-picker-label {
+    margin-bottom: 0.15rem;
+  }
+
+  .preset-picker-row .form-control,
+  #modalPresetSelect {
+    width: 100% !important;
+    max-width: 100% !important;
+  }
+
+  /* Item 4: Quick Actions Two-Column Grid */
+  .quick-actions-bar {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 0.65rem;
+    padding: 1rem;
+  }
+
+  .quick-actions-label {
+    grid-column: 1 / -1;
+    margin-right: 0;
+    margin-bottom: 0.25rem;
+  }
+
+  .quick-actions-bar .btn {
+    width: 100%;
+    justify-content: center;
+    padding: 0.6rem 0.5rem;
+    font-size: 0.775rem;
+    white-space: normal;
+    text-align: center;
+  }
+
+  /* Grid Layouts Collapse */
+  .metrics-grid,
+  .metrics-grid-3col,
+  .tariff-config-grid,
+  .form-grid-2col,
+  .modal-form-row {
+    grid-template-columns: 1fr;
   }
 
   .calc-preview-box {
@@ -138,41 +287,152 @@
     min-width: 100%;
   }
 
-  .appliance-table th,
+  /* Item 6: Stacked Appliance & Bill-History Mobile Table Cards */
+  .table-responsive {
+    overflow-x: visible;
+    border: none;
+    background: transparent;
+    box-shadow: none;
+  }
+
+  .appliance-table,
+  .appliance-table tbody,
+  .appliance-table tr {
+    display: block;
+    width: 100%;
+  }
+
+  .appliance-table thead {
+    display: none;
+  }
+
+  .appliance-table tr {
+    background-color: var(--bg-surface);
+    border: 1px solid var(--border-card);
+    border-radius: var(--radius-lg);
+    padding: 1rem;
+    margin-bottom: 0.85rem;
+    box-shadow: var(--shadow-sm);
+  }
+
   .appliance-table td {
-    padding: 0.75rem 0.65rem;
-    font-size: 0.8rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.5rem 0;
+    border-bottom: 1px solid var(--border-subtle);
+    font-size: 0.85rem;
+    text-align: right;
+    gap: 0.5rem;
   }
 
-  .table-actions {
-    flex-direction: column;
-    gap: 0.25rem;
+  .appliance-table td:last-child {
+    border-bottom: none;
+    padding-top: 0.75rem;
+    justify-content: flex-end;
   }
 
-  .btn-icon {
-    width: 32px;
-    height: 32px;
+  /* Labels for Appliance Table Columns */
+  #appliancesTableWrap td:nth-child(1)::before,
+  #applianceTable td:nth-child(1)::before { content: 'Appliance'; font-weight: 600; color: var(--text-secondary); text-align: left; }
+  #appliancesTableWrap td:nth-child(2)::before,
+  #applianceTable td:nth-child(2)::before { content: 'Category'; font-weight: 600; color: var(--text-secondary); text-align: left; }
+  #appliancesTableWrap td:nth-child(3)::before,
+  #applianceTable td:nth-child(3)::before { content: 'Power'; font-weight: 600; color: var(--text-secondary); text-align: left; }
+  #appliancesTableWrap td:nth-child(4)::before,
+  #applianceTable td:nth-child(4)::before { content: 'Operating Schedule'; font-weight: 600; color: var(--text-secondary); text-align: left; }
+  #appliancesTableWrap td:nth-child(5)::before,
+  #applianceTable td:nth-child(5)::before { content: 'Monthly Energy'; font-weight: 600; color: var(--text-secondary); text-align: left; }
+  #appliancesTableWrap td:nth-child(6)::before,
+  #applianceTable td:nth-child(6)::before { content: 'Estimated Cost'; font-weight: 600; color: var(--text-secondary); text-align: left; }
+  #appliancesTableWrap td:nth-child(7)::before,
+  #applianceTable td:nth-child(7)::before { content: 'Actions'; font-weight: 600; color: var(--text-secondary); text-align: left; }
+
+  /* Labels for History Table Columns */
+  #historyTableWrap td:nth-child(1)::before,
+  #historyTable td:nth-child(1)::before { content: 'Billing Period'; font-weight: 600; color: var(--text-secondary); text-align: left; }
+  #historyTableWrap td:nth-child(2)::before,
+  #historyTable td:nth-child(2)::before { content: 'Total Energy'; font-weight: 600; color: var(--text-secondary); text-align: left; }
+  #historyTableWrap td:nth-child(3)::before,
+  #historyTable td:nth-child(3)::before { content: 'Estimated Bill'; font-weight: 600; color: var(--text-secondary); text-align: left; }
+  #historyTableWrap td:nth-child(4)::before,
+  #historyTable td:nth-child(4)::before { content: 'Tariff Model & Rate'; font-weight: 600; color: var(--text-secondary); text-align: left; }
+  #historyTableWrap td:nth-child(5)::before,
+  #historyTable td:nth-child(5)::before { content: 'Appliances'; font-weight: 600; color: var(--text-secondary); text-align: left; }
+  #historyTableWrap td:nth-child(6)::before,
+  #historyTable td:nth-child(6)::before { content: 'Recorded On'; font-weight: 600; color: var(--text-secondary); text-align: left; }
+  #historyTableWrap td:nth-child(7)::before,
+  #historyTable td:nth-child(7)::before { content: 'Actions'; font-weight: 600; color: var(--text-secondary); text-align: left; }
+
+  .appliance-table .table-actions {
+    flex-direction: row;
+    gap: 0.5rem;
+    justify-content: flex-end;
+    width: auto;
+  }
+
+  .table-actions .btn-icon {
+    width: 36px;
+    height: 36px;
+    min-width: 36px;
+  }
+
+  /* Item 5: Mobile Bottom-Sheet Modals */
+  .modal-backdrop {
+    align-items: flex-end;
+    padding: 0;
   }
 
   .modal-content {
-    margin: 0.5rem;
-    max-height: 94vh;
+    margin: 0;
+    width: 100%;
+    max-width: 100% !important;
+    max-height: 88vh;
+    border-radius: 16px 16px 0 0;
+    border-bottom: none;
+    transform: translateY(100%);
+    transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+    padding-bottom: max(1rem, env(safe-area-inset-bottom, 0px));
   }
 
-  .modal-header,
-  .modal-body,
+  .modal-backdrop.is-open .modal-content {
+    transform: translateY(0);
+  }
+
+  .modal-header {
+    padding: 1.15rem 1.25rem 0.75rem;
+    position: relative;
+  }
+
+  .modal-header::before {
+    content: '';
+    position: absolute;
+    top: 6px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 36px;
+    height: 4px;
+    background-color: var(--border-card);
+    border-radius: 2px;
+  }
+
+  .modal-body {
+    padding: 1rem 1.25rem;
+  }
+
   .modal-footer {
-    padding: 1rem;
+    padding: 0.85rem 1.25rem;
   }
 
   .theme-options-grid {
     grid-template-columns: 1fr;
   }
 
+  /* Item 3 & Safe Area for Toast Notification */
   .toast-container {
-    left: 1rem;
-    right: 1rem;
-    bottom: 1rem;
+    left: max(1rem, env(safe-area-inset-left, 0px));
+    right: max(1rem, env(safe-area-inset-right, 0px));
+    bottom: calc(1rem + env(safe-area-inset-bottom, 0px));
     max-width: none;
   }
 }

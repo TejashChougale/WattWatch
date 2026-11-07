@@ -186,7 +186,7 @@ const WattWatchApp = {
     }
 
     const titleMap = {
-      overview: { title: 'Executive Overview', sub: 'Comprehensive household energy metrics & bill projections' },
+      overview: { title: 'Overview', sub: 'Comprehensive household energy metrics & bill projections' },
       appliances: { title: 'Appliance Inventory', sub: 'Manage electrical ratings, operating schedules, and unit counts' },
       history: { title: 'Monthly Bill History', sub: 'Frozen billing snapshots, historical trends, and month-to-month comparisons' },
       analytics: { title: 'Consumption Analytics', sub: 'Granular load distributions, category allocations, and carbon footprint' },

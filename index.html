@@ -2,11 +2,11 @@
 <html lang="en" data-theme="light">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>WattWatch</title>
   
   <!-- Meta description and branding -->
-  <meta name="description" content="WattWatch is an advanced luxury electricity management and analytics platform. Monitor consumption, track electricity budgets, compare historical billing periods, simulate appliance replacements, test slab tariffs, and estimate carbon emissions.">
+  <meta name="description" content="WattWatch is an advanced electricity management and analytics platform. Monitor consumption, track electricity budgets, compare historical billing periods, simulate appliance replacements, test slab tariffs, and estimate carbon emissions.">
   <link rel="icon" type="image/svg+xml" href="assets/logo.svg">
 
   <!-- Core Stylesheets -->
@@ -29,7 +29,7 @@
       <!-- Sidebar Brand Header -->
       <div class="sidebar-header">
         <a href="#overview" class="brand-wrapper" onclick="WattWatchApp.navigateTo('overview'); return false;">
-          <img src="assets/logo.svg" alt="WattWatch Luxury Logo" class="brand-logo-svg">
+          <img src="assets/logo.svg" alt="WattWatch Logo" class="brand-logo-svg">
           <div class="brand-text">
             <span class="brand-name">WATT<span>WATCH</span></span>
             <span class="brand-subtitle">Energy Intelligence</span>
@@ -145,7 +145,7 @@
             </svg>
           </button>
           <div class="topbar-heading-group">
-            <h1 class="topbar-page-title" id="topbarPageTitle">Executive Overview</h1>
+            <h1 class="topbar-page-title topbar-page" id="topbarPageTitle">Overview</h1>
             <p class="topbar-page-subtitle" id="topbarPageSubtitle">Comprehensive household energy metrics & bill projections</p>
           </div>
         </div>
@@ -172,7 +172,7 @@
               <line x1="16" y1="17" x2="8" y2="17"/>
               <polyline points="10 9 9 9 8 9"/>
             </svg>
-            <span>PDF Report</span>
+            <span class="btn-label">PDF Report</span>
           </button>
 
           <!-- Account Access Trigger -->
@@ -181,7 +181,7 @@
               <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
               <circle cx="12" cy="7" r="4"/>
             </svg>
-            <span id="topbarAuthLabel">Sign In</span>
+            <span id="topbarAuthLabel" class="btn-label">Sign In</span>
             <span class="badge-guest" id="topbarGuestBadge" title="Using local browser storage">Guest</span>
           </button>
 
@@ -198,7 +198,7 @@
               <line x1="12" y1="5" x2="12" y2="19"/>
               <line x1="5" y1="12" x2="19" y2="12"/>
             </svg>
-            <span>Add Appliance</span>
+            <span class="btn-label">Add Appliance</span>
           </button>
         </div>
       </header>
@@ -342,7 +342,7 @@
           <!-- Quick Actions Bar -->
           <div class="quick-actions-bar">
             <span class="quick-actions-label">Quick Actions:</span>
-            <button type="button" class="btn btn-primary btn-sm" onclick="WattWatchAppliances.openModal()">
+            <button type="button" class="btn btn-secondary btn-sm" onclick="WattWatchAppliances.openModal()">
               + Add Appliance
             </button>
             <button type="button" class="btn btn-secondary btn-sm" id="btnOverviewSaveSnapshot">
@@ -419,7 +419,7 @@
                 <option value="name_asc">Name (A to Z)</option>
               </select>
               
-              <button type="button" class="btn btn-primary" onclick="WattWatchAppliances.openModal()">
+              <button type="button" class="btn btn-secondary" onclick="WattWatchAppliances.openModal()">
                 + Add Appliance
               </button>
             </div>
@@ -438,7 +438,7 @@
 
           <!-- Appliances Table -->
           <div class="table-responsive" id="appliancesTableWrap">
-            <table class="appliance-table" aria-label="Appliance Inventory Table">
+            <table class="appliance-table" id="applianceTable" aria-label="Appliance Inventory Table">
               <thead>
                 <tr>
                   <th scope="col">Appliance Name</th>
@@ -496,7 +496,7 @@
           </div>
 
           <!-- History Record Highlights -->
-          <div class="metrics-grid" style="grid-template-columns: repeat(3, 1fr); margin-bottom: 1.5rem;">
+          <div class="metrics-grid metrics-grid-3col">
             <div class="metric-card">
               <span class="metric-title">Highest Recorded Bill</span>
               <div class="metric-value" id="historyHighestBill" style="color: var(--deep-burgundy);">₹0.00</div>
@@ -573,7 +573,7 @@
             </div>
 
             <div class="table-responsive" id="historyTableWrap">
-              <table class="appliance-table" aria-label="Historical Bill Records">
+              <table class="appliance-table" id="historyTable" aria-label="Historical Bill Records">
                 <thead>
                   <tr>
                     <th scope="col">Billing Period</th>
@@ -704,7 +704,7 @@
               <span class="badge badge-cooling">Environmental Analytics</span>
             </div>
 
-            <div class="metrics-grid" style="grid-template-columns: repeat(3, 1fr); margin-bottom: 1.5rem;">
+            <div class="metrics-grid metrics-grid-3col">
               <div class="metric-card">
                 <span class="metric-title">Estimated Monthly Carbon</span>
                 <div class="metric-value" id="analyticsCarbonMonthly">0.0 kg CO₂e</div>
@@ -808,7 +808,7 @@
                   <input type="number" id="simAltWatts" class="form-control" placeholder="e.g. 900" min="1" step="1">
                 </div>
 
-                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+                <div class="form-grid-2col">
                   <div class="form-group">
                     <label for="simAltHours" class="form-label">Daily Usage (Hours):</label>
                     <input type="number" id="simAltHours" class="form-control" min="0" max="24" step="0.5">
@@ -819,7 +819,7 @@
                   </div>
                 </div>
 
-                <div style="display: grid; grid-template-columns: 1.2fr 1fr; gap: 0.75rem;">
+                <div class="form-grid-2col">
                   <div class="form-group">
                     <label for="simPurchaseCost" class="form-label">New Model Price (₹ - Optional):</label>
                     <input type="number" id="simPurchaseCost" class="form-control" placeholder="e.g. 24000" min="0" step="100">
@@ -855,7 +855,7 @@
             </div>
 
             <div class="card" style="margin-bottom: 1.5rem;">
-              <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; margin-bottom: 1.25rem;">
+              <div class="tariff-config-grid">
                 <div class="form-group">
                   <label for="calcTariffModelSelect" class="form-label">Billing Model:</label>
                   <select id="calcTariffModelSelect" class="form-control">
@@ -1078,7 +1078,7 @@
               <div class="card-header">
                 <div>
                   <h3 class="card-title">Appearance & Theme</h3>
-                  <p class="card-subtitle">Select your preferred royal luxury color scheme</p>
+                  <p class="card-subtitle">Select your preferred display theme</p>
                 </div>
                 <span class="badge badge-blue">Visual System</span>
               </div>
@@ -1091,8 +1091,8 @@
                     <div class="body"></div>
                   </div>
                   <div>
-                    <strong style="font-size: 0.9rem; color: var(--text-primary); display: block;">Royal Beige (Light)</strong>
-                    <span style="font-size: 0.75rem; color: var(--text-secondary);">Warm beige background with royal blue & antique gold</span>
+                    <strong style="font-size: 0.9rem; color: var(--text-primary); display: block;">Warm Light</strong>
+                    <span style="font-size: 0.75rem; color: var(--text-secondary);">Warm beige background with navy blue & gold accents</span>
                   </div>
                 </div>
 
@@ -1103,7 +1103,7 @@
                     <div class="body"></div>
                   </div>
                   <div>
-                    <strong style="font-size: 0.9rem; color: var(--text-primary); display: block;">Royal Dark (Luxury)</strong>
+                    <strong style="font-size: 0.9rem; color: var(--text-primary); display: block;">Deep Dark</strong>
                     <span style="font-size: 0.75rem; color: var(--text-secondary);">Deep midnight blue with gold highlights & burgundy</span>
                   </div>
                 </div>
@@ -1185,7 +1185,7 @@
           <!-- Preset Dropdown Picker -->
           <div class="preset-picker-row">
             <label for="modalPresetSelect" class="preset-picker-label">Quick Auto-Fill:</label>
-            <select id="modalPresetSelect" class="form-control" style="width: auto; max-width: 320px; font-size: 0.825rem;">
+            <select id="modalPresetSelect" class="form-control">
               <!-- Populated by appliances.js -->
             </select>
           </div>
@@ -1216,7 +1216,7 @@
           </div>
 
           <!-- Power Rating & Quantity (2 columns) -->
-          <div style="display: grid; grid-template-columns: 1.2fr 1fr; gap: 1rem;">
+          <div class="modal-form-row">
             <div class="form-group">
               <label for="modalPowerWatts" class="form-label">
                 Power Rating (Watts) <span class="required">*</span>
@@ -1235,7 +1235,7 @@
           </div>
 
           <!-- Daily Hours & Operating Days (2 columns) -->
-          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+          <div class="modal-form-row">
             <div class="form-group">
               <label for="modalDailyHours" class="form-label">
                 Daily Usage (Hours) <span class="required">*</span>
@@ -1317,7 +1317,7 @@
         <div>
           <h3 class="modal-title" id="reportModalTitle">Monthly Energy Audit Report</h3>
           <p style="font-size: 0.8rem; color: var(--text-secondary); margin-top: 0.15rem;">
-            Generate an executive printable report or download as PDF
+            Generate a printable report or download as PDF
           </p>
         </div>
         <button type="button" class="btn btn-ghost btn-icon" onclick="WattWatchReport.closeReportModal()" aria-label="Close report modal">

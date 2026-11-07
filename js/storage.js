@@ -31,7 +31,7 @@ const DEFAULT_SETTINGS = {
   carbonEmissionFactor: 0.82 // Grid emission factor in kg CO2e / kWh (India CEA avg; null if cleared)
 };
 
-// Curated sample appliances representing a typical modern luxury household
+// Curated sample appliances representing a typical modern household
 const SAMPLE_APPLIANCES = [
   {
     id: 'app_sample_1',

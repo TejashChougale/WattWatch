@@ -9,7 +9,7 @@
   position: relative;
 }
 
-/* --- Royal Blue Sidebar --- */
+/* --- Primary Navigation Sidebar --- */
 .app-sidebar {
   width: var(--sidebar-width);
   background-color: var(--bg-sidebar);
@@ -198,6 +198,7 @@
 /* --- Main Layout Wrapper --- */
 .app-main {
   flex: 1;
+  min-width: 0;
   margin-left: var(--sidebar-width);
   min-height: 100vh;
   display: flex;
@@ -307,9 +308,21 @@
   transform: rotate(15deg);
 }
 
+/* Flexible Container Sizing & Overflow Prevention */
+.app-main,
+.app-content,
+.view-pane,
+.card,
+.metric-card,
+.form-group,
+.modal-content {
+  min-width: 0;
+}
+
 /* --- Content Views Container --- */
 .app-content {
   flex: 1;
+  min-width: 0;
   padding: 2rem;
   max-width: 1400px;
   width: 100%;
@@ -318,6 +331,7 @@
 
 .view-pane {
   display: none;
+  min-width: 0;
   animation: fadeIn 0.3s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
@@ -338,7 +352,32 @@
   margin-bottom: 2rem;
 }
 
+.metrics-grid-3col {
+  grid-template-columns: repeat(3, 1fr);
+  margin-bottom: 1.5rem;
+}
+
+.tariff-config-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 1rem;
+  margin-bottom: 1.25rem;
+}
+
+.form-grid-2col {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+}
+
+.modal-form-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+}
+
 .metric-card {
+  min-width: 0;
   background-color: var(--bg-surface);
   border: 1px solid var(--border-card);
   border-radius: var(--radius-lg);
@@ -1100,6 +1139,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 0.75rem;
   padding: 0.65rem 0.85rem;
   background-color: var(--antique-gold-subtle);
   border: 1px dashed var(--antique-gold);
@@ -1111,6 +1151,11 @@
   font-size: 0.8rem;
   font-weight: 600;
   color: var(--text-gold);
+  white-space: nowrap;
+}
+
+.preset-picker-row .form-control {
+  flex: 1;
 }
 
 /* ==========================================================================
