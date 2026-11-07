@@ -21,6 +21,7 @@
   </script>
   <script src="../js/appliances.js"></script>
   <script src="../js/history.js"></script>
+  <script src="../js/auth.js"></script>
 
   <script>
     const results = [];
@@ -499,6 +500,63 @@
       if (historySlab) WattWatchStorage.deleteSnapshot(historySlab.id);
 
       // Restore sample data for further tests
+      WattWatchStorage.loadSampleHousehold();
+
+      // 11. Firebase Auth & Multi-Tenant Storage Isolation Tests
+      // A. Consistent Internal Username Email Mapping
+      assert(WattWatchAuth.getInternalEmail('alex') === 'alex@wattwatch.internal', 'Internal email mapping for simple lowercase');
+      assert(WattWatchAuth.getInternalEmail('Alex_Energy') === 'alex_energy@wattwatch.internal', 'Internal email mapping normalizes uppercase to lowercase');
+      assert(WattWatchAuth.getInternalEmail('  USER_99  ') === 'user_99@wattwatch.internal', 'Internal email mapping trims whitespace');
+
+      // B. Username Format Validation
+      assert(WattWatchAuth.validateUsername('john_doe').valid === true, 'Username validator accepts valid alphanumeric with underscore');
+      assert(WattWatchAuth.validateUsername('').valid === false, 'Username validator rejects empty input');
+      assert(WattWatchAuth.validateUsername('ab').valid === false, 'Username validator rejects < 3 characters');
+      assert(WattWatchAuth.validateUsername('john doe').valid === false, 'Username validator rejects spaces');
+      assert(WattWatchAuth.validateUsername('john@doe').valid === false, 'Username validator rejects special characters');
+
+      // C. Password Format & Matching Validation
+      assert(WattWatchAuth.validatePassword('secure123').valid === true, 'Password validator accepts >= 8 characters');
+      assert(WattWatchAuth.validatePassword('short').valid === false, 'Password validator rejects < 8 characters');
+      assert(WattWatchAuth.validatePassword('secure123', 'secure123').valid === true, 'Password validator confirms matching passwords');
+      assert(WattWatchAuth.validatePassword('secure123', 'mismatch1').valid === false, 'Password validator rejects mismatched passwords');
+
+      // D. Multi-Tenant Storage Isolation & Guest Mode Preservation
+      WattWatchStorage.setActiveUser(null);
+      const guestApp = [{ id: 'guest_app_1', name: 'Original Guest Light', category: 'Lighting', powerWatts: 20, dailyHours: 5, operatingDays: 30, quantity: 1 }];
+      WattWatchStorage.saveAppliances(guestApp);
+      assert(WattWatchStorage.getAppliances()[0].name === 'Original Guest Light', 'Guest storage saves and reads guest appliance');
+
+      // Test guest data copy to user namespace with explicit consent
+      const testUid = 'test_user_isolation_uid';
+      const copySuccess = WattWatchStorage.copyGuestDataToUser(testUid);
+      assert(copySuccess === true, 'Guest data copied to user namespace with explicit consent');
+
+      // Switch to authenticated user namespace
+      WattWatchStorage.setActiveUser(testUid);
+      assert(WattWatchStorage.getActiveUser() === testUid, 'Storage active user set to authenticated UID');
+      assert(WattWatchStorage.getAppliances()[0].name === 'Original Guest Light', 'User namespace has cloned copy of guest data');
+
+      // Modify user data in user namespace
+      const userApps = [
+        { id: 'user_app_1', name: 'Personal User Solar Array', category: 'Other', powerWatts: 3000, dailyHours: 8, operatingDays: 30, quantity: 1 }
+      ];
+      WattWatchStorage.saveAppliances(userApps);
+      assert(WattWatchStorage.getAppliances()[0].name === 'Personal User Solar Array', 'User namespace saves private appliance');
+
+      // Switch back to Guest Mode: Guest data MUST remain 100% intact and untouched
+      WattWatchStorage.setActiveUser(null);
+      assert(WattWatchStorage.getActiveUser() === null, 'Storage active user cleanly reset to Guest Mode');
+      const restoredGuestApps = WattWatchStorage.getAppliances();
+      assert(restoredGuestApps.length === 1 && restoredGuestApps[0].name === 'Original Guest Light', 'Guest Mode data is 100% preserved and never overwritten by user session');
+      assert(!restoredGuestApps.some(a => a.name === 'Personal User Solar Array'), 'User account data does not leak into Guest Mode');
+
+      // Clean up test user keys
+      localStorage.removeItem(`wattwatch_user_${testUid}_appliances`);
+      localStorage.removeItem(`wattwatch_user_${testUid}_settings`);
+      localStorage.removeItem(`wattwatch_user_${testUid}_history`);
+
+      // Restore sample household for storage
       WattWatchStorage.loadSampleHousehold();
 
       // Render summary on DOM

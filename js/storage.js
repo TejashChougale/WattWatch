@@ -106,13 +106,74 @@ const SAMPLE_APPLIANCES = [
 ];
 
 const WattWatchStorage = {
+  activeUserId: null,
+
+  /**
+   * Sets active user context (null = Guest Mode, string = Authenticated User UID)
+   * @param {string|null} uid
+   */
+  setActiveUser(uid) {
+    this.activeUserId = (typeof uid === 'string' && uid.trim().length > 0) ? uid.trim() : null;
+  },
+
+  /**
+   * Gets current active user ID or null for Guest Mode
+   * @returns {string|null}
+   */
+  getActiveUser() {
+    return this.activeUserId;
+  },
+
+  /**
+   * Resolves storage key based on active user context
+   * When in Guest Mode (activeUserId is null), returns the original guest keys.
+   * When authenticated, returns a user-isolated key namespace.
+   * @param {'APPLIANCES'|'SETTINGS'|'THEME'|'HISTORY'} entity
+   * @returns {string}
+   */
+  _getKey(entity) {
+    if (this.activeUserId && entity !== 'THEME') {
+      return `wattwatch_user_${this.activeUserId}_${entity.toLowerCase()}`;
+    }
+    return STORAGE_KEYS[entity];
+  },
+
+  /**
+   * Copies guest mode data into user's account namespace with explicit consent
+   * Leaves original guest data in localStorage 100% intact and untouched
+   * @param {string} uid
+   * @returns {boolean}
+   */
+  copyGuestDataToUser(uid) {
+    if (!uid) return false;
+    try {
+      const guestAppliances = localStorage.getItem(STORAGE_KEYS.APPLIANCES);
+      const guestSettings = localStorage.getItem(STORAGE_KEYS.SETTINGS);
+      const guestHistory = localStorage.getItem(STORAGE_KEYS.HISTORY);
+
+      if (guestAppliances) {
+        localStorage.setItem(`wattwatch_user_${uid}_appliances`, guestAppliances);
+      }
+      if (guestSettings) {
+        localStorage.setItem(`wattwatch_user_${uid}_settings`, guestSettings);
+      }
+      if (guestHistory) {
+        localStorage.setItem(`wattwatch_user_${uid}_history`, guestHistory);
+      }
+      return true;
+    } catch (e) {
+      console.error('[WattWatch Storage] Error copying guest data to user:', e);
+      return false;
+    }
+  },
+
   /**
    * Retrieves saved appliances from localStorage with safety fallback
    * @returns {Array} List of appliance objects
    */
   getAppliances() {
     try {
-      const data = localStorage.getItem(STORAGE_KEYS.APPLIANCES);
+      const data = localStorage.getItem(this._getKey('APPLIANCES'));
       if (!data) return [];
       const parsed = JSON.parse(data);
       return Array.isArray(parsed) ? parsed : [];
@@ -132,7 +193,7 @@ const WattWatchStorage = {
       if (!Array.isArray(appliances)) {
         throw new Error('Appliances must be an array');
       }
-      localStorage.setItem(STORAGE_KEYS.APPLIANCES, JSON.stringify(appliances));
+      localStorage.setItem(this._getKey('APPLIANCES'), JSON.stringify(appliances));
       return true;
     } catch (e) {
       console.error('[WattWatch Storage] Error saving appliances:', e);
@@ -146,7 +207,7 @@ const WattWatchStorage = {
    */
   getSettings() {
     try {
-      const data = localStorage.getItem(STORAGE_KEYS.SETTINGS);
+      const data = localStorage.getItem(this._getKey('SETTINGS'));
       if (!data) return { ...DEFAULT_SETTINGS };
       const parsed = JSON.parse(data);
       return { ...DEFAULT_SETTINGS, ...parsed };
@@ -165,7 +226,7 @@ const WattWatchStorage = {
     try {
       const current = this.getSettings();
       const merged = { ...current, ...settings };
-      localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(merged));
+      localStorage.setItem(this._getKey('SETTINGS'), JSON.stringify(merged));
       return true;
     } catch (e) {
       console.error('[WattWatch Storage] Error saving settings:', e);
@@ -179,7 +240,7 @@ const WattWatchStorage = {
    */
   getTheme() {
     try {
-      const theme = localStorage.getItem(STORAGE_KEYS.THEME);
+      const theme = localStorage.getItem(this._getKey('THEME'));
       return theme === 'dark' ? 'dark' : 'light';
     } catch (e) {
       return 'light';
@@ -192,7 +253,7 @@ const WattWatchStorage = {
    */
   saveTheme(theme) {
     try {
-      localStorage.setItem(STORAGE_KEYS.THEME, theme === 'dark' ? 'dark' : 'light');
+      localStorage.setItem(this._getKey('THEME'), theme === 'dark' ? 'dark' : 'light');
     } catch (e) {
       console.error('[WattWatch Storage] Error saving theme:', e);
     }
@@ -204,7 +265,7 @@ const WattWatchStorage = {
    */
   getHistory() {
     try {
-      const data = localStorage.getItem(STORAGE_KEYS.HISTORY);
+      const data = localStorage.getItem(this._getKey('HISTORY'));
       if (!data) return [];
       const parsed = JSON.parse(data);
       return Array.isArray(parsed) ? parsed : [];
@@ -222,7 +283,7 @@ const WattWatchStorage = {
   saveHistory(history) {
     try {
       if (!Array.isArray(history)) throw new Error('History must be an array');
-      localStorage.setItem(STORAGE_KEYS.HISTORY, JSON.stringify(history));
+      localStorage.setItem(this._getKey('HISTORY'), JSON.stringify(history));
       return true;
     } catch (e) {
       console.error('[WattWatch Storage] Error saving history:', e);
@@ -408,9 +469,9 @@ const WattWatchStorage = {
    */
   clearAllData() {
     try {
-      localStorage.removeItem(STORAGE_KEYS.APPLIANCES);
-      localStorage.removeItem(STORAGE_KEYS.SETTINGS);
-      localStorage.removeItem(STORAGE_KEYS.HISTORY);
+      localStorage.removeItem(this._getKey('APPLIANCES'));
+      localStorage.removeItem(this._getKey('SETTINGS'));
+      localStorage.removeItem(this._getKey('HISTORY'));
       return true;
     } catch (e) {
       console.error('[WattWatch Storage] Error clearing data:', e);

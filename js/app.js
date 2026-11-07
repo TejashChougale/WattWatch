@@ -24,6 +24,9 @@ const WattWatchApp = {
     WattWatchHistory.init();
     WattWatchSimulator.init();
     WattWatchReport.init();
+    if (typeof WattWatchAuth !== 'undefined') {
+      WattWatchAuth.init();
+    }
 
     // Bind navigation & UI controls
     this.bindNavigation();
@@ -796,11 +799,14 @@ const WattWatchApp = {
         WattWatchHistory.closeDetailsModal();
         WattWatchReport.closeReportModal();
         this.closeConfirmDialog();
+        if (typeof WattWatchAuth !== 'undefined') {
+          WattWatchAuth.closeModal();
+        }
       }
     });
 
     // Close on backdrop clicks
-    ['applianceModal', 'confirmModal', 'historyDetailModal', 'reportModal'].forEach(id => {
+    ['applianceModal', 'confirmModal', 'historyDetailModal', 'reportModal', 'authModal'].forEach(id => {
       const modal = document.getElementById(id);
       if (modal) {
         modal.addEventListener('click', (e) => {

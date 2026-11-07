@@ -175,6 +175,16 @@
             <span>PDF Report</span>
           </button>
 
+          <!-- Account Access Trigger -->
+          <button type="button" class="btn btn-secondary btn-sm" id="btnTopbarAuth" title="Account & Cloud Sync" aria-label="Sign In or Manage Account">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
+              <circle cx="12" cy="7" r="4"/>
+            </svg>
+            <span id="topbarAuthLabel">Sign In</span>
+            <span class="badge-guest" id="topbarGuestBadge" title="Using local browser storage">Guest</span>
+          </button>
+
           <!-- Light/Dark Mode Switcher -->
           <button type="button" class="theme-toggle-btn" id="themeToggleBtn" aria-label="Toggle Theme" title="Switch Theme">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -1376,6 +1386,229 @@
   </div>
 
   <!-- ==========================================
+       MODAL: USER AUTHENTICATION & RECOVERY
+       ========================================== -->
+  <div class="modal-backdrop" id="authModal" role="dialog" aria-modal="true" aria-labelledby="authModalTitle" aria-hidden="true">
+    <div class="modal-content" style="max-width: 480px;">
+      <div class="modal-header">
+        <h3 class="modal-title" id="authModalTitle">Sign In to WattWatch</h3>
+        <button type="button" class="btn btn-ghost btn-icon" onclick="WattWatchAuth.closeModal()" aria-label="Close authentication modal">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="18" y1="6" x2="6" y2="18"/>
+            <line x1="6" y1="6" x2="18" y2="18"/>
+          </svg>
+        </button>
+      </div>
+
+      <div class="modal-body">
+        <!-- Segmented Tab Navigation: Log In | Create Account | Account Recovery -->
+        <div class="auth-nav-tabs" role="tablist">
+          <button type="button" class="auth-tab-btn active" role="tab" id="authTabBtn-login" data-tab="login" aria-selected="true" aria-controls="authPane-login">
+            Log In
+          </button>
+          <button type="button" class="auth-tab-btn" role="tab" id="authTabBtn-signup" data-tab="signup" aria-selected="false" aria-controls="authPane-signup">
+            Create Account
+          </button>
+          <button type="button" class="auth-tab-btn" role="tab" id="authTabBtn-recovery" data-tab="recovery" aria-selected="false" aria-controls="authPane-recovery">
+            Recovery
+          </button>
+        </div>
+
+        <!-- Alert Banner Area (Validation / Status Feedback) -->
+        <div id="authAlertArea" role="alert" style="display: none;"></div>
+
+        <!-- TAB 1: LOG IN -->
+        <div class="auth-tab-pane active" id="authPane-login" role="tabpanel" aria-labelledby="authTabBtn-login">
+          <form id="authLoginForm" novalidate>
+            <div class="form-group" style="margin-bottom: 1.15rem;">
+              <label for="loginUsername" class="form-label">Username</label>
+              <input type="text" id="loginUsername" class="form-control" placeholder="Enter your username" autocomplete="username" spellcheck="false" required>
+            </div>
+
+            <div class="form-group" style="margin-bottom: 1.25rem;">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.35rem;">
+                <label for="loginPassword" class="form-label" style="margin-bottom: 0;">Password</label>
+                <button type="button" class="auth-text-link" onclick="WattWatchAuth.switchTab('recovery')">
+                  Forgot Password?
+                </button>
+              </div>
+              <div class="password-input-wrap">
+                <input type="password" id="loginPassword" class="form-control" placeholder="Enter your password" autocomplete="current-password" required>
+                <button type="button" class="password-toggle-btn" data-target="loginPassword" aria-label="Show password" title="Show password">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                    <circle cx="12" cy="12" r="3"/>
+                  </svg>
+                </button>
+              </div>
+            </div>
+
+            <div class="auth-actions-group">
+              <button type="submit" class="btn btn-primary" id="btnLoginSubmit" style="width: 100%; justify-content: center; padding: 0.75rem 1rem;">
+                Log In
+              </button>
+              <button type="button" class="btn btn-secondary" onclick="WattWatchAuth.continueAsGuest()" style="width: 100%; justify-content: center;">
+                Continue as Guest
+              </button>
+            </div>
+          </form>
+        </div>
+
+        <!-- TAB 2: CREATE ACCOUNT -->
+        <div class="auth-tab-pane" id="authPane-signup" role="tabpanel" aria-labelledby="authTabBtn-signup">
+          <form id="authSignupForm" novalidate>
+            <div class="form-group" style="margin-bottom: 1.15rem;">
+              <label for="signupUsername" class="form-label">Choose Username</label>
+              <input type="text" id="signupUsername" class="form-control" placeholder="e.g. solar_home" autocomplete="username" spellcheck="false" minlength="3" maxlength="30" required>
+              <div class="form-hint">3–30 characters. Letters, numbers, and underscores only. No email or phone needed.</div>
+            </div>
+
+            <div class="form-group" style="margin-bottom: 1.15rem;">
+              <label for="signupPassword" class="form-label">Password</label>
+              <div class="password-input-wrap">
+                <input type="password" id="signupPassword" class="form-control" placeholder="At least 8 characters" autocomplete="new-password" minlength="8" required>
+                <button type="button" class="password-toggle-btn" data-target="signupPassword" aria-label="Show password" title="Show password">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                    <circle cx="12" cy="12" r="3"/>
+                  </svg>
+                </button>
+              </div>
+            </div>
+
+            <div class="form-group" style="margin-bottom: 1.15rem;">
+              <label for="signupPasswordConfirm" class="form-label">Confirm Password</label>
+              <div class="password-input-wrap">
+                <input type="password" id="signupPasswordConfirm" class="form-control" placeholder="Re-enter password" autocomplete="new-password" minlength="8" required>
+                <button type="button" class="password-toggle-btn" data-target="signupPasswordConfirm" aria-label="Show password" title="Show password">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                    <circle cx="12" cy="12" r="3"/>
+                  </svg>
+                </button>
+              </div>
+            </div>
+
+            <!-- Option to import existing guest appliances and settings -->
+            <label class="auth-checkbox-wrap">
+              <input type="checkbox" id="signupImportGuestData" checked>
+              <span>Import existing guest appliances, tariff settings, and billing history into this new account</span>
+            </label>
+
+            <div class="auth-actions-group">
+              <button type="submit" class="btn btn-primary" id="btnSignupSubmit" style="width: 100%; justify-content: center; padding: 0.75rem 1rem;">
+                Create Account
+              </button>
+              <button type="button" class="btn btn-secondary" onclick="WattWatchAuth.continueAsGuest()" style="width: 100%; justify-content: center;">
+                Continue as Guest
+              </button>
+            </div>
+          </form>
+        </div>
+
+        <!-- TAB 3: ACCOUNT RECOVERY -->
+        <div class="auth-tab-pane" id="authPane-recovery" role="tabpanel" aria-labelledby="authTabBtn-recovery">
+          <form id="authRecoveryForm" novalidate>
+            <div style="font-size: 0.825rem; color: var(--text-secondary); margin-bottom: 1.15rem; line-height: 1.45;">
+              Because WattWatch does not store email addresses or phone numbers, enter your username and the 16-character recovery key provided during account setup.
+            </div>
+
+            <div class="form-group" style="margin-bottom: 1.15rem;">
+              <label for="recoveryUsername" class="form-label">Username</label>
+              <input type="text" id="recoveryUsername" class="form-control" placeholder="Enter your username" autocomplete="username" spellcheck="false" required>
+            </div>
+
+            <div class="form-group" style="margin-bottom: 1.15rem;">
+              <label for="recoveryKey" class="form-label">Recovery Key</label>
+              <input type="text" id="recoveryKey" class="form-control recovery-key-input" placeholder="WATT-XXXX-XXXX-XXXX" maxlength="24" spellcheck="false" required>
+              <div class="form-hint">Format: WATT-XXXX-XXXX-XXXX (issued upon registration)</div>
+            </div>
+
+            <div class="form-group" style="margin-bottom: 1.15rem;">
+              <label for="recoveryNewPassword" class="form-label">New Password</label>
+              <div class="password-input-wrap">
+                <input type="password" id="recoveryNewPassword" class="form-control" placeholder="New password (min 8 characters)" autocomplete="new-password" minlength="8" required>
+                <button type="button" class="password-toggle-btn" data-target="recoveryNewPassword" aria-label="Show password" title="Show password">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                    <circle cx="12" cy="12" r="3"/>
+                  </svg>
+                </button>
+              </div>
+            </div>
+
+            <div class="form-group" style="margin-bottom: 1.25rem;">
+              <label for="recoveryNewPasswordConfirm" class="form-label">Confirm New Password</label>
+              <div class="password-input-wrap">
+                <input type="password" id="recoveryNewPasswordConfirm" class="form-control" placeholder="Confirm new password" autocomplete="new-password" minlength="8" required>
+                <button type="button" class="password-toggle-btn" data-target="recoveryNewPasswordConfirm" aria-label="Show password" title="Show password">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                    <circle cx="12" cy="12" r="3"/>
+                  </svg>
+                </button>
+              </div>
+            </div>
+
+            <div class="auth-actions-group">
+              <button type="submit" class="btn btn-primary" id="btnRecoverySubmit" style="width: 100%; justify-content: center; padding: 0.75rem 1rem;">
+                Reset Password
+              </button>
+              <button type="button" class="btn btn-secondary" onclick="WattWatchAuth.switchTab('login')" style="width: 100%; justify-content: center;">
+                Back to Log In
+              </button>
+              <button type="button" class="btn btn-ghost btn-sm" onclick="WattWatchAuth.continueAsGuest()" style="width: 100%; justify-content: center;">
+                Continue as Guest
+              </button>
+            </div>
+          </form>
+        </div>
+
+        <!-- TAB 4: ACTIVE ACCOUNT VIEW (When Signed In) -->
+        <div class="auth-tab-pane" id="authPane-account" role="tabpanel">
+          <div style="text-align: center; padding: 1.25rem 0.5rem;">
+            <div class="user-avatar-circle" id="accountAvatarCircle">
+              <span id="accountAvatarLetter">W</span>
+            </div>
+            <h4 id="accountDisplayName" style="margin: 0.75rem 0 0.25rem 0; font-family: var(--font-serif); font-size: 1.35rem; color: var(--text-primary);"></h4>
+            <p id="accountUsernameSub" style="font-size: 0.825rem; color: var(--text-secondary); margin: 0;"></p>
+            <div style="margin-top: 0.75rem;">
+              <span class="badge badge-user">Authenticated Account</span>
+            </div>
+            <p style="font-size: 0.78rem; color: var(--text-secondary); margin-top: 1rem; line-height: 1.45;">
+              Your appliance inventory, settings, and billing comparisons are saved under your private account.
+            </p>
+          </div>
+
+          <div class="auth-actions-group">
+            <button type="button" class="btn btn-secondary" onclick="WattWatchAuth.signOut()" style="width: 100%; justify-content: center; color: #B91C1C; border-color: rgba(185, 28, 28, 0.3);">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: 0.4rem;">
+                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
+                <polyline points="16 17 21 12 16 7"/>
+                <line x1="21" y1="12" x2="9" y2="12"/>
+              </svg>
+              <span>Sign Out (Switch to Guest Mode)</span>
+            </button>
+            <button type="button" class="btn btn-ghost" onclick="WattWatchAuth.closeModal()" style="width: 100%; justify-content: center;">
+              Continue to Dashboard
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div class="modal-footer" style="justify-content: space-between; align-items: center;">
+        <span style="font-size: 0.775rem; color: var(--text-secondary); display: flex; align-items: center; gap: 0.35rem;">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+          Username-only secure access
+        </span>
+        <button type="button" class="btn btn-secondary btn-sm" onclick="WattWatchAuth.closeModal()">
+          Close
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==========================================
        TOAST NOTIFICATIONS CONTAINER
        ========================================== -->
   <div class="toast-container" id="toastContainer" aria-live="polite" aria-atomic="true"></div>
@@ -1400,6 +1633,7 @@
   <script src="js/history.js"></script>
   <script src="js/simulator.js"></script>
   <script src="js/report.js"></script>
+  <script src="js/auth.js"></script>
   <script src="js/app.js"></script>
 </body>
 </html>
