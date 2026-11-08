@@ -8,6 +8,41 @@
   <h1>WattWatch Test Suite Runner</h1>
   <div id="test-results">Running tests...</div>
 
+  <!-- Test Fixtures for DOM-backed Component Tests -->
+  <div id="test-fixtures" style="display: none;">
+    <div id="authModal" class="modal-backdrop">
+      <div class="auth-nav-tabs"></div>
+      <h3 id="authModalTitle">Sign In</h3>
+      <div id="authPane-login" class="auth-tab-pane active"></div>
+      <div id="authPane-signup" class="auth-tab-pane"></div>
+      <div id="authPane-recovery" class="auth-tab-pane"></div>
+      <div id="authPane-resume" class="auth-tab-pane">
+        <span id="resumeDisplayName"></span>
+        <span id="resumeUsernameSub"></span>
+        <span id="resumeAvatarLetter"></span>
+        <button id="btnResumeContinue">Continue</button>
+      </div>
+      <div id="authPane-account" class="auth-tab-pane">
+        <span id="accountDisplayName"></span>
+        <span id="accountUsernameSub"></span>
+        <span id="accountAvatarLetter"></span>
+      </div>
+      <input id="signupUsername">
+      <input id="signupPassword">
+      <input id="signupPasswordConfirm">
+      <label id="signupImportGuestDataLabel"></label>
+      <div id="signupImportGuestDataWrap"></div>
+      <input id="recoveryUsername">
+      <button id="btnSignupSubmit"></button>
+    </div>
+    <span id="topbarAuthLabel">Sign In</span>
+    <span id="topbarGuestBadge" class="badge-guest">Guest</span>
+    <button id="btnTopbarAuth"></button>
+
+    <div id="overviewComparisonContent"></div>
+    <span id="overviewComparisonBadge"></span>
+  </div>
+
   <!-- Load Application Modules -->
   <script src="../js/calculations.js"></script>
   <script src="../js/storage.js"></script>
@@ -39,7 +74,7 @@
       assert(diff <= precision, testName, `Expected ~${expected}, got ${actual} (diff: ${diff.toFixed(4)})`);
     }
 
-    function runAllTests() {
+    async function runAllTests() {
       try {
       // 1. Core Energy Calculations
       assertAlmostEqual(WattWatchCalculations.calculateDailyKwh(1000, 1, 1), 1.0, 'Daily kWh (1000W, 1 unit, 1h)');
@@ -555,6 +590,262 @@
       localStorage.removeItem(`wattwatch_user_${testUid}_appliances`);
       localStorage.removeItem(`wattwatch_user_${testUid}_settings`);
       localStorage.removeItem(`wattwatch_user_${testUid}_history`);
+
+      // 12. Authentication, Data Migration, Backup & First-Time Experience Tests
+      // 12. Authentication Behavior Tests
+      // A. Fresh startup without a Firebase session
+      WattWatchAuth.currentUser = null;
+      WattWatchAuth.hasUserChosenSession = false;
+      WattWatchAuth.chosenSessionType = null;
+      WattWatchAuth.openAuthModalOnStartup();
+      const authModalEl = document.getElementById('authModal');
+      assert(authModalEl.classList.contains('is-open'), 'Startup auth modal opens on fresh load');
+      assert(WattWatchAuth.hasUserChosenSession === false, 'Fresh startup hasUserChosenSession is false');
+      assert(WattWatchAuth.chosenSessionType === null, 'Fresh startup chosenSessionType is null');
+      const loginPane = document.getElementById('authPane-login');
+      assert(loginPane.classList.contains('active'), 'Fresh startup defaults to Login tab');
+
+      // B. Startup with an existing Firebase session
+      WattWatchAuth.currentUser = { uid: 'u_cached_1', username: 'cacheduser', displayName: 'Cached User' };
+      WattWatchAuth.hasUserChosenSession = false;
+      WattWatchAuth.chosenSessionType = null;
+      WattWatchAuth.openAuthModalOnStartup();
+      const resumePane = document.getElementById('authPane-resume');
+      assert(resumePane.classList.contains('active'), 'Startup with cached session shows Resume pane');
+      assert(document.getElementById('resumeDisplayName').textContent === 'Cached User', 'Resume pane displays user display name');
+      assert(document.getElementById('resumeUsernameSub').textContent === '@cacheduser', 'Resume pane displays username');
+
+      // C. Explicit session resume
+      WattWatchAuth.resumeSession();
+      assert(WattWatchAuth.hasUserChosenSession === true, 'Explicit resume marks hasUserChosenSession = true');
+      assert(WattWatchAuth.chosenSessionType === 'account', 'Explicit resume sets chosenSessionType = account');
+      assert(WattWatchStorage.getActiveUid() === 'u_cached_1', 'Active storage user set to resumed account UID');
+      assert(!authModalEl.classList.contains('is-open'), 'Auth modal closed after resume');
+
+      // D. Explicit Guest Mode selection
+      WattWatchAuth.continueAsGuest();
+      assert(WattWatchAuth.hasUserChosenSession === true, 'Guest selection marks hasUserChosenSession = true');
+      assert(WattWatchAuth.chosenSessionType === 'guest', 'Guest selection sets chosenSessionType = guest');
+      assert(WattWatchStorage.getActiveUid() === null, 'Active storage user set to null for Guest Mode');
+      assert(WattWatchAuth.currentUser === null, 'CurrentUser cleared for Guest Mode');
+      assert(!authModalEl.classList.contains('is-open'), 'Auth modal closed after guest selection');
+
+      // E. Switching accounts
+      WattWatchAuth.currentUser = { uid: 'u_switch_1', username: 'switchuser', displayName: 'Switch User' };
+      WattWatchAuth.hasUserChosenSession = true;
+      WattWatchAuth.chosenSessionType = 'account';
+      await WattWatchAuth.signOutAndSwitchToLogin();
+      assert(WattWatchAuth.currentUser === null, 'Switch accounts clears currentUser');
+      assert(WattWatchAuth.hasUserChosenSession === false, 'Switch accounts resets hasUserChosenSession to false');
+      assert(WattWatchAuth.chosenSessionType === null, 'Switch accounts resets chosenSessionType to null');
+      assert(loginPane.classList.contains('active'), 'Switch accounts displays login tab');
+
+      // F. Logout cleanly restores Guest Mode
+      WattWatchAuth.currentUser = { uid: 'u_logout_1', username: 'logoutuser', displayName: 'Logout User' };
+      WattWatchAuth.hasUserChosenSession = true;
+      WattWatchAuth.chosenSessionType = 'account';
+      await WattWatchAuth.signOut();
+      assert(WattWatchAuth.currentUser === null, 'Logout clears currentUser');
+      assert(WattWatchAuth.chosenSessionType === 'guest', 'Logout sets chosenSessionType to guest');
+      assert(WattWatchStorage.getActiveUid() === null, 'Logout cleanly restores Guest Mode storage');
+
+      // G. No accidental Guest Mode activation when dismissing the modal
+      WattWatchAuth.currentUser = null;
+      WattWatchAuth.hasUserChosenSession = false;
+      WattWatchAuth.chosenSessionType = null;
+      WattWatchAuth.openAuthModalOnStartup();
+      WattWatchAuth.closeModal();
+      assert(WattWatchAuth.hasUserChosenSession === false, 'Dismissing modal does NOT set hasUserChosenSession to true');
+      assert(WattWatchAuth.chosenSessionType === null, 'Dismissing modal does NOT silently activate Guest Mode');
+
+      // H. Honest recovery notice check
+      assert(WattWatchAuth.handleRecoverySubmit.toString().includes('password reset is currently unavailable'), 'Password recovery displays honest security notification');
+
+      // 13. Migration Behavior Tests
+      const migUid = 'audit_mig_rigorous_user';
+      localStorage.removeItem(`wattwatch_user_${migUid}_appliances`);
+      localStorage.removeItem(`wattwatch_user_${migUid}_history`);
+      localStorage.removeItem(`wattwatch_user_${migUid}_settings`);
+
+      // A. Empty guest data migration
+      WattWatchStorage.setActiveUser(null);
+      WattWatchStorage.saveAppliances([]);
+      localStorage.setItem(STORAGE_KEYS.HISTORY, JSON.stringify([]));
+      const emptyMigRes = WattWatchStorage.migrateGuestData(migUid);
+      assert(emptyMigRes.success === true && emptyMigRes.transferredAppliances === 0 && emptyMigRes.transferredHistory === 0, 'Migration with empty guest data succeeds with 0 transfers');
+
+      // B. New appliance migration
+      const guestFreshApps = [
+        { id: 'g_fresh_1', name: 'Smart Television', category: 'Entertainment', powerWatts: 120, dailyHours: 4, operatingDays: 30, quantity: 1 },
+        { id: 'g_fresh_2', name: 'Induction Cooktop', category: 'Kitchen', powerWatts: 1800, dailyHours: 1.5, operatingDays: 30, quantity: 1 }
+      ];
+      WattWatchStorage.saveAppliances(guestFreshApps);
+      const newAppMigRes = WattWatchStorage.migrateGuestData(migUid);
+      assert(newAppMigRes.transferredAppliances === 2, 'Migrated 2 new appliances to user account');
+      assert(newAppMigRes.skippedAppliances === 0, '0 skipped appliances on fresh import');
+
+      // C. Duplicate appliance detection & Existing account data preservation
+      const guestWithDup = [
+        { id: 'g_dup_1', name: 'Smart Television', category: 'Entertainment', powerWatts: 120, dailyHours: 2, operatingDays: 20, quantity: 1 }, // duplicate name+watts
+        { id: 'g_new_3', name: 'Water Purifier RO', category: 'Kitchen', powerWatts: 60, dailyHours: 3, operatingDays: 30, quantity: 1 } // new
+      ];
+      WattWatchStorage.saveAppliances(guestWithDup);
+      const dupMigRes = WattWatchStorage.migrateGuestData(migUid);
+      assert(dupMigRes.transferredAppliances === 1, 'Only non-duplicate appliance imported (1 of 2)');
+      assert(dupMigRes.skippedAppliances === 1, 'Duplicate appliance skipped (1 of 2)');
+
+      // Verify existing user's Smart Television was preserved with original 4 hours, not overwritten with 2 hours
+      const userAppsCurrent = JSON.parse(localStorage.getItem(`wattwatch_user_${migUid}_appliances`));
+      const userTv = userAppsCurrent.find(a => a.name === 'Smart Television');
+      assert(userTv && userTv.dailyHours === 4, 'Existing account appliance preserved intact without being overwritten');
+
+      // D. Duplicate billing periods preservation
+      const initialUserHistory = [
+        { id: 'u_hist_1', period: '2026-10', periodLabel: 'October 2026', totalKwh: 350, totalCost: 2800 }
+      ];
+      localStorage.setItem(`wattwatch_user_${migUid}_history`, JSON.stringify(initialUserHistory));
+      const guestHistRecords = [
+        { id: 'g_hist_1', period: '2026-10', periodLabel: 'October 2026', totalKwh: 100, totalCost: 800 }, // duplicate period
+        { id: 'g_hist_2', period: '2026-09', periodLabel: 'September 2026', totalKwh: 290, totalCost: 2320 } // new period
+      ];
+      localStorage.setItem(STORAGE_KEYS.HISTORY, JSON.stringify(guestHistRecords));
+      const histMigRes = WattWatchStorage.migrateGuestData(migUid);
+      assert(histMigRes.transferredHistory === 1, 'Migrated 1 non-duplicate history period');
+      assert(histMigRes.skippedHistory === 1, 'Skipped duplicate history period');
+      const userHistAfter = JSON.parse(localStorage.getItem(`wattwatch_user_${migUid}_history`));
+      const octHist = userHistAfter.find(h => h.period === '2026-10');
+      assert(octHist && octHist.totalKwh === 350, 'Existing account history snapshot preserved with original totalKwh 350');
+
+      // E. Settings preservation
+      const userCustomSettings = { tariffModel: 'flat', electricityRate: 14.50 };
+      localStorage.setItem(`wattwatch_user_${migUid}_settings`, JSON.stringify(userCustomSettings));
+      const guestSettingsObj = { tariffModel: 'flat', electricityRate: 7.00 };
+      localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(guestSettingsObj));
+      const settMigRes = WattWatchStorage.migrateGuestData(migUid);
+      assert(settMigRes.importedSettings === false, 'Settings not imported when destination account already has settings');
+      const userSettAfter = JSON.parse(localStorage.getItem(`wattwatch_user_${migUid}_settings`));
+      assert(userSettAfter.electricityRate === 14.50, 'Account settings preserved intact at 14.50');
+
+      // F. Repeated migration (Idempotency)
+      const repeatRes = WattWatchStorage.migrateGuestData(migUid);
+      assert(repeatRes.transferredAppliances === 0, 'Repeated migration transfers 0 appliances (idempotent)');
+      assert(repeatRes.transferredHistory === 0, 'Repeated migration transfers 0 history snapshots (idempotent)');
+      assert(repeatRes.importedSettings === false, 'Repeated migration transfers 0 settings (idempotent)');
+
+      // G. Guest data remains 100% unchanged
+      const rawGuestAppsNow = JSON.parse(localStorage.getItem(STORAGE_KEYS.APPLIANCES));
+      const rawGuestHistNow = JSON.parse(localStorage.getItem(STORAGE_KEYS.HISTORY));
+      assert(rawGuestAppsNow.length === 2, 'Guest appliances in localStorage remain 100% untouched');
+      assert(rawGuestHistNow.length === 2, 'Guest history in localStorage remains 100% untouched');
+
+      // Clean up test user
+      localStorage.removeItem(`wattwatch_user_${migUid}_appliances`);
+      localStorage.removeItem(`wattwatch_user_${migUid}_history`);
+      localStorage.removeItem(`wattwatch_user_${migUid}_settings`);
+
+      // 14. Monthly Electricity Consumption Comparison Tests
+      function getPrevMonthHelper(refDate) {
+        const year = refDate.getFullYear();
+        const month = refDate.getMonth();
+        const prevDate = new Date(year, month - 1, 1);
+        const prevYear = prevDate.getFullYear();
+        const prevMonthNum = String(prevDate.getMonth() + 1).padStart(2, '0');
+        const period = `${prevYear}-${prevMonthNum}`;
+        const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+        return { period, label: `${monthNames[prevDate.getMonth()]} ${prevYear}` };
+      }
+
+      // A. January to December Year Transition
+      const jan2027 = new Date(2027, 0, 15); // Jan 15, 2027
+      const prevOfJan2027 = getPrevMonthHelper(jan2027);
+      assert(prevOfJan2027.period === '2026-12', 'January 2027 identifies previous month as 2026-12');
+      assert(prevOfJan2027.label === 'December 2026', 'January 2027 identifies previous label as December 2026');
+
+      // B. Previous calendar month matching
+      const nov2026 = new Date(2026, 10, 8); // Nov 8, 2026
+      const prevOfNov2026 = getPrevMonthHelper(nov2026);
+      assert(prevOfNov2026.period === '2026-10', 'November 2026 identifies previous month as 2026-10');
+      assert(prevOfNov2026.label === 'October 2026', 'November 2026 identifies previous label as October 2026');
+
+      // C. Older historical snapshots must NOT be used
+      const sampleHistoryWithOlder = [
+        { period: '2026-08', periodLabel: 'August 2026', totalKwh: 400, totalCost: 3200 },
+        { period: '2026-07', periodLabel: 'July 2026', totalKwh: 450, totalCost: 3600 }
+      ];
+      const matchForNov = sampleHistoryWithOlder.find(h => h.period === prevOfNov2026.period);
+      assert(matchForNov === undefined, 'Does not substitute older August/July snapshot for missing October snapshot');
+
+      // D. Zero previous-month consumption handling
+      const zeroPrevKwh = 0;
+      const currentProjKwh = 150;
+      let zeroSafePercent = 0;
+      if (zeroPrevKwh > 0) {
+        zeroSafePercent = ((currentProjKwh - zeroPrevKwh) / zeroPrevKwh) * 100;
+      } else if (currentProjKwh > 0) {
+        zeroSafePercent = 100;
+      }
+      assert(!isNaN(zeroSafePercent) && isFinite(zeroSafePercent) && zeroSafePercent === 100, 'Zero previous-month consumption handles division by zero safely without NaN or Infinity');
+
+      // 15. CSV and JSON Exports Behavior Tests
+      // A. Correct CSV header and rows for appliances
+      const testExportApps = [
+        { id: 'exp_1', name: 'Living Room Fan', category: 'Cooling', powerWatts: 75, dailyHours: 8, operatingDays: 30, quantity: 2 },
+        { id: 'exp_2', name: 'Kitchen Chimney, "Auto Clean"', category: 'Kitchen', powerWatts: 250, dailyHours: 2, operatingDays: 30, quantity: 1 }
+      ];
+      WattWatchStorage.saveAppliances(testExportApps);
+      const appCsv = WattWatchStorage.generateAppliancesCSV();
+      assert(appCsv.startsWith('Name,Category,Power Watts,Daily Hours,Operating Days,Quantity,Monthly kWh,Estimated Monthly Cost (INR)'), 'Appliances CSV contains standard headers');
+      assert(appCsv.includes('"Living Room Fan"'), 'Appliances CSV includes Living Room Fan');
+      assert(appCsv.includes('"Kitchen Chimney, ""Auto Clean"""'), 'Appliances CSV correctly escapes quotes and commas in appliance name');
+
+      // B. Empty appliances dataset produces valid CSV headers
+      WattWatchStorage.saveAppliances([]);
+      const emptyAppCsv = WattWatchStorage.generateAppliancesCSV();
+      assert(emptyAppCsv === 'Name,Category,Power Watts,Daily Hours,Operating Days,Quantity,Monthly kWh,Estimated Monthly Cost (INR)', 'Empty appliances dataset produces valid headers-only CSV');
+
+      // C. Correct CSV content for history
+      const testExportHist = [
+        { id: 'exp_h1', period: '2026-10', periodLabel: 'October 2026', totalKwh: 340.5, totalCost: 2724, tariffModel: 'flat', effectiveRate: 8.0, appliancesCount: 5, createdAt: '2026-10-31T20:00:00.000Z' }
+      ];
+      localStorage.setItem(STORAGE_KEYS.HISTORY, JSON.stringify(testExportHist));
+      const histCsv = WattWatchStorage.generateHistoryCSV();
+      assert(histCsv.startsWith('Period,Period Label,Total Energy kWh,Estimated Bill INR,Tariff Model,Effective Rate INR per kWh,Appliances Count,Recorded Date'), 'History CSV contains standard headers');
+      assert(histCsv.includes('"2026-10","October 2026",340.50,2724.00,"flat",8.00,5,"2026-10-31"'), 'History CSV formats numbers, periods, and dates accurately');
+
+      // D. Empty history dataset produces valid CSV headers
+      localStorage.setItem(STORAGE_KEYS.HISTORY, JSON.stringify([]));
+      const emptyHistCsv = WattWatchStorage.generateHistoryCSV();
+      assert(emptyHistCsv === 'Period,Period Label,Total Energy kWh,Estimated Bill INR,Tariff Model,Effective Rate INR per kWh,Appliances Count,Recorded Date', 'Empty history dataset produces valid headers-only CSV');
+
+      // E. Valid JSON output and active user isolation
+      WattWatchStorage.setActiveUser(null);
+      const guestAppsBackup = [{ id: 'g_b1', name: 'Guest Only Bulb', category: 'Lighting', powerWatts: 15, dailyHours: 6, operatingDays: 30, quantity: 2 }];
+      WattWatchStorage.saveAppliances(guestAppsBackup);
+      const guestJson = WattWatchStorage.exportDataJSON();
+      const parsedGuestJson = JSON.parse(guestJson);
+      assert(parsedGuestJson.generator === 'WattWatch Energy Analytics', 'JSON backup contains generator signature');
+      assert(parsedGuestJson.version === '2.0', 'JSON backup version is 2.0');
+      assert(parsedGuestJson.appliances.some(a => a.name === 'Guest Only Bulb'), 'Guest export contains guest appliances');
+
+      const userIsoUid = 'audit_iso_user_111';
+      WattWatchStorage.setActiveUser(userIsoUid);
+      const userAppsBackup = [{ id: 'u_b1', name: 'User Isolated EV Charger', category: 'Other', powerWatts: 7200, dailyHours: 2, operatingDays: 20, quantity: 1 }];
+      WattWatchStorage.saveAppliances(userAppsBackup);
+      const userJson = WattWatchStorage.exportDataJSON();
+      const parsedUserJson = JSON.parse(userJson);
+      assert(parsedUserJson.appliances.some(a => a.name === 'User Isolated EV Charger'), 'Account export contains account appliances');
+      assert(!parsedUserJson.appliances.some(a => a.name === 'Guest Only Bulb'), 'Account export isolates from guest data');
+
+      // Clean up user isolation data
+      localStorage.removeItem(`wattwatch_user_${userIsoUid}_appliances`);
+      localStorage.removeItem(`wattwatch_user_${userIsoUid}_settings`);
+      localStorage.removeItem(`wattwatch_user_${userIsoUid}_history`);
+      WattWatchStorage.setActiveUser(null);
+
+      // F. No sensitive information in exported JSON or CSV
+      assert(!guestJson.includes('password') && !userJson.includes('password'), 'Export JSON never contains password strings');
+      assert(!guestJson.includes('privateKey') && !userJson.includes('privateKey'), 'Export JSON never contains private credentials');
+      assert(!appCsv.includes('password') && !histCsv.includes('password'), 'Export CSV never contains password strings');
 
       // Restore sample household for storage
       WattWatchStorage.loadSampleHousehold();

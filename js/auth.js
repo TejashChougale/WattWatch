@@ -15,6 +15,8 @@ const WattWatchAuth = {
   currentTab: 'login', // 'login' | 'signup' | 'recovery'
   isFirebaseConfigured: false, // Flag indicating whether live Firebase backend is initialized
   currentUser: null, // Active user object { uid, username, displayName } or null for Guest Mode
+  hasUserChosenSession: false, // Whether the user has explicitly resolved the startup login gate
+  chosenSessionType: null, // 'account' | 'guest' | null (null when startup gate unresolved)
   auth: null, // Firebase Auth instance
   db: null, // Cloud Firestore instance
   signInWithEmailAndPassword: null,
@@ -29,12 +31,34 @@ const WattWatchAuth = {
 
   /**
    * Initializes authentication module, binds UI triggers and listeners,
-   * and asynchronously connects Firebase backend services.
+   * presents startup login screen, and asynchronously connects Firebase backend services.
    */
   init() {
     this.bindEvents();
     this.updateTopbarState();
+    this.updateGuestImportCheckbox();
+    this.openAuthModalOnStartup();
     this.initFirebase();
+  },
+
+  /**
+   * Displays the Login / Create Account screen on every fresh page load or refresh.
+   * Does not auto-enter guest mode or bypass the auth gate.
+   */
+  openAuthModalOnStartup() {
+    this.hasUserChosenSession = false;
+    this.chosenSessionType = null;
+    const modal = document.getElementById('authModal');
+    if (!modal) return;
+
+    if (this.currentUser) {
+      this.showResumePane();
+    } else {
+      this.switchTab('login');
+    }
+
+    modal.classList.add('is-open');
+    modal.setAttribute('aria-hidden', 'false');
   },
 
   /**
@@ -89,17 +113,35 @@ const WattWatchAuth = {
                 username: rawUsername,
                 displayName: displayName
               };
-              WattWatchStorage.setActiveUser(user.uid);
-              this.updateTopbarState();
-              if (typeof WattWatchApp !== 'undefined' && WattWatchApp.refreshAll) {
-                WattWatchApp.refreshAll();
+
+              // If user has not yet chosen a session on startup, show resume pane
+              if (!this.hasUserChosenSession) {
+                this.showResumePane();
+              } else if (this.chosenSessionType === 'account') {
+                WattWatchStorage.setActiveUser(user.uid);
+                this.updateTopbarState();
+                if (typeof WattWatchApp !== 'undefined' && WattWatchApp.refreshAll) {
+                  WattWatchApp.refreshAll();
+                }
               }
+              // If this.chosenSessionType === 'guest', do NOT switch workspace to user.uid
+              // and do NOT reopen the modal!
             } else {
               this.currentUser = null;
-              WattWatchStorage.setActiveUser(null);
-              this.updateTopbarState();
-              if (typeof WattWatchApp !== 'undefined' && WattWatchApp.refreshAll) {
-                WattWatchApp.refreshAll();
+              if (!this.hasUserChosenSession) {
+                const resumePane = document.getElementById('authPane-resume');
+                if (resumePane && resumePane.classList.contains('active')) {
+                  this.switchTab('login');
+                }
+              } else if (this.chosenSessionType === 'account') {
+                // If account session was signed out out-of-band, cleanly reset
+                this.hasUserChosenSession = false;
+                this.chosenSessionType = null;
+                WattWatchStorage.setActiveUser(null);
+                this.updateTopbarState();
+                if (typeof WattWatchApp !== 'undefined' && WattWatchApp.refreshAll) {
+                  WattWatchApp.refreshAll();
+                }
               }
             }
           });
@@ -133,16 +175,32 @@ const WattWatchAuth = {
     const badge = document.getElementById('topbarGuestBadge');
     const btn = document.getElementById('btnTopbarAuth');
 
-    if (this.currentUser) {
+    if (!this.hasUserChosenSession) {
+      if (label) label.textContent = 'Sign In';
+      if (badge) {
+        badge.textContent = 'Sign In';
+        badge.className = 'badge-guest';
+        badge.style.display = 'inline-flex';
+        badge.style.background = 'rgba(15, 23, 42, 0.08)';
+        badge.style.color = 'var(--text-secondary)';
+      }
+      if (btn) {
+        btn.setAttribute('title', 'Please sign in or choose Guest Mode to access WattWatch');
+      }
+      return;
+    }
+
+    if (this.currentUser && this.chosenSessionType === 'account') {
       const name = this.currentUser.displayName || this.currentUser.username;
       if (label) label.textContent = name;
       if (badge) {
         badge.textContent = 'Account';
         badge.className = 'badge-user';
         badge.style.display = 'inline-flex';
+        badge.removeAttribute('style');
       }
       if (btn) {
-        btn.setAttribute('title', `Signed in as ${name} — click for account details or to sign out`);
+        btn.setAttribute('title', `Signed in as ${name} (local browser storage) — click for account details or to sign out`);
       }
     } else {
       if (label) label.textContent = 'Sign In';
@@ -150,6 +208,7 @@ const WattWatchAuth = {
         badge.textContent = 'Guest';
         badge.className = 'badge-guest';
         badge.style.display = 'inline-flex';
+        badge.removeAttribute('style');
       }
       if (btn) {
         btn.setAttribute('title', 'Guest Mode (local storage) — click to sign in or create account');
@@ -229,8 +288,12 @@ const WattWatchAuth = {
     const modal = document.getElementById('authModal');
     if (!modal) return;
 
-    if (this.currentUser) {
+    this.updateGuestImportCheckbox();
+
+    if (this.currentUser && this.chosenSessionType === 'account') {
       this.showAccountPane();
+    } else if (this.currentUser && !this.hasUserChosenSession) {
+      this.showResumePane();
     } else {
       const navTabs = modal.querySelector('.auth-nav-tabs');
       if (navTabs) navTabs.style.display = 'flex';
@@ -239,6 +302,55 @@ const WattWatchAuth = {
 
     modal.classList.add('is-open');
     modal.setAttribute('aria-hidden', 'false');
+  },
+
+  /**
+   * Displays the session resume pane when an authenticated Firebase session exists
+   */
+  showResumePane() {
+    const modal = document.getElementById('authModal');
+    if (!modal) return;
+
+    const navTabs = modal.querySelector('.auth-nav-tabs');
+    if (navTabs) navTabs.style.display = 'none';
+
+    document.querySelectorAll('.auth-tab-pane').forEach(p => p.classList.remove('active'));
+    const resumePane = document.getElementById('authPane-resume');
+    if (resumePane) resumePane.classList.add('active');
+
+    const titleEl = document.getElementById('authModalTitle');
+    if (titleEl) titleEl.textContent = 'Welcome Back to WattWatch';
+
+    const displayNameEl = document.getElementById('resumeDisplayName');
+    const usernameSubEl = document.getElementById('resumeUsernameSub');
+    const avatarLetterEl = document.getElementById('resumeAvatarLetter');
+    const continueBtn = document.getElementById('btnResumeContinue');
+
+    const name = (this.currentUser && (this.currentUser.displayName || this.currentUser.username)) || 'User';
+    if (displayNameEl) displayNameEl.textContent = name;
+    if (usernameSubEl) usernameSubEl.textContent = `@${this.currentUser ? this.currentUser.username : ''}`;
+    if (avatarLetterEl) avatarLetterEl.textContent = name.charAt(0).toUpperCase();
+    if (continueBtn) continueBtn.textContent = `Continue as ${name}`;
+  },
+
+  /**
+   * Continues into the dashboard with the active authenticated Firebase session
+   */
+  resumeSession() {
+    if (!this.currentUser) return;
+    this.hasUserChosenSession = true;
+    this.chosenSessionType = 'account';
+    WattWatchStorage.setActiveUser(this.currentUser.uid);
+    this.closeModal();
+    this.updateTopbarState();
+
+    if (typeof WattWatchApp !== 'undefined') {
+      if (WattWatchApp.refreshAll) WattWatchApp.refreshAll();
+      if (WattWatchApp.showToast) {
+        const name = this.currentUser.displayName || this.currentUser.username;
+        WattWatchApp.showToast(`Welcome back, ${name}! Your private dashboard is active.`, 'success', 'Session Resumed');
+      }
+    }
   },
 
   /**
@@ -269,7 +381,7 @@ const WattWatchAuth = {
   },
 
   /**
-   * Closes the authentication modal
+   * Closes the authentication modal without silently selecting Guest Mode
    */
   closeModal() {
     const modal = document.getElementById('authModal');
@@ -278,6 +390,24 @@ const WattWatchAuth = {
       modal.setAttribute('aria-hidden', 'true');
     }
     this.clearAlert();
+    this.updateTopbarState();
+  },
+
+  /**
+   * Updates guest import checkbox label on signup form with live count
+   */
+  updateGuestImportCheckbox() {
+    const label = document.getElementById('signupImportGuestDataLabel');
+    const wrap = document.getElementById('signupImportGuestDataWrap');
+    if (!label) return;
+
+    const guestData = WattWatchStorage.hasGuestData();
+    if (guestData.hasData) {
+      if (wrap) wrap.style.display = 'flex';
+      label.textContent = `Import ${guestData.appliancesCount} guest appliance(s) and ${guestData.historyCount} bill record(s) into this new account (Guest data remains preserved)`;
+    } else {
+      label.textContent = 'Import existing guest appliances, tariff settings, and billing history into this new account';
+    }
   },
 
   /**
@@ -287,6 +417,7 @@ const WattWatchAuth = {
   switchTab(tabName) {
     this.currentTab = tabName;
     this.clearAlert();
+    this.updateGuestImportCheckbox();
 
     const navTabs = document.querySelector('.auth-nav-tabs');
     if (navTabs) navTabs.style.display = 'flex';
@@ -305,7 +436,7 @@ const WattWatchAuth = {
     if (titleEl) {
       if (tabName === 'login') titleEl.textContent = 'Sign In to WattWatch';
       else if (tabName === 'signup') titleEl.textContent = 'Create WattWatch Account';
-      else if (tabName === 'recovery') titleEl.textContent = 'Recover Your Account';
+      else if (tabName === 'recovery') titleEl.textContent = 'Account Security & Access';
     }
 
     // Auto-focus first input in newly activated tab
@@ -340,12 +471,45 @@ const WattWatchAuth = {
   },
 
   /**
-   * Handles "Continue as Guest"
+   * Handles explicit "Continue as Guest" selection
    */
   continueAsGuest() {
+    this.hasUserChosenSession = true;
+    this.chosenSessionType = 'guest';
+    this.currentUser = null;
+    WattWatchStorage.setActiveUser(null);
     this.closeModal();
+    this.updateTopbarState();
+    if (typeof WattWatchApp !== 'undefined') {
+      if (WattWatchApp.refreshAll) WattWatchApp.refreshAll();
+      if (WattWatchApp.showToast) {
+        WattWatchApp.showToast('Continuing in Guest Mode with local storage persistence', 'info', 'Guest Access');
+      }
+    }
+  },
+
+  /**
+   * Signs out current Firebase session and switches auth modal to login tab
+   */
+  async signOutAndSwitchToLogin() {
+    try {
+      if (this.auth && this.firebaseSignOut) {
+        await this.firebaseSignOut(this.auth);
+      }
+    } catch (e) {
+      console.warn('[WattWatch Auth] Error signing out from Firebase:', e);
+    }
+
+    this.currentUser = null;
+    this.hasUserChosenSession = false;
+    this.chosenSessionType = null;
+    WattWatchStorage.setActiveUser(null);
+    this.updateTopbarState();
+    this.switchTab('login');
+    const navTabs = document.querySelector('.auth-nav-tabs');
+    if (navTabs) navTabs.style.display = 'flex';
     if (typeof WattWatchApp !== 'undefined' && WattWatchApp.showToast) {
-      WattWatchApp.showToast('Continuing in Guest Mode with local storage persistence', 'info', 'Guest Access');
+      WattWatchApp.showToast('Signed out of previous session. Please sign in or continue as guest.', 'info', 'Sign Out');
     }
   },
 
@@ -468,6 +632,8 @@ const WattWatchAuth = {
         displayName: displayName
       };
 
+      this.hasUserChosenSession = true;
+      this.chosenSessionType = 'account';
       WattWatchStorage.setActiveUser(user.uid);
       this.closeModal();
       this.updateTopbarState();
@@ -476,6 +642,27 @@ const WattWatchAuth = {
         if (WattWatchApp.refreshAll) WattWatchApp.refreshAll();
         if (WattWatchApp.showToast) {
           WattWatchApp.showToast(`Signed in as ${displayName}`, 'success', 'Welcome Back');
+        }
+
+        // Check if guest records exist to offer optional non-destructive transfer
+        const guestData = WattWatchStorage.hasGuestData();
+        if (guestData.hasData && WattWatchApp.openConfirmDialog) {
+          setTimeout(() => {
+            WattWatchApp.openConfirmDialog({
+              title: 'Transfer Guest Data to Account?',
+              message: `You have ${guestData.appliancesCount} appliance(s) and ${guestData.historyCount} bill record(s) in local guest storage. Would you like to merge them into your account in this browser? Existing account records and guest data will remain preserved.`,
+              confirmText: 'Transfer Data',
+              cancelText: 'Keep Separate',
+              confirmClass: 'btn-primary',
+              onConfirm: () => {
+                const res = WattWatchStorage.migrateGuestData(user.uid);
+                if (res.success) {
+                  WattWatchApp.showToast(`Transferred ${res.transferredAppliances} appliance(s) and ${res.transferredHistory} record(s) into your account in this browser.`, 'success', 'Data Merged');
+                  WattWatchApp.refreshAll();
+                }
+              }
+            });
+          }, 350);
         }
       }
     } catch (err) {
@@ -487,7 +674,7 @@ const WattWatchAuth = {
         errMsg = 'Access to this account has been temporarily disabled due to many failed login attempts. Please try again later.';
       } else if (err.code === 'auth/network-request-failed') {
         errMsg = 'Network error connecting to authentication service. Please check your internet connection.';
-      } else if (err.message) {
+      } else if (err.message && !err.message.includes('Firebase') && !err.message.includes('http') && !err.message.includes('API')) {
         errMsg = err.message;
       }
       this.showAlert(errMsg, 'error');
@@ -562,16 +749,16 @@ const WattWatchAuth = {
         }
       }
 
-      // Explicit consent check: copy guest data to user namespace without modifying guest storage
+      // Explicit consent check: migrate guest data to user namespace without modifying guest storage
+      let migrationSummary = null;
       if (shouldImport) {
-        WattWatchStorage.copyGuestDataToUser(user.uid);
+        migrationSummary = WattWatchStorage.migrateGuestData(user.uid);
       } else {
         WattWatchStorage.setActiveUser(user.uid);
-        if (WattWatchStorage.getAppliances().length === 0) {
-          WattWatchStorage.loadSampleHousehold();
-        }
       }
 
+      this.hasUserChosenSession = true;
+      this.chosenSessionType = 'account';
       WattWatchStorage.setActiveUser(user.uid);
       this.currentUser = {
         uid: user.uid,
@@ -612,7 +799,7 @@ const WattWatchAuth = {
         errMsg = 'The password is too weak. Please use at least 8 characters.';
       } else if (err.code === 'auth/network-request-failed') {
         errMsg = 'Network error connecting to authentication service. Please check your internet connection.';
-      } else if (err.message) {
+      } else if (err.message && !err.message.includes('Firebase') && !err.message.includes('http') && !err.message.includes('API')) {
         errMsg = err.message;
       }
       this.showAlert(errMsg, 'error');
@@ -637,6 +824,8 @@ const WattWatchAuth = {
     }
 
     this.currentUser = null;
+    this.hasUserChosenSession = true;
+    this.chosenSessionType = 'guest';
     WattWatchStorage.setActiveUser(null);
     this.closeModal();
     this.updateTopbarState();
@@ -655,9 +844,6 @@ const WattWatchAuth = {
   handleRecoverySubmit() {
     this.clearAlert();
     const usernameInput = document.getElementById('recoveryUsername');
-    const keyInput = document.getElementById('recoveryKey');
-    const newPasswordInput = document.getElementById('recoveryNewPassword');
-    const confirmInput = document.getElementById('recoveryNewPasswordConfirm');
 
     const uCheck = this.validateUsername(usernameInput ? usernameInput.value : '');
     if (!uCheck.valid) {
@@ -666,30 +852,9 @@ const WattWatchAuth = {
       return;
     }
 
-    const kCheck = this.validateRecoveryKey(keyInput ? keyInput.value : '');
-    if (!kCheck.valid) {
-      this.showAlert(kCheck.error, 'error');
-      if (keyInput) keyInput.focus();
-      return;
-    }
-
-    const pCheck = this.validatePassword(
-      newPasswordInput ? newPasswordInput.value : '',
-      confirmInput ? confirmInput.value : ''
-    );
-    if (!pCheck.valid) {
-      this.showAlert(pCheck.error, 'error');
-      if (newPasswordInput && (!newPasswordInput.value || newPasswordInput.value.length < 8)) {
-        newPasswordInput.focus();
-      } else if (confirmInput) {
-        confirmInput.focus();
-      }
-      return;
-    }
-
-    // Transparently inform the user without claiming recovery works
+    // Transparently inform the user without claiming fake recovery works
     this.showAlert(
-      'Account recovery without an email or phone number requires an automated cryptographic key recovery service, which is not yet deployed. Please keep your credentials safe or continue in Guest Mode.',
+      'WattWatch protects user privacy by using username-only authentication without storing email addresses or phone numbers. Automated password reset is currently unavailable without verified identity recovery services. Please keep your credentials secure, continue in Guest Mode, or register a new username.',
       'info'
     );
   },

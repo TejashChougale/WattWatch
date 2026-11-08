@@ -32,14 +32,10 @@ const WattWatchApp = {
     this.bindNavigation();
     this.bindSettings();
     this.bindModalKeyboards();
+    this.bindFirstTimeGuide();
 
-    // First-time user onboarding
-    const existing = WattWatchStorage.getAppliances();
-    if (existing.length === 0 && !localStorage.getItem('wattwatch_onboarded_v1')) {
-      WattWatchStorage.loadSampleHousehold();
-      localStorage.setItem('wattwatch_onboarded_v1', 'true');
-      this.showToast('Curated sample household data loaded for preview', 'info', 'Welcome to WattWatch');
-    }
+    // First-time user guidance
+    this.renderFirstTimeGuide();
 
     // Refresh all views, summaries and charts
     this.refreshAll();
@@ -225,6 +221,9 @@ const WattWatchApp = {
 
     // Update Overview View (metrics & budget tracker)
     this.renderOverviewMetrics(summary, effectiveBill, settings, advancedTariff);
+    this.renderFirstTimeGuide();
+    this.updateMonthComparison(summary);
+    this.updateSettingsGuestMigration();
 
     // Update Appliances View
     WattWatchAppliances.renderApplianceTable();
@@ -662,22 +661,67 @@ const WattWatchApp = {
       });
     }
 
-    // Export JSON Button
+    // Export JSON Full Backup Button
     const btnExport = document.getElementById('btnExportJson');
     if (btnExport) {
       btnExport.addEventListener('click', () => {
-        const jsonStr = WattWatchStorage.exportDataJSON();
-        const blob = new Blob([jsonStr], { type: 'application/json' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-        a.href = url;
-        a.download = `wattwatch-2-data-${timestamp}.json`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-        this.showToast('Full configuration & history exported as JSON', 'success', 'Export Complete');
+        const ok = WattWatchStorage.exportBackupJSONFile();
+        if (ok) this.showToast('Full configuration & history exported as JSON', 'success', 'Export Complete');
+        else this.showToast('Failed to export JSON backup', 'error', 'Export Error');
+      });
+    }
+
+    // Export Appliances CSV Button
+    const btnExportAppCsv = document.getElementById('btnExportAppliancesCsv');
+    if (btnExportAppCsv) {
+      btnExportAppCsv.addEventListener('click', () => {
+        const ok = WattWatchStorage.exportAppliancesCSV();
+        if (ok) this.showToast('Appliance inventory exported to CSV', 'success', 'Export Complete');
+        else this.showToast('Failed to export appliances CSV', 'error', 'Export Error');
+      });
+    }
+
+    // Export History CSV Button
+    const btnExportHistCsv = document.getElementById('btnExportHistoryCsv');
+    if (btnExportHistCsv) {
+      btnExportHistCsv.addEventListener('click', () => {
+        const ok = WattWatchStorage.exportHistoryCSV();
+        if (ok) this.showToast('Billing history exported to CSV', 'success', 'Export Complete');
+        else this.showToast('Failed to export history CSV', 'error', 'Export Error');
+      });
+    }
+
+    // Show Quick Start Guide Button
+    const btnShowGuide = document.getElementById('btnShowGuide');
+    if (btnShowGuide) {
+      btnShowGuide.addEventListener('click', () => {
+        WattWatchStorage.setGuideDismissed(false);
+        this.navigateTo('overview');
+        this.renderFirstTimeGuide();
+        const guideCard = document.getElementById('firstTimeGuideCard');
+        if (guideCard) {
+          guideCard.scrollIntoView({ behavior: 'smooth' });
+        }
+        this.showToast('Getting Started Guide opened', 'info', 'Quick Start Guide');
+      });
+    }
+
+    // Migrate Guest Data into Account Button
+    const btnMigrateGuest = document.getElementById('btnSettingsMigrateGuest');
+    if (btnMigrateGuest) {
+      btnMigrateGuest.addEventListener('click', () => {
+        const uid = WattWatchStorage.getActiveUser();
+        if (!uid) {
+          this.showToast('Please sign in to an account to transfer guest data.', 'warning', 'Sign In Required');
+          return;
+        }
+        const res = WattWatchStorage.migrateGuestData(uid);
+        if (res.success) {
+          this.showToast(`Successfully transferred ${res.transferredAppliances} appliance(s) and ${res.transferredHistory} record(s) to your account.`, 'success', 'Migration Complete');
+          this.refreshAll();
+        } else {
+          this.showToast('Migration failed: ' + (res.error || 'Unknown error'), 'error', 'Error');
+        }
       });
     }
 
@@ -849,6 +893,229 @@ const WattWatchApp = {
     const modal = document.getElementById('confirmModal');
     if (modal) modal.classList.remove('is-open');
     this.confirmCallback = null;
+  },
+
+  /**
+   * Renders or hides the first-time user guidance card based on saved dismissal state
+   */
+  renderFirstTimeGuide() {
+    const guideCard = document.getElementById('firstTimeGuideCard');
+    if (!guideCard) return;
+
+    const isDismissed = WattWatchStorage.isGuideDismissed();
+    guideCard.style.display = isDismissed ? 'none' : 'block';
+  },
+
+  /**
+   * Binds dismissal buttons on the first-time user guidance card
+   */
+  bindFirstTimeGuide() {
+    const btnDismiss = document.getElementById('btnDismissGuide');
+    const btnDismissSec = document.getElementById('btnDismissGuideSecondary');
+    const onDismiss = () => {
+      WattWatchStorage.setGuideDismissed(true);
+      this.renderFirstTimeGuide();
+      this.showToast('Guide dismissed. You can reopen it anytime from Settings.', 'info', 'Quick Start Guide');
+    };
+
+    if (btnDismiss) btnDismiss.addEventListener('click', onDismiss);
+    if (btnDismissSec) btnDismissSec.addEventListener('click', onDismiss);
+  },
+
+  /**
+   * Updates visibility and record counts for Guest Data Migration in Settings
+   */
+  updateSettingsGuestMigration() {
+    const card = document.getElementById('settingsGuestMigrationCard');
+    const desc = document.getElementById('settingsGuestMigrationDesc');
+    if (!card) return;
+
+    const activeUser = WattWatchStorage.getActiveUser();
+    const guestData = WattWatchStorage.hasGuestData();
+
+    if (activeUser && guestData.hasData) {
+      card.style.display = 'block';
+      if (desc) {
+        desc.textContent = `Found ${guestData.appliancesCount} appliance(s) and ${guestData.historyCount} historical snapshot(s) in local guest storage. Transfer them safely into your account without overwriting existing account records.`;
+      }
+    } else {
+      card.style.display = 'none';
+    }
+  },
+
+  /**
+   * Returns the period string (YYYY-MM) and label for the previous calendar month.
+   * Correctly handles year transitions (e.g. Jan 2027 -> Dec 2026).
+   * @param {Date} [referenceDate=new Date()]
+   * @returns {{ period: string, label: string, year: number, month: number }}
+   */
+  getPreviousCalendarMonth(referenceDate = new Date()) {
+    const year = referenceDate.getFullYear();
+    const month = referenceDate.getMonth(); // 0-indexed (0 = Jan, 11 = Dec)
+    const prevDate = new Date(year, month - 1, 1);
+    const prevYear = prevDate.getFullYear();
+    const prevMonthNum = String(prevDate.getMonth() + 1).padStart(2, '0');
+    const period = `${prevYear}-${prevMonthNum}`;
+    const monthNames = [
+      'January', 'February', 'March', 'April', 'May', 'June',
+      'July', 'August', 'September', 'October', 'November', 'December'
+    ];
+    const label = `${monthNames[prevDate.getMonth()]} ${prevYear}`;
+    return { period, label, year: prevYear, month: prevDate.getMonth() + 1 };
+  },
+
+  /**
+   * Renders Month-over-Month Energy Consumption Comparison card on Overview
+   * Compares current month projected usage strictly against previous calendar month's saved billing snapshot.
+   * Never silently substitutes older snapshots.
+   * @param {Object} summary - Current household calculated summary
+   */
+  updateMonthComparison(summary) {
+    const container = document.getElementById('overviewComparisonContent');
+    const badge = document.getElementById('overviewComparisonBadge');
+    if (!container) return;
+
+    const currentKwh = summary ? Number(summary.totalMonthlyKwh || 0) : 0;
+    const currentCost = summary ? Number(summary.totalMonthlyCost || 0) : 0;
+    const history = WattWatchStorage.getHistory() || [];
+
+    const prevMonth = this.getPreviousCalendarMonth();
+    const prevRecord = Array.isArray(history)
+      ? history.find(h => h && h.period === prevMonth.period)
+      : null;
+
+    // If previous calendar month snapshot does not exist, display clear empty state
+    if (!prevRecord) {
+      container.innerHTML = `
+        <div style="padding: 1.5rem 1rem; text-align: center; color: var(--text-secondary);">
+          <div style="width: 44px; height: 44px; border-radius: 50%; background: var(--bg-surface-elevated, rgba(15, 23, 42, 0.05)); margin: 0 auto 0.75rem; display: flex; align-items: center; justify-content: center; color: var(--text-secondary);">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/>
+              <line x1="16" y1="2" x2="16" y2="6"/>
+              <line x1="8" y1="2" x2="8" y2="6"/>
+              <line x1="3" y1="10" x2="21" y2="10"/>
+            </svg>
+          </div>
+          <h4 style="margin: 0 0 0.35rem; color: var(--text-primary); font-size: 1rem; font-family: var(--font-serif);">
+            No Recorded Snapshot for ${prevMonth.label} (${prevMonth.period})
+          </h4>
+          <p style="font-size: 0.825rem; max-width: 520px; margin: 0 auto 1rem; line-height: 1.45;">
+            Currently projecting <strong>${currentKwh.toFixed(1)} kWh</strong> for this month. A saved billing snapshot for the previous calendar month (<strong>${prevMonth.label}</strong>) is required to calculate month-over-month variances. WattWatch does not substitute older historical cycles.
+          </p>
+          <div style="display: flex; gap: 0.5rem; justify-content: center; flex-wrap: wrap;">
+            <button type="button" class="btn btn-secondary btn-sm" onclick="WattWatchHistory.promptSaveSnapshot()">
+              + Save Snapshot in History
+            </button>
+            <button type="button" class="btn btn-ghost btn-sm" onclick="WattWatchApp.navigateTo('history')">
+              View Bill History &rarr;
+            </button>
+          </div>
+        </div>
+      `;
+      if (badge) {
+        badge.textContent = `No ${prevMonth.period} Snapshot`;
+        badge.className = 'badge badge-outline';
+      }
+      return;
+    }
+
+    const prevKwh = Number(prevRecord.totalKwh || 0);
+    const prevCost = Number(prevRecord.totalCost || 0);
+    const kwhDiff = currentKwh - prevKwh;
+    const costDiff = currentCost - prevCost;
+
+    let kwhPercentDiff = 0;
+    if (prevKwh > 0) {
+      kwhPercentDiff = ((currentKwh - prevKwh) / prevKwh) * 100;
+    } else if (currentKwh > 0) {
+      kwhPercentDiff = 100;
+    } else {
+      kwhPercentDiff = 0;
+    }
+
+    let costPercentDiff = 0;
+    if (prevCost > 0) {
+      costPercentDiff = ((currentCost - prevCost) / prevCost) * 100;
+    } else if (currentCost > 0) {
+      costPercentDiff = 100;
+    } else {
+      costPercentDiff = 0;
+    }
+
+    const isKwhInc = kwhDiff > 0.05;
+    const isKwhDec = kwhDiff < -0.05;
+    const kwhBadgeClass = isKwhInc ? 'badge-burgundy' : (isKwhDec ? 'badge-cooling' : 'badge-gold');
+    const kwhIcon = isKwhInc ? '▲' : (isKwhDec ? '▼' : '—');
+    const kwhTrendText = isKwhInc
+      ? `Increased by ${kwhDiff.toFixed(1)} kWh (+${kwhPercentDiff.toFixed(1)}%)`
+      : (isKwhDec ? `Decreased by ${Math.abs(kwhDiff).toFixed(1)} kWh (${kwhPercentDiff.toFixed(1)}%)` : `Identical (0.0 kWh difference)`);
+
+    const now = new Date();
+    const currentMonthLabel = now.toLocaleString('default', { month: 'short', year: 'numeric' });
+    const prevMonthLabel = prevRecord.periodLabel || prevMonth.label;
+
+    if (badge) {
+      badge.textContent = isKwhInc
+        ? `Increased vs ${prevMonth.label}`
+        : (isKwhDec ? `Decreased vs ${prevMonth.label}` : `Same as ${prevMonth.label}`);
+      badge.className = `badge ${kwhBadgeClass}`;
+    }
+
+    const maxKwh = Math.max(currentKwh, prevKwh, 1);
+    const curBarWidth = Math.min(100, Math.round((currentKwh / maxKwh) * 100));
+    const prevBarWidth = Math.min(100, Math.round((prevKwh / maxKwh) * 100));
+
+    container.innerHTML = `
+      <div class="metrics-grid" style="grid-template-columns: repeat(3, 1fr); margin-bottom: 1.25rem;">
+        <div class="metric-card">
+          <span class="metric-title">Current Month (Projected)</span>
+          <div class="metric-value">${currentKwh.toFixed(1)} <span style="font-size: 0.9rem; font-weight: 500;">kWh</span></div>
+          <div class="metric-subtext">${currentMonthLabel} · ${WattWatchCalculations.formatCurrency(currentCost)}</div>
+        </div>
+
+        <div class="metric-card">
+          <span class="metric-title">Previous Month (${prevMonthLabel})</span>
+          <div class="metric-value">${prevKwh.toFixed(1)} <span style="font-size: 0.9rem; font-weight: 500;">kWh</span></div>
+          <div class="metric-subtext">Recorded Snapshot · ${WattWatchCalculations.formatCurrency(prevCost)}</div>
+        </div>
+
+        <div class="metric-card">
+          <div class="metric-card-header">
+            <span class="metric-title">Energy Variance vs ${prevMonth.label}</span>
+            <span class="badge ${kwhBadgeClass}">${kwhIcon} ${Math.abs(kwhPercentDiff).toFixed(1)}%</span>
+          </div>
+          <div class="metric-value" style="color: ${isKwhInc ? 'var(--deep-burgundy)' : (isKwhDec ? 'var(--royal-blue)' : 'var(--text-primary)')}; font-size: 1.15rem;">
+            ${kwhTrendText}
+          </div>
+          <div class="metric-subtext">
+            Estimated Cost Delta: <strong>${costDiff >= 0 ? '+' : '-'}${WattWatchCalculations.formatCurrency(Math.abs(costDiff))}</strong> (${costPercentDiff >= 0 ? '+' : ''}${costPercentDiff.toFixed(1)}%)
+          </div>
+        </div>
+      </div>
+
+      <!-- Visual Bar Comparison -->
+      <div style="background: var(--bg-surface-elevated, rgba(15, 23, 42, 0.02)); border: 1px solid var(--border-card); border-radius: var(--radius-md); padding: 1rem;">
+        <div style="margin-bottom: 0.75rem;">
+          <div style="display: flex; justify-content: space-between; font-size: 0.8rem; margin-bottom: 0.35rem;">
+            <span style="font-weight: 600; color: var(--text-primary);">Current (${currentMonthLabel})</span>
+            <span style="color: var(--royal-blue); font-weight: 700;">${currentKwh.toFixed(1)} kWh</span>
+          </div>
+          <div style="height: 10px; background: rgba(0,0,0,0.06); border-radius: 5px; overflow: hidden;">
+            <div style="width: ${curBarWidth}%; height: 100%; background: var(--royal-blue); border-radius: 5px; transition: width 0.4s ease;"></div>
+          </div>
+        </div>
+
+        <div>
+          <div style="display: flex; justify-content: space-between; font-size: 0.8rem; margin-bottom: 0.35rem;">
+            <span style="font-weight: 600; color: var(--text-primary);">${prevMonthLabel}</span>
+            <span style="color: var(--antique-gold); font-weight: 700;">${prevKwh.toFixed(1)} kWh</span>
+          </div>
+          <div style="height: 10px; background: rgba(0,0,0,0.06); border-radius: 5px; overflow: hidden;">
+            <div style="width: ${prevBarWidth}%; height: 100%; background: var(--antique-gold); border-radius: 5px; transition: width 0.4s ease;"></div>
+          </div>
+        </div>
+      </div>
+    `;
   },
 
   /**

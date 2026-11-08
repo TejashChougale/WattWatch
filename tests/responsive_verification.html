@@ -167,10 +167,31 @@
 
         // 10. Stacked Appliance and Bill-History Tables
         const appTable = doc390.getElementById('applianceTable');
-        const appTheadDisplay = appTable ? win390.getComputedStyle(appTable.querySelector('thead')).display : '';
-        const appTrDisplay = appTable ? win390.getComputedStyle(appTable.querySelector('tbody tr')).display : '';
+        const tbody = appTable ? appTable.querySelector('tbody') : null;
+        if (tbody && !tbody.querySelector('tr')) {
+          tbody.innerHTML = `
+            <tr>
+              <td data-label="Appliance">Test Fan</td>
+              <td data-label="Category">Cooling</td>
+              <td data-label="Power">75 W</td>
+              <td data-label="Schedule">8 hrs/day</td>
+              <td data-label="Monthly Energy">18 kWh</td>
+              <td data-label="Estimated Cost">₹144</td>
+              <td data-label="Actions" class="table-actions">
+                <button type="button" class="btn btn-secondary btn-icon btn-sm">Sim</button>
+                <button type="button" class="btn btn-secondary btn-icon btn-sm">Edit</button>
+                <button type="button" class="btn btn-secondary btn-icon btn-sm">Del</button>
+              </td>
+            </tr>
+          `;
+        }
+        const appThead = appTable ? appTable.querySelector('thead') : null;
+        const appTheadDisplay = appThead ? win390.getComputedStyle(appThead).display : '';
+        const appTr = appTable ? appTable.querySelector('tbody tr') : null;
+        const appTrDisplay = appTr ? win390.getComputedStyle(appTr).display : '';
         const histTable = doc390.getElementById('historyTable');
-        const histTheadDisplay = histTable ? win390.getComputedStyle(histTable.querySelector('thead')).display : '';
+        const histThead = histTable ? histTable.querySelector('thead') : null;
+        const histTheadDisplay = histThead ? win390.getComputedStyle(histThead).display : '';
         const tableActionBtns = appTable ? appTable.querySelectorAll('.table-actions button') : [];
         const tablesStacked = appTheadDisplay === 'none' && appTrDisplay === 'block' && histTheadDisplay === 'none' && tableActionBtns.length >= 3;
         reports.push({
@@ -178,6 +199,17 @@
           name: 'Appliance and history tables stacked as mobile cards with action buttons',
           passed: tablesStacked,
           details: 'appThead=' + appTheadDisplay + ', appTr=' + appTrDisplay + ', histThead=' + histTheadDisplay + ', actionsCount=' + tableActionBtns.length
+        });
+
+        // 10B. Empty Appliance State Card
+        const emptyCard = doc390.getElementById('appliancesEmptyState');
+        const emptyCardTitle = emptyCard ? emptyCard.querySelector('.empty-state-title') : null;
+        const emptyCardHasAction = emptyCard ? !!emptyCard.querySelector('button') : false;
+        reports.push({
+          id: 'REQ-10B',
+          name: 'Empty appliance state card structure and action button verified',
+          passed: !!emptyCard && !!emptyCardTitle && emptyCardHasAction,
+          details: 'emptyTitle="' + (emptyCardTitle ? emptyCardTitle.textContent.trim() : '') + '", hasAction=' + emptyCardHasAction
         });
 
         // 11. Removal of Luxury/Royal/Executive visible interface words

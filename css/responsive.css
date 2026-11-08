@@ -268,7 +268,8 @@
   .metrics-grid-3col,
   .tariff-config-grid,
   .form-grid-2col,
-  .modal-form-row {
+  .modal-form-row,
+  .guide-steps-grid {
     grid-template-columns: 1fr;
   }
 
