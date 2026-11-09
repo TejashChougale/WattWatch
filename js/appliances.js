@@ -97,6 +97,26 @@ const WattWatchAppliances = {
         this.handleFormSubmit();
       });
     }
+
+    // Safe delegated event handling for appliance table action buttons (no inline onclicks)
+    const tableBody = document.getElementById('applianceTableBody');
+    if (tableBody) {
+      tableBody.addEventListener('click', (e) => {
+        const btn = e.target.closest('[data-action]');
+        if (!btn) return;
+        const action = btn.getAttribute('data-action');
+        const id = btn.getAttribute('data-id');
+        if (!id) return;
+
+        if (action === 'simulate') {
+          this.simulateAppliance(id);
+        } else if (action === 'edit') {
+          this.openModal(id);
+        } else if (action === 'delete') {
+          this.confirmDelete(id);
+        }
+      });
+    }
   },
 
   /**
@@ -525,17 +545,17 @@ const WattWatchAppliances = {
         </td>
         <td>
           <div class="table-actions">
-            <button type="button" class="btn btn-secondary btn-icon btn-sm" title="Simulate Energy-Efficient Upgrade" onclick="WattWatchAppliances.simulateAppliance('${app.id}')" aria-label="Simulate Replacement for ${this.escapeHtml(app.name)}" style="color: var(--text-gold);">
+            <button type="button" class="btn btn-secondary btn-icon btn-sm" title="Simulate Energy-Efficient Upgrade" data-action="simulate" data-id="${this.escapeHtml(app.id)}" aria-label="Simulate Replacement for ${this.escapeHtml(app.name)}" style="color: var(--text-gold);">
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
               </svg>
             </button>
-            <button type="button" class="btn btn-secondary btn-icon btn-sm" title="Edit Appliance" onclick="WattWatchAppliances.openModal('${app.id}')" aria-label="Edit ${this.escapeHtml(app.name)}">
+            <button type="button" class="btn btn-secondary btn-icon btn-sm" title="Edit Appliance" data-action="edit" data-id="${this.escapeHtml(app.id)}" aria-label="Edit ${this.escapeHtml(app.name)}">
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/>
               </svg>
             </button>
-            <button type="button" class="btn btn-secondary btn-icon btn-sm" title="Delete Appliance" onclick="WattWatchAppliances.confirmDelete('${app.id}')" aria-label="Delete ${this.escapeHtml(app.name)}" style="color: #A92639;">
+            <button type="button" class="btn btn-secondary btn-icon btn-sm" title="Delete Appliance" data-action="delete" data-id="${this.escapeHtml(app.id)}" aria-label="Delete ${this.escapeHtml(app.name)}" style="color: #A92639;">
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <polyline points="3 6 5 6 21 6"/>
                 <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>

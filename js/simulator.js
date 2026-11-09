@@ -241,6 +241,19 @@ const WattWatchSimulator = {
     if (btnApplySettings) {
       btnApplySettings.addEventListener('click', () => this.applyTariffToSettings());
     }
+
+    // Safe delegated click listener for removing slab rows
+    const slabTableBody = document.getElementById('tariffSlabsTableBody');
+    if (slabTableBody) {
+      slabTableBody.addEventListener('click', (e) => {
+        const btn = e.target.closest('[data-action="remove-slab"]');
+        if (!btn) return;
+        const idx = parseInt(btn.getAttribute('data-index'), 10);
+        if (!isNaN(idx)) {
+          this.removeSlabRow(idx);
+        }
+      });
+    }
   },
 
   /**
@@ -314,7 +327,7 @@ const WattWatchSimulator = {
         </td>
         <td>
           ${slabs.length > 1
-            ? `<button type="button" class="btn btn-secondary btn-icon btn-sm" onclick="WattWatchSimulator.removeSlabRow(${idx})" title="Remove Tier" style="color: #A92639;">&times;</button>`
+            ? `<button type="button" class="btn btn-secondary btn-icon btn-sm" data-action="remove-slab" data-index="${idx}" title="Remove Tier" style="color: #A92639;">&times;</button>`
             : '<span style="color: var(--text-secondary);">—</span>'
           }
         </td>

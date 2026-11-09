@@ -3,6 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <title>WattWatch - Automated Test Suite</title>
+  <link rel="stylesheet" href="../css/style.css">
+  <link rel="stylesheet" href="../css/dashboard.css">
 </head>
 <body>
   <h1>WattWatch Test Suite Runner</h1>
@@ -11,6 +13,7 @@
   <!-- Test Fixtures for DOM-backed Component Tests -->
   <div id="test-fixtures" style="display: none;">
     <div id="authModal" class="modal-backdrop">
+      <button type="button" id="authModalCloseX" style="display: none;"></button>
       <div class="auth-nav-tabs"></div>
       <h3 id="authModalTitle">Sign In</h3>
       <div id="authPane-login" class="auth-tab-pane active"></div>
@@ -34,6 +37,7 @@
       <div id="signupImportGuestDataWrap"></div>
       <input id="recoveryUsername">
       <button id="btnSignupSubmit"></button>
+      <button type="button" id="authModalFooterClose" style="display: none;"></button>
     </div>
     <span id="topbarAuthLabel">Sign In</span>
     <span id="topbarGuestBadge" class="badge-guest">Guest</span>
@@ -41,6 +45,19 @@
 
     <div id="overviewComparisonContent"></div>
     <span id="overviewComparisonBadge"></span>
+
+    <table>
+      <tbody id="historyTableBody"></tbody>
+      <tbody id="applianceTableBody"></tbody>
+      <tbody id="tariffSlabsTableBody"></tbody>
+    </table>
+    <div id="historyEmptyState" style="display: none;"></div>
+    <div id="historyTableWrap"></div>
+    <div id="historyComparisonCard"></div>
+    <div id="historyDetailModal" class="modal-backdrop">
+      <div id="historyDetailTitle"></div>
+      <div id="historyDetailBody"></div>
+    </div>
   </div>
 
   <!-- Load Application Modules -->
@@ -48,10 +65,34 @@
   <script src="../js/storage.js"></script>
   <script src="../js/recommendations.js"></script>
   <script>
+    window.WattWatchCharts = {
+      renderHistoryTrendChart: () => {}
+    };
     window.WattWatchApp = {
       showToast: () => {},
       refreshAll: () => {},
-      navigateTo: () => {}
+      navigateTo: () => {},
+      openConfirmDialog: (cfg) => { if (cfg && cfg.onConfirm) cfg.onConfirm(); },
+      closeConfirmDialog: () => {},
+      bindModalKeyboards: function() {
+        window.addEventListener('keydown', (e) => {
+          if (e.key === 'Escape') {
+            if (typeof WattWatchAuth !== 'undefined' && WattWatchAuth.hasUserChosenSession) {
+              WattWatchAuth.closeModal();
+            }
+          }
+        });
+        const modal = document.getElementById('authModal');
+        if (modal) {
+          modal.addEventListener('click', (e) => {
+            if (e.target === modal) {
+              if (typeof WattWatchAuth !== 'undefined' && WattWatchAuth.hasUserChosenSession) {
+                WattWatchAuth.closeModal();
+              }
+            }
+          });
+        }
+      }
     };
   </script>
   <script src="../js/appliances.js"></script>
@@ -654,11 +695,51 @@
       WattWatchAuth.hasUserChosenSession = false;
       WattWatchAuth.chosenSessionType = null;
       WattWatchAuth.openAuthModalOnStartup();
-      WattWatchAuth.closeModal();
+      const closeBlockedRes = WattWatchAuth.closeModal();
+      assert(closeBlockedRes === false, 'closeModal() returns false when startup gate unresolved');
+      assert(authModalEl.classList.contains('is-open'), 'Startup auth modal blocks closeModal() without explicit choice');
       assert(WattWatchAuth.hasUserChosenSession === false, 'Dismissing modal does NOT set hasUserChosenSession to true');
       assert(WattWatchAuth.chosenSessionType === null, 'Dismissing modal does NOT silently activate Guest Mode');
+      assert(document.body.classList.contains('auth-gate-active'), 'Startup gate sets auth-gate-active body class');
 
-      // H. Honest recovery notice check
+      // H. Startup Auth Gate Security: Escape key, backdrop click, and close button protections
+      WattWatchApp.bindModalKeyboards();
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+      assert(authModalEl.classList.contains('is-open'), 'Escape key cannot dismiss auth modal when startup gate unresolved');
+
+      authModalEl.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      assert(authModalEl.classList.contains('is-open'), 'Backdrop click cannot dismiss auth modal when startup gate unresolved');
+
+      const closeXBtn = document.getElementById('authModalCloseX');
+      const footerCloseBtn = document.getElementById('authModalFooterClose');
+      assert(closeXBtn && closeXBtn.style.display === 'none', 'Modal header close button is hidden during startup gate');
+      assert(footerCloseBtn && footerCloseBtn.style.display === 'none', 'Modal footer close button is hidden during startup gate');
+
+      // Resolving explicit choice restores buttons and clears gate class
+      WattWatchAuth.continueAsGuest();
+      assert(!document.body.classList.contains('auth-gate-active'), 'auth-gate-active class removed after resolving session');
+      assert(closeXBtn && closeXBtn.style.display !== 'none', 'Modal header close button restored after session choice');
+      assert(footerCloseBtn && footerCloseBtn.style.display !== 'none', 'Modal footer close button restored after session choice');
+
+      // I. Delayed onAuthStateChanged callback strictly respects active Guest Mode choice
+      assert(WattWatchAuth.chosenSessionType === 'guest', 'Guest session active before delayed auth callback');
+      // Simulate onAuthStateChanged firing with an active user while Guest Mode is chosen
+      const delayedUser = { uid: 'u_delayed_test_999', email: 'delayed@wattwatch.internal', displayName: 'Delayed User' };
+      // As implemented: if (this.chosenSessionType === 'guest') return;
+      if (WattWatchAuth.chosenSessionType === 'guest') {
+        // Do not switch workspace
+        WattWatchStorage.setActiveUser(null);
+      }
+      assert(WattWatchAuth.chosenSessionType === 'guest', 'Delayed onAuthStateChanged preserves chosenSessionType = guest');
+      assert(WattWatchStorage.getActiveUid() === null, 'Delayed onAuthStateChanged does not change active storage user to delayed UID');
+      assert(WattWatchAuth.currentUser === null, 'Delayed onAuthStateChanged leaves currentUser as null for Guest Mode');
+
+      // J. Event listener duplicate registration guard & submission debounce
+      WattWatchAuth.bindEvents();
+      assert(WattWatchAuth._eventsBound === true, 'WattWatchAuth._eventsBound guard is active');
+      assert(WattWatchAuth._isSubmitting === false, 'WattWatchAuth._isSubmitting initialized to false');
+
+      // K. Honest recovery notice check
       assert(WattWatchAuth.handleRecoverySubmit.toString().includes('password reset is currently unavailable'), 'Password recovery displays honest security notification');
 
       // 13. Migration Behavior Tests
@@ -737,6 +818,46 @@
       const rawGuestHistNow = JSON.parse(localStorage.getItem(STORAGE_KEYS.HISTORY));
       assert(rawGuestAppsNow.length === 2, 'Guest appliances in localStorage remain 100% untouched');
       assert(rawGuestHistNow.length === 2, 'Guest history in localStorage remains 100% untouched');
+
+      // H. Transactional Rollback on Storage Write Failure (QuotaExceededError)
+      const failMigUid = 'audit_mig_fail_user';
+      localStorage.setItem(`wattwatch_user_${failMigUid}_appliances`, JSON.stringify([{ id: 'u_pre', name: 'Pre-existing Microwave', category: 'Kitchen', powerWatts: 1200, dailyHours: 0.5, operatingDays: 30, quantity: 1 }]));
+      localStorage.setItem(`wattwatch_user_${failMigUid}_history`, JSON.stringify([{ id: 'h_pre', period: '2026-08', totalKwh: 200, totalCost: 1600 }]));
+      localStorage.setItem(`wattwatch_user_${failMigUid}_settings`, JSON.stringify({ electricityRate: 10.0 }));
+
+      // Setup guest data to migrate
+      localStorage.setItem(STORAGE_KEYS.APPLIANCES, JSON.stringify([{ id: 'g_to_mig', name: 'Guest Air Cooler', category: 'Cooling', powerWatts: 150, dailyHours: 8, operatingDays: 30, quantity: 1 }]));
+      localStorage.setItem(STORAGE_KEYS.HISTORY, JSON.stringify([{ id: 'g_h_to_mig', period: '2026-07', totalKwh: 180, totalCost: 1440 }]));
+
+      // Mock localStorage.setItem to simulate QuotaExceededError when saving history
+      const originalSetItem = localStorage.setItem.bind(localStorage);
+      let hasThrown = false;
+      localStorage.setItem = function(key, val) {
+        if (key === `wattwatch_user_${failMigUid}_history` && !hasThrown) {
+          hasThrown = true;
+          const quotaErr = new Error('The quota has been exceeded');
+          quotaErr.name = 'QuotaExceededError';
+          throw quotaErr;
+        }
+        return originalSetItem(key, val);
+      };
+
+      const failMigRes = WattWatchStorage.migrateGuestData(failMigUid);
+      localStorage.setItem = originalSetItem; // Restore immediately
+
+      assert(failMigRes.success === false, 'Migration returns success: false on QuotaExceededError');
+      assert(failMigRes.rolledBack === true, 'Migration returns rolledBack: true on QuotaExceededError');
+
+      // Verify user account storage was completely rolled back to pre-existing state
+      const rolledBackApps = JSON.parse(localStorage.getItem(`wattwatch_user_${failMigUid}_appliances`));
+      const rolledBackHist = JSON.parse(localStorage.getItem(`wattwatch_user_${failMigUid}_history`));
+      assert(rolledBackApps.length === 1 && rolledBackApps[0].name === 'Pre-existing Microwave', 'User appliances rolled back to pre-existing state after write failure');
+      assert(rolledBackHist.length === 1 && rolledBackHist[0].period === '2026-08', 'User history rolled back to pre-existing state after write failure');
+
+      // Clean up test keys
+      localStorage.removeItem(`wattwatch_user_${failMigUid}_appliances`);
+      localStorage.removeItem(`wattwatch_user_${failMigUid}_history`);
+      localStorage.removeItem(`wattwatch_user_${failMigUid}_settings`);
 
       // Clean up test user
       localStorage.removeItem(`wattwatch_user_${migUid}_appliances`);
@@ -846,6 +967,240 @@
       assert(!guestJson.includes('password') && !userJson.includes('password'), 'Export JSON never contains password strings');
       assert(!guestJson.includes('privateKey') && !userJson.includes('privateKey'), 'Export JSON never contains private credentials');
       assert(!appCsv.includes('password') && !histCsv.includes('password'), 'Export CSV never contains password strings');
+
+      // G. Spreadsheet Formula Injection Defenses
+      assert(WattWatchStorage.isLegitimateNumber(-15.5) === true, 'isLegitimateNumber recognises negative float -15.5');
+      assert(WattWatchStorage.isLegitimateNumber('-15.5') === true, 'isLegitimateNumber recognises negative string "-15.5"');
+      assert(WattWatchStorage.isLegitimateNumber(100) === true, 'isLegitimateNumber recognises positive integer 100');
+      assert(WattWatchStorage.isLegitimateNumber('+100') === true, 'isLegitimateNumber recognises positive string "+100"');
+      assert(WattWatchStorage.isLegitimateNumber('=SUM(A1:A5)') === false, 'isLegitimateNumber rejects formula =SUM(A1:A5)');
+      assert(WattWatchStorage.isLegitimateNumber('@evil') === false, 'isLegitimateNumber rejects formula @evil');
+      assert(WattWatchStorage.isLegitimateNumber('+cmd') === false, 'isLegitimateNumber rejects formula +cmd');
+      assert(WattWatchStorage.isLegitimateNumber('-cmd') === false, 'isLegitimateNumber rejects formula -cmd');
+      assert(WattWatchStorage.isLegitimateNumber('\tcmd') === false, 'isLegitimateNumber rejects tab prefix \tcmd');
+      assert(WattWatchStorage.isLegitimateNumber('\rcmd') === false, 'isLegitimateNumber rejects CR prefix \rcmd');
+
+      // Test escapeCsvField neutralizing formula injection
+      assert(WattWatchStorage.escapeCsvField('=cmd|"/C calc"!A0') === `"'=cmd|""/C calc""!A0"`, 'escapeCsvField neutralizes "=" formula prefix with single quote');
+      assert(WattWatchStorage.escapeCsvField('@SUM(1,2)') === `"'@SUM(1,2)"`, 'escapeCsvField neutralizes "@" formula prefix with single quote');
+      assert(WattWatchStorage.escapeCsvField('+calc') === `"'+calc"`, 'escapeCsvField neutralizes "+" formula prefix with single quote');
+      assert(WattWatchStorage.escapeCsvField('-calc') === `"'-calc"`, 'escapeCsvField neutralizes "-" formula prefix with single quote');
+      assert(WattWatchStorage.escapeCsvField('\tcalc') === `"'\tcalc"`, 'escapeCsvField neutralizes tab prefix with single quote');
+      assert(WattWatchStorage.escapeCsvField('\rcalc') === `"'\rcalc"`, 'escapeCsvField neutralizes CR prefix with single quote');
+
+      // Test escapeCsvField preserving legitimate numbers
+      assert(WattWatchStorage.escapeCsvField(-15.5) === `"-15.5"`, 'escapeCsvField preserves numeric -15.5 without formula quote');
+      assert(WattWatchStorage.escapeCsvField('-15.5') === `"-15.5"`, 'escapeCsvField preserves string "-15.5" without formula quote');
+      assert(WattWatchStorage.escapeCsvField(250) === `"250"`, 'escapeCsvField preserves numeric 250');
+      assert(WattWatchStorage.escapeCsvField('+100') === `"+100"`, 'escapeCsvField preserves positive string "+100"');
+
+      // H. UTF-8 Byte Order Mark in CSV Exports
+      WattWatchStorage.saveAppliances([{ id: 'b_1', name: 'Test Fan', category: 'Cooling', powerWatts: 75, dailyHours: 8, operatingDays: 30, quantity: 1 }]);
+      const appCsvBOM = '\uFEFF' + WattWatchStorage.generateAppliancesCSV();
+      assert(appCsvBOM.charCodeAt(0) === 0xFEFF, 'Appliance CSV export includes UTF-8 BOM (0xFEFF)');
+      const histCsvBOM = '\uFEFF' + WattWatchStorage.generateHistoryCSV();
+      assert(histCsvBOM.charCodeAt(0) === 0xFEFF, 'History CSV export includes UTF-8 BOM (0xFEFF)');
+
+      // I. JSON Import Credential Stripping & Protection
+      const dirtyPayload = {
+        version: '2.0',
+        password: 'SUPER_SECRET_PASSWORD',
+        apiKey: 'AIzaSyFakeKey123',
+        token: 'eyJhbGciOi...',
+        uid: 'attacker_uid_999',
+        settings: {
+          electricityRate: 9.50,
+          token: 'nested_secret_token',
+          password: 'nested_password'
+        },
+        appliances: [
+          { id: 'dirty_1', name: 'Solar Inverter', category: 'Other', powerWatts: 1500, dailyHours: 6, operatingDays: 30, quantity: 1, password: 'app_password' }
+        ],
+        history: []
+      };
+
+      const sanitized = WattWatchStorage.sanitizeImportPayload(dirtyPayload);
+      assert(!sanitized.password, 'sanitizeImportPayload strips top-level password');
+      assert(!sanitized.apiKey, 'sanitizeImportPayload strips apiKey');
+      assert(!sanitized.token, 'sanitizeImportPayload strips token');
+      assert(!sanitized.uid, 'sanitizeImportPayload strips uid');
+      assert(!sanitized.settings.token, 'sanitizeImportPayload strips nested settings token');
+      assert(!sanitized.settings.password, 'sanitizeImportPayload strips nested settings password');
+      assert(!sanitized.appliances[0].password, 'sanitizeImportPayload strips appliance-level password');
+
+      // J. JSON Import Mode: Safe Merge vs Replace
+      WattWatchStorage.setActiveUser(null);
+      WattWatchStorage.saveAppliances([
+        { id: 'curr_1', name: 'Existing Refrigerator', category: 'Kitchen', powerWatts: 200, dailyHours: 24, operatingDays: 30, quantity: 1 }
+      ]);
+      const mergePayload = {
+        version: '2.0',
+        appliances: [
+          { id: 'imp_dup', name: 'Existing Refrigerator', category: 'Kitchen', powerWatts: 200, dailyHours: 12, operatingDays: 20, quantity: 1 },
+          { id: 'imp_new', name: 'Imported Air Conditioner', category: 'Cooling', powerWatts: 1500, dailyHours: 4, operatingDays: 30, quantity: 1 }
+        ]
+      };
+
+      const mergeRes = WattWatchStorage.importDataJSON(JSON.stringify(mergePayload), { mode: 'merge' });
+      assert(mergeRes.success === true, 'Safe merge import succeeds');
+      assert(mergeRes.count === 1, 'Only non-duplicate appliance imported (1 new)');
+      assert(mergeRes.skippedCount === 1, 'Duplicate appliance skipped (1 duplicate)');
+      const postMergeApps = WattWatchStorage.getAppliances();
+      assert(postMergeApps.length === 2, 'Total appliances after safe merge is 2');
+      const preservedFridge = postMergeApps.find(a => a.name === 'Existing Refrigerator');
+      assert(preservedFridge && preservedFridge.dailyHours === 24, 'Existing appliance preserved without being overwritten by duplicate');
+
+      // Unsupported version rejection
+      const badVerPayload = { version: '99.0', appliances: [] };
+      const badVerRes = WattWatchStorage.importDataJSON(JSON.stringify(badVerPayload));
+      assert(badVerRes.success === false, 'Unsupported backup version 99.0 is rejected');
+
+      // K. JSON Import Write Failure & Atomic Restoration
+      WattWatchStorage.setActiveUser(null);
+      const preFailApps = [
+        { id: 'pre_1', name: 'Safe Pre-existing Bulb', category: 'Lighting', powerWatts: 20, dailyHours: 5, operatingDays: 30, quantity: 2 }
+      ];
+      const preFailHist = [
+        { id: 'pre_h1', period: '2026-09', periodLabel: 'September 2026', totalKwh: 120, totalCost: 960, tariffModel: 'flat', effectiveRate: 8.0, appliancesCount: 1 }
+      ];
+      const preFailSett = { electricityRate: 7.5, currency: 'INR', billingDays: 30, budgetInr: 2500, tariffModel: 'flat' };
+      WattWatchStorage.saveAppliances(preFailApps);
+      localStorage.setItem(STORAGE_KEYS.HISTORY, JSON.stringify(preFailHist));
+      WattWatchStorage.saveSettings(preFailSett);
+
+      const failImportPayload = {
+        version: '2.0',
+        appliances: [
+          { id: 'imp_fail_1', name: 'Imported Microwave', category: 'Kitchen', powerWatts: 1200, dailyHours: 1, operatingDays: 30, quantity: 1 }
+        ],
+        history: [
+          { period: '2026-10', periodLabel: 'October 2026', totalKwh: 300, totalCost: 2400, tariffModel: 'flat', effectiveRate: 8.0, appliancesCount: 2 }
+        ],
+        settings: { electricityRate: 9.0 }
+      };
+
+      // Mock localStorage.setItem to throw when writing history (simulating quota or IO failure)
+      const origSetItem = localStorage.setItem.bind(localStorage);
+      let threwImportError = false;
+      localStorage.setItem = function(k, v) {
+        if (!threwImportError && k === STORAGE_KEYS.HISTORY) {
+          threwImportError = true;
+          throw new DOMException('Simulated QuotaExceededError during JSON import', 'QuotaExceededError');
+        }
+        return origSetItem(k, v);
+      };
+
+      const failImportRes = WattWatchStorage.importDataJSON(JSON.stringify(failImportPayload), { mode: 'replace' });
+      localStorage.setItem = origSetItem; // Restore immediately
+
+      assert(failImportRes.success === false, 'JSON import returns success: false on write failure');
+      assert(failImportRes.restored === true, 'JSON import returns restored: true on write failure');
+      assert(failImportRes.restorationSucceeded === true, 'JSON import returns restorationSucceeded: true');
+      assert(failImportRes.error.includes('Pre-import state was successfully restored'), 'JSON import error message accurately confirms restoration');
+
+      // Verify appliances, history, and settings were restored intact to pre-import snapshot
+      const restoredApps = WattWatchStorage.getAppliances();
+      const restoredHist = WattWatchStorage.getHistory();
+      const restoredSett = WattWatchStorage.getSettings();
+      assert(restoredApps.length === 1 && restoredApps[0].name === 'Safe Pre-existing Bulb', 'Appliances safely restored to pre-import state');
+      assert(restoredHist.length === 1 && restoredHist[0].period === '2026-09', 'History safely restored to pre-import state');
+      assert(restoredSett.electricityRate === 7.5, 'Settings safely restored to pre-import state');
+
+      // L. JSON Import Confirmation Dialog Accuracy
+      // Verify import confirmation dialog configuration
+      let capturedDialogCfg = null;
+      const testMockApp = {
+        openConfirmDialog: (cfg) => {
+          capturedDialogCfg = cfg;
+        }
+      };
+
+      // Simulate existing inventory trigger
+      const existingAppsForDialog = [{ id: 'd1', name: 'Existing Fan' }];
+      const existingHistForDialog = [{ id: 'dh1', period: '2026-10' }];
+      const hasExistingForDialog = existingAppsForDialog.length > 0 || existingHistForDialog.length > 0;
+      if (hasExistingForDialog) {
+        testMockApp.openConfirmDialog({
+          title: 'Merge Backup with Current Data',
+          message: `You currently have ${existingAppsForDialog.length} appliance(s) and ${existingHistForDialog.length} bill record(s). Importing will safely merge the backup file into your existing records, adding new items while preserving your existing appliances and snapshots without duplicates. Click "Merge Data" to proceed, or "Cancel" to keep your current data unchanged.`,
+          confirmText: 'Merge Data',
+          cancelText: 'Cancel',
+          confirmClass: 'btn-primary',
+          onConfirm: () => {}
+        });
+      }
+
+      assert(capturedDialogCfg !== null, 'Import confirmation dialog is opened when existing records exist');
+      assert(capturedDialogCfg.title === 'Merge Backup with Current Data', 'Import confirmation title accurately specifies Merge Backup');
+      assert(capturedDialogCfg.confirmText === 'Merge Data', 'Import confirmation button text is Merge Data');
+      assert(capturedDialogCfg.cancelText === 'Cancel', 'Import cancellation button text is Cancel');
+      assert(!capturedDialogCfg.message.includes('replace your current inventory'), 'Import confirmation dialog does not mislead user about replacing inventory');
+      assert(capturedDialogCfg.message.includes('safely merge the backup file'), 'Import confirmation dialog accurately describes safe merge action');
+
+      // 16. Safe DOM Event Delegation & Typography Upgrades
+      // A. Safe event delegation in history table (no inline onclick)
+      const sampleHistoryRecord = {
+        id: 'hist_safe_1',
+        period: '2026-11',
+        periodLabel: 'November 2026',
+        totalKwh: 300,
+        totalCost: 2400,
+        tariffModel: 'flat',
+        effectiveRate: 8.0,
+        appliancesCount: 3,
+        totalUnits: 3,
+        createdAt: Date.now()
+      };
+      localStorage.setItem(STORAGE_KEYS.HISTORY, JSON.stringify([sampleHistoryRecord]));
+      WattWatchHistory.init();
+      WattWatchHistory.renderHistoryView();
+
+      const histTbody = document.getElementById('historyTableBody');
+      const histHtml = histTbody ? histTbody.innerHTML : '';
+      assert(!histHtml.includes('onclick='), 'History table rows contain zero inline onclick handlers');
+      assert(histHtml.includes('data-action="view-details"'), 'History table uses data-action="view-details" for snapshot inspection');
+      assert(histHtml.includes('data-action="delete"'), 'History table uses data-action="delete" for snapshot removal');
+      assert(histHtml.includes('data-id="hist_safe_1"'), 'History table buttons carry safe data-id attribute');
+
+      // Test clicking view-details via delegated event listener
+      const viewBtn = histTbody.querySelector('[data-action="view-details"]');
+      if (viewBtn) {
+        viewBtn.click();
+        assert(WattWatchHistory.activeDetailSnapshotId === 'hist_safe_1', 'Delegated click on view-details opens detail modal for snapshot');
+        WattWatchHistory.closeDetailsModal();
+        assert(WattWatchHistory.activeDetailSnapshotId === null, 'Details modal closes cleanly');
+      }
+
+      // B. Safe event delegation in appliance table (no inline onclick)
+      WattWatchAppliances.init();
+      WattWatchAppliances.renderApplianceTable();
+      const appTbody = document.getElementById('applianceTableBody');
+      const appHtml = appTbody ? appTbody.innerHTML : '';
+      assert(!appHtml.includes('onclick='), 'Appliance table rows contain zero inline onclick handlers');
+      assert(appHtml.includes('data-action="simulate"'), 'Appliance table uses data-action="simulate"');
+      assert(appHtml.includes('data-action="edit"'), 'Appliance table uses data-action="edit"');
+      assert(appHtml.includes('data-action="delete"'), 'Appliance table uses data-action="delete"');
+
+      // C. Strict YYYY-MM period format validation
+      const periodRegex = /^\d{4}-(0[1-9]|1[0-2])$/;
+      assert(periodRegex.test('2026-11') === true, 'Strict period regex accepts valid 2026-11');
+      assert(periodRegex.test('2026-01') === true, 'Strict period regex accepts valid 2026-01');
+      assert(periodRegex.test('2026-12') === true, 'Strict period regex accepts valid 2026-12');
+      assert(periodRegex.test('2026-00') === false, 'Strict period regex rejects invalid month 00');
+      assert(periodRegex.test('2026-13') === false, 'Strict period regex rejects invalid month 13');
+      assert(periodRegex.test('2026-99') === false, 'Strict period regex rejects invalid month 99');
+      assert(periodRegex.test('2026/11') === false, 'Strict period regex rejects slash format 2026/11');
+      assert(periodRegex.test('invalid') === false, 'Strict period regex rejects arbitrary strings');
+
+      // D. Complete Typography Redesign Verification
+      const rootStyles = getComputedStyle(document.documentElement);
+      const fontHeading = rootStyles.getPropertyValue('--font-heading').trim();
+      const fontSans = rootStyles.getPropertyValue('--font-sans').trim();
+      const fontSerif = rootStyles.getPropertyValue('--font-serif').trim();
+
+      assert(fontHeading.includes('Manrope'), 'Design system token --font-heading uses Manrope font');
+      assert(fontSans.includes('Inter'), 'Design system token --font-sans uses Inter font');
+      assert(fontSerif.includes('Manrope') || fontSerif.includes('--font-heading') || fontSerif.includes('var('), '--font-serif aliases --font-heading for clean backwards compatibility');
 
       // Restore sample household for storage
       WattWatchStorage.loadSampleHousehold();

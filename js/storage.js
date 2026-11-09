@@ -328,11 +328,49 @@ const WattWatchStorage = {
         importedSettings = true;
       }
 
-      // 6. Save to destination user namespace in localStorage
-      localStorage.setItem(userAppKey, JSON.stringify(mergedAppliances));
-      localStorage.setItem(userHistKey, JSON.stringify(mergedHistory));
-      if (mergedSettings) {
-        localStorage.setItem(userSettKey, JSON.stringify(mergedSettings));
+      // 6. Transactional write to destination user namespace in localStorage with rollback defense
+      const userSnapshot = {
+        app: localStorage.getItem(userAppKey),
+        hist: localStorage.getItem(userHistKey),
+        sett: localStorage.getItem(userSettKey)
+      };
+
+      try {
+        localStorage.setItem(userAppKey, JSON.stringify(mergedAppliances));
+        localStorage.setItem(userHistKey, JSON.stringify(mergedHistory));
+        if (mergedSettings) {
+          localStorage.setItem(userSettKey, JSON.stringify(mergedSettings));
+        }
+      } catch (writeErr) {
+        // Rollback state completely if QuotaExceededError or write failure occurs
+        console.error('[WattWatch Storage] Write failure during migration, rolling back destination storage:', writeErr);
+        try {
+          if (userSnapshot.app !== null) localStorage.setItem(userAppKey, userSnapshot.app);
+          else localStorage.removeItem(userAppKey);
+        } catch (rbErr1) { /* ignore secondary error */ }
+
+        try {
+          if (userSnapshot.hist !== null) localStorage.setItem(userHistKey, userSnapshot.hist);
+          else localStorage.removeItem(userHistKey);
+        } catch (rbErr2) { /* ignore secondary error */ }
+
+        try {
+          if (userSnapshot.sett !== null) localStorage.setItem(userSettKey, userSnapshot.sett);
+          else localStorage.removeItem(userSettKey);
+        } catch (rbErr3) { /* ignore secondary error */ }
+
+        return {
+          success: false,
+          rolledBack: true,
+          transferredAppliances: 0,
+          skippedAppliances: 0,
+          transferredHistory: 0,
+          skippedHistory: 0,
+          importedSettings: false,
+          totalAppliances: userAppliances.length,
+          totalHistory: userHistory.length,
+          error: `Storage write failure: ${writeErr.message}. Destination state was rolled back.`
+        };
       }
 
       // Note: Guest records in localStorage are left 100% intact and untouched.
@@ -351,6 +389,7 @@ const WattWatchStorage = {
       console.error('[WattWatch Storage] Error migrating guest data:', e);
       return {
         success: false,
+        rolledBack: false,
         transferredAppliances: 0,
         skippedAppliances: 0,
         transferredHistory: 0,
@@ -554,26 +593,61 @@ const WattWatchStorage = {
   },
 
   /**
-   * Validates and imports JSON application data with backward compatibility for v1.0 and v2.0
-   * @param {string} jsonString
-   * @returns {Object} { success: boolean, count?: number, historyCount?: number, error?: string }
+   * Sanitizes an object by recursively stripping credentials, secrets, or sensitive tokens
+   * @param {*} obj
+   * @returns {*}
    */
-  importDataJSON(jsonString) {
+  sanitizeImportPayload(obj) {
+    if (!obj || typeof obj !== 'object') return obj;
+    const sensitiveKeys = ['password', 'token', 'authdomain', 'apikey', 'secret', 'credentials', 'privatekey', 'accesstoken', 'uid'];
+    if (Array.isArray(obj)) {
+      return obj.map(item => this.sanitizeImportPayload(item));
+    }
+    const clean = {};
+    for (const [key, val] of Object.entries(obj)) {
+      if (sensitiveKeys.includes(key.toLowerCase())) continue;
+      if (val && typeof val === 'object') {
+        clean[key] = this.sanitizeImportPayload(val);
+      } else {
+        clean[key] = val;
+      }
+    }
+    return clean;
+  },
+
+  /**
+   * Validates and imports JSON application data with support for v1.0 and v2.0
+   * Supports 'merge' (default, safe preservation of existing records) and 'replace' modes
+   * @param {string} jsonString
+   * @param {{ mode?: 'merge' | 'replace' }} [options={ mode: 'merge' }]
+   * @returns {Object} { success: boolean, count?: number, historyCount?: number, skippedCount?: number, mode?: string, error?: string }
+   */
+  importDataJSON(jsonString, options = { mode: 'merge' }) {
     try {
-      const parsed = JSON.parse(jsonString);
+      let parsed = JSON.parse(jsonString);
 
       if (!parsed || typeof parsed !== 'object') {
         return { success: false, error: 'Invalid JSON format' };
+      }
+
+      // Check version support
+      if (parsed.version && parsed.version !== '1.0' && parsed.version !== '2.0') {
+        return { success: false, error: `Unsupported backup version: ${parsed.version}` };
       }
 
       if (!Array.isArray(parsed.appliances)) {
         return { success: false, error: 'File missing "appliances" list' };
       }
 
+      // Strip sensitive credentials/tokens
+      parsed = this.sanitizeImportPayload(parsed);
+
+      const mode = (options && options.mode === 'replace') ? 'replace' : 'merge';
+
       // Validate each appliance schema
       const validAppliances = [];
       for (const item of parsed.appliances) {
-        if (!item.name || typeof item.name !== 'string' || !item.name.trim()) {
+        if (!item || !item.name || typeof item.name !== 'string' || !item.name.trim()) {
           continue;
         }
         const power = Number(item.powerWatts);
@@ -602,41 +676,11 @@ const WattWatchStorage = {
         return { success: false, error: 'No valid appliance records found in imported file' };
       }
 
-      // Save imported appliances
-      this.saveAppliances(validAppliances);
-
-      // Save imported settings if present (supporting both v1 and v2 fields)
-      if (parsed.settings && typeof parsed.settings === 'object') {
-        const currentSettings = this.getSettings();
-        const newSettings = { ...currentSettings };
-
-        if (!isNaN(Number(parsed.settings.electricityRate)) && Number(parsed.settings.electricityRate) > 0) {
-          newSettings.electricityRate = Number(parsed.settings.electricityRate);
-        }
-        if (parsed.settings.currency) newSettings.currency = parsed.settings.currency;
-        if (parsed.settings.billingDays) newSettings.billingDays = Number(parsed.settings.billingDays) || 30;
-
-        // v2 fields
-        if (!isNaN(Number(parsed.settings.budgetInr))) newSettings.budgetInr = Number(parsed.settings.budgetInr);
-        if (parsed.settings.tariffModel === 'slab' || parsed.settings.tariffModel === 'flat') {
-          newSettings.tariffModel = parsed.settings.tariffModel;
-        }
-        if (Array.isArray(parsed.settings.slabConfig)) newSettings.slabConfig = parsed.settings.slabConfig;
-        if (!isNaN(Number(parsed.settings.fixedCharges))) newSettings.fixedCharges = Number(parsed.settings.fixedCharges);
-        if (!isNaN(Number(parsed.settings.additionalTaxPercent))) newSettings.additionalTaxPercent = Number(parsed.settings.additionalTaxPercent);
-        if (parsed.settings.carbonEmissionFactor === null || !isNaN(Number(parsed.settings.carbonEmissionFactor))) {
-          newSettings.carbonEmissionFactor = parsed.settings.carbonEmissionFactor;
-        }
-
-        this.saveSettings(newSettings);
-      }
-
-      // Save imported historical snapshots if present (v2.0 addition)
-      let importedHistoryCount = 0;
+      // Validate historical snapshots if present
+      const validHistory = [];
       if (Array.isArray(parsed.history)) {
-        const validHistory = [];
         for (const snap of parsed.history) {
-          if (snap.period && typeof snap.period === 'string' && !isNaN(Number(snap.totalKwh))) {
+          if (snap && snap.period && typeof snap.period === 'string' && !isNaN(Number(snap.totalKwh))) {
             validHistory.push({
               id: snap.id || `snap_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`,
               period: snap.period,
@@ -654,20 +698,167 @@ const WattWatchStorage = {
             });
           }
         }
-        if (validHistory.length > 0) {
-          validHistory.sort((a, b) => b.period.localeCompare(a.period));
-          this.saveHistory(validHistory);
-          importedHistoryCount = validHistory.length;
+      }
+
+      let finalAppliances = [];
+      let finalHistory = [];
+      let importedAppsCount = 0;
+      let skippedAppsCount = 0;
+      let importedHistCount = 0;
+      let skippedHistCount = 0;
+
+      if (mode === 'replace') {
+        finalAppliances = validAppliances;
+        importedAppsCount = validAppliances.length;
+        finalHistory = validHistory.sort((a, b) => b.period.localeCompare(a.period));
+        importedHistCount = validHistory.length;
+      } else {
+        // Safe Merge mode: preserve existing records, skip duplicates
+        const existingApps = this.getAppliances();
+        finalAppliances = [...existingApps];
+
+        for (const impApp of validAppliances) {
+          const normName = impApp.name.toLowerCase();
+          const power = impApp.powerWatts;
+          const isDup = finalAppliances.some(a =>
+            a && a.name &&
+            a.name.trim().toLowerCase() === normName &&
+            Number(a.powerWatts) === power
+          );
+
+          if (!isDup) {
+            const newApp = { ...impApp };
+            if (finalAppliances.some(a => a.id === newApp.id)) {
+              newApp.id = `app_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
+            }
+            finalAppliances.push(newApp);
+            importedAppsCount++;
+          } else {
+            skippedAppsCount++;
+          }
         }
+
+        const existingHist = this.getHistory();
+        finalHistory = [...existingHist];
+
+        for (const impSnap of validHistory) {
+          const isDup = finalHistory.some(h => h && h.period === impSnap.period);
+          if (!isDup) {
+            const newSnap = { ...impSnap };
+            if (finalHistory.some(h => h.id === newSnap.id)) {
+              newSnap.id = `snap_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
+            }
+            finalHistory.push(newSnap);
+            importedHistCount++;
+          } else {
+            skippedHistCount++;
+          }
+        }
+        finalHistory.sort((a, b) => b.period.localeCompare(a.period));
+      }
+
+      // Snapshot existing appliances, history and settings before writing
+      const appKey = this._getKey('APPLIANCES');
+      const histKey = this._getKey('HISTORY');
+      const settKey = this._getKey('SETTINGS');
+
+      const storageSnapshot = {
+        appliances: localStorage.getItem(appKey),
+        history: localStorage.getItem(histKey),
+        settings: localStorage.getItem(settKey)
+      };
+
+      // Prepare merged or replaced settings
+      let newSettings = null;
+      if (parsed.settings && typeof parsed.settings === 'object') {
+        const currentSettings = this.getSettings();
+        newSettings = mode === 'replace' ? {} : { ...currentSettings };
+
+        if (!isNaN(Number(parsed.settings.electricityRate)) && Number(parsed.settings.electricityRate) > 0) {
+          newSettings.electricityRate = Number(parsed.settings.electricityRate);
+        }
+        if (parsed.settings.currency) newSettings.currency = parsed.settings.currency;
+        if (parsed.settings.billingDays) newSettings.billingDays = Number(parsed.settings.billingDays) || 30;
+
+        if (!isNaN(Number(parsed.settings.budgetInr))) newSettings.budgetInr = Number(parsed.settings.budgetInr);
+        if (parsed.settings.tariffModel === 'slab' || parsed.settings.tariffModel === 'flat') {
+          newSettings.tariffModel = parsed.settings.tariffModel;
+        }
+        if (Array.isArray(parsed.settings.slabConfig)) newSettings.slabConfig = parsed.settings.slabConfig;
+        if (!isNaN(Number(parsed.settings.fixedCharges))) newSettings.fixedCharges = Number(parsed.settings.fixedCharges);
+        if (!isNaN(Number(parsed.settings.additionalTaxPercent))) newSettings.additionalTaxPercent = Number(parsed.settings.additionalTaxPercent);
+        if (parsed.settings.carbonEmissionFactor === null || !isNaN(Number(parsed.settings.carbonEmissionFactor))) {
+          newSettings.carbonEmissionFactor = parsed.settings.carbonEmissionFactor;
+        }
+      }
+
+      // Perform transactional write with restoration on failure
+      try {
+        localStorage.setItem(appKey, JSON.stringify(finalAppliances));
+        if (validHistory.length > 0 || mode === 'replace') {
+          localStorage.setItem(histKey, JSON.stringify(finalHistory));
+        }
+        if (newSettings !== null) {
+          localStorage.setItem(settKey, JSON.stringify(newSettings));
+        }
+      } catch (writeErr) {
+        console.error('[WattWatch Storage] Write failure during JSON import, attempting restoration:', writeErr);
+
+        let restoredApps = false;
+        let restoredHist = false;
+        let restoredSett = false;
+
+        try {
+          if (storageSnapshot.appliances !== null) localStorage.setItem(appKey, storageSnapshot.appliances);
+          else localStorage.removeItem(appKey);
+          restoredApps = true;
+        } catch (rErr1) {
+          console.error('[WattWatch Storage] Failed to restore appliances:', rErr1);
+        }
+
+        try {
+          if (storageSnapshot.history !== null) localStorage.setItem(histKey, storageSnapshot.history);
+          else localStorage.removeItem(histKey);
+          restoredHist = true;
+        } catch (rErr2) {
+          console.error('[WattWatch Storage] Failed to restore history:', rErr2);
+        }
+
+        try {
+          if (storageSnapshot.settings !== null) localStorage.setItem(settKey, storageSnapshot.settings);
+          else localStorage.removeItem(settKey);
+          restoredSett = true;
+        } catch (rErr3) {
+          console.error('[WattWatch Storage] Failed to restore settings:', rErr3);
+        }
+
+        const fullRestoration = restoredApps && restoredHist && restoredSett;
+
+        return {
+          success: false,
+          restored: fullRestoration,
+          restorationSucceeded: fullRestoration,
+          error: `Storage write failure: ${writeErr.message}. ${fullRestoration ? 'Pre-import state was successfully restored.' : 'Warning: Restoration failed or was incomplete.'}`
+        };
       }
 
       return {
         success: true,
-        count: validAppliances.length,
-        historyCount: importedHistoryCount
+        count: importedAppsCount,
+        skippedCount: skippedAppsCount,
+        historyCount: importedHistCount,
+        skippedHistoryCount: skippedHistCount,
+        totalAppliances: finalAppliances.length,
+        totalHistory: finalHistory.length,
+        mode: mode
       };
     } catch (e) {
-      return { success: false, error: 'Failed to parse JSON file: ' + e.message };
+      return {
+        success: false,
+        restored: false,
+        restorationSucceeded: false,
+        error: 'Failed to parse JSON file: ' + e.message
+      };
     }
   },
 
@@ -731,13 +922,39 @@ const WattWatchStorage = {
   },
 
   /**
+   * Checks whether a value represents a valid finite number
+   * (including negative values such as -15.5 and exponential representations)
+   * @param {*} val
+   * @returns {boolean}
+   */
+  isLegitimateNumber(val) {
+    if (typeof val === 'number') {
+      return !Number.isNaN(val) && Number.isFinite(val);
+    }
+    if (typeof val !== 'string') return false;
+    const trimmed = val.trim();
+    if (trimmed === '') return false;
+    return /^[+-]?(\d+(\.\d*)?|\.\d+)([eE][+-]?\d+)?$/.test(trimmed);
+  },
+
+  /**
    * Safely formats and escapes a CSV field value in accordance with RFC 4180
+   * and spreadsheet formula injection defenses (CSV injection / DDE attacks).
+   * Neutralizes leading characters (=, +, -, @, \t, \r) by prepending a single quote (')
+   * while strictly preserving legitimate negative/positive numeric values.
    * @param {*} val
    * @returns {string}
    */
   escapeCsvField(val) {
     if (val === null || val === undefined) return '""';
-    const str = String(val);
+    let str = String(val);
+
+    const firstChar = str.length > 0 ? str.charAt(0) : '';
+    const formulaChars = ['=', '+', '-', '@', '\t', '\r'];
+    if (formulaChars.includes(firstChar) && !this.isLegitimateNumber(str)) {
+      str = "'" + str;
+    }
+
     return `"${str.replace(/"/g, '""')}"`;
   },
 
@@ -787,7 +1004,7 @@ const WattWatchStorage = {
    */
   exportAppliancesCSV() {
     try {
-      const csvContent = this.generateAppliancesCSV();
+      const csvContent = '\uFEFF' + this.generateAppliancesCSV();
       const dateStr = new Date().toISOString().split('T')[0];
       this.downloadFile(csvContent, `wattwatch-appliances-${dateStr}.csv`, 'text/csv;charset=utf-8;');
       return true;
@@ -832,7 +1049,7 @@ const WattWatchStorage = {
    */
   exportHistoryCSV() {
     try {
-      const csvContent = this.generateHistoryCSV();
+      const csvContent = '\uFEFF' + this.generateHistoryCSV();
       const dateStr = new Date().toISOString().split('T')[0];
       this.downloadFile(csvContent, `wattwatch-history-${dateStr}.csv`, 'text/csv;charset=utf-8;');
       return true;

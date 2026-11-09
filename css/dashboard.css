@@ -50,7 +50,7 @@
 }
 
 .brand-name {
-  font-family: var(--font-serif);
+  font-family: var(--font-heading);
   font-size: 1.35rem;
   font-weight: 700;
   letter-spacing: 0.08em;
@@ -189,7 +189,7 @@
 }
 
 .tariff-info-val {
-  font-family: var(--font-serif);
+  font-family: var(--font-heading);
   font-size: 1.05rem;
   font-weight: 600;
   color: var(--antique-gold);
@@ -246,7 +246,7 @@
 }
 
 .topbar-page-title {
-  font-family: var(--font-serif);
+  font-family: var(--font-heading);
   font-size: 1.35rem;
   font-weight: 600;
   color: var(--text-primary);
@@ -278,7 +278,7 @@
 }
 
 .topbar-chip strong {
-  font-family: var(--font-serif);
+  font-family: var(--font-heading);
   font-size: 0.95rem;
   color: var(--deep-burgundy);
   font-weight: 600;
@@ -449,7 +449,7 @@
 }
 
 .metric-value {
-  font-family: var(--font-serif);
+  font-family: var(--font-heading);
   font-size: 1.95rem;
   font-weight: 700;
   color: var(--text-primary);
@@ -521,7 +521,7 @@
 }
 
 .spotlight-title {
-  font-family: var(--font-serif);
+  font-family: var(--font-heading);
   font-size: 1.35rem;
   font-weight: 600;
   color: #FFFFFF;
@@ -730,7 +730,7 @@
 }
 
 .cost-val {
-  font-family: var(--font-serif);
+  font-family: var(--font-heading);
   font-weight: 700;
   color: var(--deep-burgundy);
   font-size: 0.95rem;
@@ -765,7 +765,7 @@
 }
 
 .empty-state-title {
-  font-family: var(--font-serif);
+  font-family: var(--font-heading);
   font-size: 1.45rem;
   color: var(--text-primary);
 }
@@ -865,7 +865,7 @@
 }
 
 .savings-stat-val {
-  font-family: var(--font-serif);
+  font-family: var(--font-heading);
   font-size: 2.1rem;
   font-weight: 700;
   color: #FFFFFF;
@@ -906,7 +906,7 @@
 }
 
 .tip-appliance-title {
-  font-family: var(--font-serif);
+  font-family: var(--font-heading);
   font-size: 1.15rem;
   color: var(--text-primary);
   font-weight: 600;
@@ -961,7 +961,7 @@
 }
 
 .tip-savings-pill {
-  font-family: var(--font-serif);
+  font-family: var(--font-heading);
   font-weight: 700;
   font-size: 1.15rem;
   color: var(--deep-burgundy);
@@ -1115,7 +1115,7 @@
 }
 
 .calc-preview-val {
-  font-family: var(--font-serif);
+  font-family: var(--font-heading);
   font-size: 1.15rem;
   font-weight: 700;
   color: var(--royal-blue);
@@ -1313,7 +1313,7 @@
   align-items: center;
   justify-content: center;
   font-size: 1.45rem;
-  font-family: var(--font-serif);
+  font-family: var(--font-heading);
   font-weight: 700;
   border: 2px solid var(--antique-gold);
   box-shadow: var(--shadow-sm);

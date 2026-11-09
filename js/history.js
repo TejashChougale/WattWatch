@@ -11,6 +11,16 @@ const WattWatchHistory = {
     this.bindEvents();
   },
 
+  escapeHtml(str) {
+    if (str === null || str === undefined) return '';
+    return String(str)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  },
+
   bindEvents() {
     // Snapshot save button from History view
     const btnSaveSnapshot = document.getElementById('btnSaveCurrentSnapshot');
@@ -31,6 +41,27 @@ const WattWatchHistory = {
       selectA.addEventListener('change', () => this.renderComparison());
       selectB.addEventListener('change', () => this.renderComparison());
     }
+
+    // Safe delegated event handling for history table actions (no inline onclicks)
+    const tableBody = document.getElementById('historyTableBody');
+    if (tableBody) {
+      tableBody.addEventListener('click', (e) => {
+        const btn = e.target.closest('[data-action]');
+        if (!btn) return;
+        const action = btn.getAttribute('data-action');
+        const id = btn.getAttribute('data-id');
+        if (!id) return;
+
+        if (action === 'view-details') {
+          this.openDetailsModal(id);
+        } else if (action === 'delete') {
+          const history = WattWatchStorage.getHistory();
+          const record = history.find(h => h.id === id);
+          const label = record ? (record.periodLabel || record.period) : id;
+          this.confirmDelete(id, label);
+        }
+      });
+    }
   },
 
   /**
@@ -46,8 +77,8 @@ const WattWatchHistory = {
     if (!inputPeriod || !inputPeriod.trim()) return;
 
     const trimmedPeriod = inputPeriod.trim();
-    if (!/^\d{4}-\d{2}$/.test(trimmedPeriod)) {
-      WattWatchApp.showToast('Please enter a valid format: YYYY-MM (e.g. 2026-11)', 'error', 'Invalid Period');
+    if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(trimmedPeriod)) {
+      WattWatchApp.showToast('Please enter a valid format: YYYY-MM with month between 01 and 12 (e.g. 2026-11)', 'error', 'Invalid Period');
       return;
     }
 
@@ -198,13 +229,13 @@ const WattWatchHistory = {
         </td>
         <td>
           <div class="table-actions">
-            <button type="button" class="btn btn-secondary btn-icon btn-sm" title="View Snapshot Details" onclick="WattWatchHistory.openDetailsModal('${record.id}')" aria-label="View Details for ${record.period}">
+            <button type="button" class="btn btn-secondary btn-icon btn-sm" title="View Snapshot Details" data-action="view-details" data-id="${this.escapeHtml(record.id)}" aria-label="View Details for ${this.escapeHtml(record.period)}">
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
                 <circle cx="12" cy="12" r="3"/>
               </svg>
             </button>
-            <button type="button" class="btn btn-secondary btn-icon btn-sm" title="Delete Snapshot" onclick="WattWatchHistory.confirmDelete('${record.id}', '${record.periodLabel || record.period}')" aria-label="Delete ${record.period}" style="color: #A92639;">
+            <button type="button" class="btn btn-secondary btn-icon btn-sm" title="Delete Snapshot" data-action="delete" data-id="${this.escapeHtml(record.id)}" aria-label="Delete ${this.escapeHtml(record.period)}" style="color: #A92639;">
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <polyline points="3 6 5 6 21 6"/>
                 <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
@@ -217,8 +248,10 @@ const WattWatchHistory = {
       tableBody.appendChild(tr);
     });
 
-    // Render historical trend chart
-    WattWatchCharts.renderHistoryTrendChart(history);
+    // Render historical trend chart if charts module is available
+    if (typeof WattWatchCharts !== 'undefined' && WattWatchCharts.renderHistoryTrendChart) {
+      WattWatchCharts.renderHistoryTrendChart(history);
+    }
   },
 
   /**

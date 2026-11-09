@@ -17,6 +17,8 @@ const WattWatchAuth = {
   currentUser: null, // Active user object { uid, username, displayName } or null for Guest Mode
   hasUserChosenSession: false, // Whether the user has explicitly resolved the startup login gate
   chosenSessionType: null, // 'account' | 'guest' | null (null when startup gate unresolved)
+  _eventsBound: false, // Guard against duplicate event listener registration
+  _isSubmitting: false, // Guard against concurrent/duplicate form submissions
   auth: null, // Firebase Auth instance
   db: null, // Cloud Firestore instance
   signInWithEmailAndPassword: null,
@@ -42,12 +44,26 @@ const WattWatchAuth = {
   },
 
   /**
+   * Updates close button visibility inside authModal
+   * Hidden when user has not yet resolved the startup gate, visible once a session is established
+   */
+  updateCloseButtonsVisibility() {
+    const closeX = document.getElementById('authModalCloseX');
+    const footerClose = document.getElementById('authModalFooterClose');
+    const displayVal = this.hasUserChosenSession ? '' : 'none';
+    if (closeX) closeX.style.display = displayVal;
+    if (footerClose) footerClose.style.display = displayVal;
+  },
+
+  /**
    * Displays the Login / Create Account screen on every fresh page load or refresh.
    * Does not auto-enter guest mode or bypass the auth gate.
    */
   openAuthModalOnStartup() {
     this.hasUserChosenSession = false;
     this.chosenSessionType = null;
+    document.body.classList.add('auth-gate-active');
+    this.updateCloseButtonsVisibility();
     const modal = document.getElementById('authModal');
     if (!modal) return;
 
@@ -93,6 +109,12 @@ const WattWatchAuth = {
         if (this.onAuthStateChanged && this.auth) {
           this.onAuthStateChanged(this.auth, async (user) => {
             if (user) {
+              // If user has already chosen Guest Mode before this callback resolved,
+              // strictly respect their choice: do not switch workspace or session.
+              if (this.chosenSessionType === 'guest') {
+                return;
+              }
+
               const email = user.email || '';
               const rawUsername = email.includes('@') ? email.split('@')[0] : (user.displayName || 'User');
               let displayName = user.displayName || rawUsername;
@@ -220,6 +242,9 @@ const WattWatchAuth = {
    * Binds modal controls, forms, tab switches, and password toggles
    */
   bindEvents() {
+    if (this._eventsBound) return;
+    this._eventsBound = true;
+
     // Topbar trigger
     const authBtn = document.getElementById('btnTopbarAuth');
     if (authBtn) {
@@ -289,6 +314,7 @@ const WattWatchAuth = {
     if (!modal) return;
 
     this.updateGuestImportCheckbox();
+    this.updateCloseButtonsVisibility();
 
     if (this.currentUser && this.chosenSessionType === 'account') {
       this.showAccountPane();
@@ -341,7 +367,7 @@ const WattWatchAuth = {
     this.hasUserChosenSession = true;
     this.chosenSessionType = 'account';
     WattWatchStorage.setActiveUser(this.currentUser.uid);
-    this.closeModal();
+    this.closeModal(true);
     this.updateTopbarState();
 
     if (typeof WattWatchApp !== 'undefined') {
@@ -381,16 +407,25 @@ const WattWatchAuth = {
   },
 
   /**
-   * Closes the authentication modal without silently selecting Guest Mode
+   * Closes the authentication modal.
+   * Blocks closing when the startup auth gate has not been explicitly resolved,
+   * unless force=true is passed by an explicit session choice.
+   * @param {boolean} [force=false]
    */
-  closeModal() {
+  closeModal(force = false) {
+    if (!this.hasUserChosenSession && !force) {
+      return false;
+    }
     const modal = document.getElementById('authModal');
     if (modal) {
       modal.classList.remove('is-open');
       modal.setAttribute('aria-hidden', 'true');
     }
+    document.body.classList.remove('auth-gate-active');
     this.clearAlert();
+    this.updateCloseButtonsVisibility();
     this.updateTopbarState();
+    return true;
   },
 
   /**
@@ -478,7 +513,7 @@ const WattWatchAuth = {
     this.chosenSessionType = 'guest';
     this.currentUser = null;
     WattWatchStorage.setActiveUser(null);
-    this.closeModal();
+    this.closeModal(true);
     this.updateTopbarState();
     if (typeof WattWatchApp !== 'undefined') {
       if (WattWatchApp.refreshAll) WattWatchApp.refreshAll();
@@ -503,6 +538,8 @@ const WattWatchAuth = {
     this.currentUser = null;
     this.hasUserChosenSession = false;
     this.chosenSessionType = null;
+    document.body.classList.add('auth-gate-active');
+    this.updateCloseButtonsVisibility();
     WattWatchStorage.setActiveUser(null);
     this.updateTopbarState();
     this.switchTab('login');
@@ -574,6 +611,7 @@ const WattWatchAuth = {
    * Handles Login form submission
    */
   async handleLoginSubmit() {
+    if (this._isSubmitting) return;
     this.clearAlert();
     const usernameInput = document.getElementById('loginUsername');
     const passwordInput = document.getElementById('loginPassword');
@@ -606,6 +644,7 @@ const WattWatchAuth = {
     const password = passwordInput.value;
 
     try {
+      this._isSubmitting = true;
       if (submitBtn) {
         submitBtn.disabled = true;
         submitBtn.textContent = 'Signing In...';
@@ -635,7 +674,7 @@ const WattWatchAuth = {
       this.hasUserChosenSession = true;
       this.chosenSessionType = 'account';
       WattWatchStorage.setActiveUser(user.uid);
-      this.closeModal();
+      this.closeModal(true);
       this.updateTopbarState();
 
       if (typeof WattWatchApp !== 'undefined') {
@@ -679,6 +718,7 @@ const WattWatchAuth = {
       }
       this.showAlert(errMsg, 'error');
     } finally {
+      this._isSubmitting = false;
       if (submitBtn) {
         submitBtn.disabled = false;
         submitBtn.textContent = 'Log In';
@@ -690,6 +730,7 @@ const WattWatchAuth = {
    * Handles Create Account form submission
    */
   async handleSignupSubmit() {
+    if (this._isSubmitting) return;
     this.clearAlert();
     const usernameInput = document.getElementById('signupUsername');
     const passwordInput = document.getElementById('signupPassword');
@@ -733,6 +774,7 @@ const WattWatchAuth = {
     const shouldImport = importCheckbox ? importCheckbox.checked : false;
 
     try {
+      this._isSubmitting = true;
       if (submitBtn) {
         submitBtn.disabled = true;
         submitBtn.textContent = 'Creating Account...';
@@ -781,7 +823,7 @@ const WattWatchAuth = {
         }
       }
 
-      this.closeModal();
+      this.closeModal(true);
       this.updateTopbarState();
 
       if (typeof WattWatchApp !== 'undefined') {
@@ -804,6 +846,7 @@ const WattWatchAuth = {
       }
       this.showAlert(errMsg, 'error');
     } finally {
+      this._isSubmitting = false;
       if (submitBtn) {
         submitBtn.disabled = false;
         submitBtn.textContent = 'Create Account';
@@ -827,7 +870,7 @@ const WattWatchAuth = {
     this.hasUserChosenSession = true;
     this.chosenSessionType = 'guest';
     WattWatchStorage.setActiveUser(null);
-    this.closeModal();
+    this.closeModal(true);
     this.updateTopbarState();
 
     if (typeof WattWatchApp !== 'undefined') {

@@ -736,15 +736,55 @@ const WattWatchApp = {
 
         const reader = new FileReader();
         reader.onload = (event) => {
-          const res = WattWatchStorage.importDataJSON(event.target.result);
-          if (res.success) {
-            this.refreshAll();
-            const histMsg = res.historyCount ? ` and ${res.historyCount} historical snapshots` : '';
-            this.showToast(`Successfully imported ${res.count} appliance(s)${histMsg}`, 'success', 'Import Successful');
-          } else {
-            this.showToast(res.error || 'Failed to import data', 'error', 'Import Error');
+          const rawText = event.target.result;
+          let parsed = null;
+          try {
+            parsed = JSON.parse(rawText);
+          } catch (err) {
+            this.showToast('Invalid JSON file format. Please select a valid WattWatch backup.', 'error', 'Import Error');
+            fileInput.value = '';
+            return;
           }
-          fileInput.value = '';
+
+          if (!parsed || !Array.isArray(parsed.appliances)) {
+            this.showToast('Invalid backup file: missing appliances list.', 'error', 'Import Error');
+            fileInput.value = '';
+            return;
+          }
+
+          const existingApps = WattWatchStorage.getAppliances();
+          const existingHist = WattWatchStorage.getHistory();
+          const hasExisting = existingApps.length > 0 || existingHist.length > 0;
+
+          const executeImport = (mode) => {
+            const res = WattWatchStorage.importDataJSON(rawText, { mode });
+            if (res.success) {
+              this.refreshAll();
+              const histMsg = res.historyCount ? ` and ${res.historyCount} snapshot(s)` : '';
+              const skippedMsg = res.skippedCount ? ` (${res.skippedCount} duplicate items skipped)` : '';
+              const mergeMsg = res.mode === 'merge' ? ' (Merged safely)' : ' (Replaced current inventory)';
+              this.showToast(`Successfully imported ${res.count} appliance(s)${histMsg}${skippedMsg}${mergeMsg}`, 'success', 'Import Successful');
+            } else {
+              this.showToast(res.error || 'Failed to import data', 'error', 'Import Error');
+            }
+            fileInput.value = '';
+          };
+
+          if (hasExisting) {
+            this.openConfirmDialog({
+              title: 'Merge Backup with Current Data',
+              message: `You currently have ${existingApps.length} appliance(s) and ${existingHist.length} bill record(s). Importing will safely merge the backup file into your existing records, adding new items while preserving your existing appliances and snapshots without duplicates. Click "Merge Data" to proceed, or "Cancel" to keep your current data unchanged.`,
+              confirmText: 'Merge Data',
+              cancelText: 'Cancel',
+              confirmClass: 'btn-primary',
+              onConfirm: () => {
+                executeImport('merge');
+              }
+            });
+            fileInput.value = '';
+          } else {
+            executeImport('merge');
+          }
         };
         reader.readAsText(file);
       });
@@ -843,14 +883,14 @@ const WattWatchApp = {
         WattWatchHistory.closeDetailsModal();
         WattWatchReport.closeReportModal();
         this.closeConfirmDialog();
-        if (typeof WattWatchAuth !== 'undefined') {
+        if (typeof WattWatchAuth !== 'undefined' && WattWatchAuth.hasUserChosenSession) {
           WattWatchAuth.closeModal();
         }
       }
     });
 
-    // Close on backdrop clicks
-    ['applianceModal', 'confirmModal', 'historyDetailModal', 'reportModal', 'authModal'].forEach(id => {
+    // Close on backdrop clicks for standard modals
+    ['applianceModal', 'confirmModal', 'historyDetailModal', 'reportModal'].forEach(id => {
       const modal = document.getElementById(id);
       if (modal) {
         modal.addEventListener('click', (e) => {
@@ -860,6 +900,18 @@ const WattWatchApp = {
         });
       }
     });
+
+    // For authModal, backdrop click must not bypass the startup authentication gate
+    const authModal = document.getElementById('authModal');
+    if (authModal) {
+      authModal.addEventListener('click', (e) => {
+        if (e.target === authModal) {
+          if (typeof WattWatchAuth !== 'undefined' && WattWatchAuth.hasUserChosenSession) {
+            WattWatchAuth.closeModal();
+          }
+        }
+      });
+    }
   },
 
   /**
