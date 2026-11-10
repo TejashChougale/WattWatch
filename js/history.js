@@ -207,7 +207,7 @@ const WattWatchHistory = {
           <div style="font-weight: 600; font-family: var(--font-serif); font-size: 0.95rem; color: var(--text-primary);">
             ${WattWatchAppliances.escapeHtml(record.periodLabel || record.period)}
           </div>
-          <div style="font-size: 0.72rem; color: var(--text-secondary);">${record.period}</div>
+          <div style="font-size: 0.72rem; color: var(--text-secondary);">${WattWatchAppliances.escapeHtml(record.period)}</div>
         </td>
         <td>
           <span class="kwh-val">${WattWatchCalculations.formatKwh(record.totalKwh)}</span>
@@ -423,13 +423,17 @@ const WattWatchHistory = {
     const appliances = snap.appliancesSnapshot || [];
 
     appliances.forEach((app, idx) => {
+      const safeCat = WattWatchAppliances.escapeHtml(app.category || 'Other');
+      const safeWatts = Number(app.powerWatts) || 0;
+      const safeQty = Number(app.quantity) || 1;
+      const safeHours = Number(app.dailyHours) || 0;
       breakdownRows += `
         <tr>
           <td>#${idx + 1}</td>
-          <td><strong>${WattWatchAppliances.escapeHtml(app.name)}</strong> (${app.category})</td>
-          <td>${app.powerWatts}W</td>
-          <td>${app.quantity}</td>
-          <td>${app.dailyHours}h/day</td>
+          <td><strong>${WattWatchAppliances.escapeHtml(app.name)}</strong> (${safeCat})</td>
+          <td>${safeWatts}W</td>
+          <td>${safeQty}</td>
+          <td>${safeHours}h/day</td>
           <td><strong>${WattWatchCalculations.formatKwh(app.monthlyKwh)}</strong></td>
           <td><strong>${WattWatchCalculations.formatCurrency(app.monthlyCost)}</strong></td>
         </tr>

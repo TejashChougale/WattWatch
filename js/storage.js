@@ -107,6 +107,168 @@ const SAMPLE_APPLIANCES = [
 
 const WattWatchStorage = {
   activeUserId: null,
+  testNamespace: null,
+  corruptedState: null,
+
+  ALLOWED_CATEGORIES: ['Cooling', 'Lighting', 'Kitchen', 'Entertainment', 'Computing', 'Other'],
+
+  /**
+   * Sets a test-only storage key prefix for isolated automated testing
+   * @param {string|null} prefix
+   */
+  setTestNamespace(prefix) {
+    this.testNamespace = (typeof prefix === 'string' && prefix.trim().length > 0) ? prefix.trim() : null;
+  },
+
+  /**
+   * Gets current test storage namespace
+   * @returns {string|null}
+   */
+  getTestNamespace() {
+    return this.testNamespace;
+  },
+
+  /**
+   * Checks whether corrupted storage has been detected and quarantined
+   * @returns {boolean}
+   */
+  hasCorruptedData() {
+    return this.corruptedState !== null;
+  },
+
+  /**
+   * Safely escapes HTML special characters
+   * @param {*} str
+   * @returns {string}
+   */
+  escapeHtml(str) {
+    if (str === null || str === undefined) return '';
+    return String(str)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  },
+
+  /**
+   * Validates an appliance record against strict domain rules.
+   * Rejects malformed values, decimal quantities, negative power ratings, and unwhitelisted categories.
+   * @param {*} app
+   * @returns {{ valid: boolean, error?: string, sanitized?: Object }}
+   */
+  validateAppliance(app) {
+    if (!app || typeof app !== 'object' || Array.isArray(app)) {
+      return { valid: false, error: 'Appliance record must be an object' };
+    }
+
+    // Name validation
+    if (typeof app.name !== 'string' || !app.name.trim()) {
+      return { valid: false, error: 'Appliance name is required' };
+    }
+    const cleanName = app.name.trim();
+    if (cleanName.length > 100) {
+      return { valid: false, error: 'Appliance name must not exceed 100 characters' };
+    }
+
+    // Category validation against exact allowed whitelist
+    const rawCategory = typeof app.category === 'string' ? app.category.trim() : '';
+    const matchedCategory = this.ALLOWED_CATEGORIES.find(c => c.toLowerCase() === rawCategory.toLowerCase());
+    if (!matchedCategory) {
+      return {
+        valid: false,
+        error: `Invalid category "${rawCategory}". Allowed categories are: ${this.ALLOWED_CATEGORIES.join(', ')}`
+      };
+    }
+
+    // Power Rating (Watts): strictly positive finite number up to 50,000 W
+    const numWatts = Number(app.powerWatts);
+    if (typeof app.powerWatts === 'boolean' || isNaN(numWatts) || !Number.isFinite(numWatts) || numWatts <= 0) {
+      return { valid: false, error: 'Power rating must be a positive number greater than 0 Watts' };
+    }
+    if (numWatts > 50000) {
+      return { valid: false, error: 'Power rating cannot exceed 50,000 Watts' };
+    }
+
+    // Quantity: strictly whole positive integer >= 1 (reject decimals like 1.5)
+    const numQty = Number(app.quantity);
+    if (typeof app.quantity === 'boolean' || isNaN(numQty) || !Number.isFinite(numQty) || !Number.isInteger(numQty) || numQty < 1) {
+      return { valid: false, error: 'Quantity must be a positive whole integer of at least 1 unit' };
+    }
+    if (numQty > 1000) {
+      return { valid: false, error: 'Quantity cannot exceed 1,000 units' };
+    }
+
+    // Daily hours: strictly finite number >= 0 and <= 24
+    const numHours = Number(app.dailyHours);
+    if (typeof app.dailyHours === 'boolean' || isNaN(numHours) || !Number.isFinite(numHours) || numHours < 0 || numHours > 24) {
+      return { valid: false, error: 'Daily usage hours must be between 0 and 24 hours' };
+    }
+
+    // Operating days: strictly integer between 1 and 31
+    const numDays = Number(app.operatingDays);
+    if (typeof app.operatingDays === 'boolean' || isNaN(numDays) || !Number.isFinite(numDays) || !Number.isInteger(numDays) || numDays < 1 || numDays > 31) {
+      return { valid: false, error: 'Operating days per month must be an integer between 1 and 31 days' };
+    }
+
+    // Safe ID
+    let id = typeof app.id === 'string' && app.id.trim() ? app.id.trim() : null;
+    if (!id || /[^a-zA-Z0-9_\-]/.test(id)) {
+      id = `app_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
+    }
+
+    // Timestamp
+    let createdAt = Date.now();
+    if (app.createdAt) {
+      const parsedTime = typeof app.createdAt === 'number' ? app.createdAt : new Date(app.createdAt).getTime();
+      if (!isNaN(parsedTime) && parsedTime > 0) {
+        createdAt = parsedTime;
+      }
+    }
+
+    const sanitized = {
+      id,
+      name: cleanName,
+      category: matchedCategory,
+      powerWatts: numWatts,
+      quantity: numQty,
+      dailyHours: numHours,
+      operatingDays: numDays,
+      createdAt
+    };
+
+    // Preserve optional calculation metrics if present (e.g. from historical snapshots)
+    if (app.monthlyCost !== undefined && !isNaN(Number(app.monthlyCost))) {
+      sanitized.monthlyCost = Math.max(0, Number(app.monthlyCost));
+    }
+    if (app.monthlyKwh !== undefined && !isNaN(Number(app.monthlyKwh))) {
+      sanitized.monthlyKwh = Math.max(0, Number(app.monthlyKwh));
+    }
+    if (app.dailyCost !== undefined && !isNaN(Number(app.dailyCost))) {
+      sanitized.dailyCost = Math.max(0, Number(app.dailyCost));
+    }
+    if (app.dailyKwh !== undefined && !isNaN(Number(app.dailyKwh))) {
+      sanitized.dailyKwh = Math.max(0, Number(app.dailyKwh));
+    }
+    if (app.sharePercentage !== undefined && !isNaN(Number(app.sharePercentage))) {
+      sanitized.sharePercentage = Math.max(0, Number(app.sharePercentage));
+    }
+
+    return {
+      valid: true,
+      sanitized
+    };
+  },
+
+  /**
+   * Validates billing period string format (strictly YYYY-MM)
+   * @param {string} period
+   * @returns {boolean}
+   */
+  validatePeriod(period) {
+    if (typeof period !== 'string') return false;
+    return /^\d{4}-(0[1-9]|1[0-2])$/.test(period.trim());
+  },
 
   /**
    * Sets active user context (null = Guest Mode, string = Authenticated User UID)
@@ -129,17 +291,28 @@ const WattWatchStorage = {
   },
 
   /**
-   * Resolves storage key based on active user context
-   * When in Guest Mode (activeUserId is null), returns the original guest keys.
+   * Resolves storage key based on active user context and optional test namespace
+   * When in Guest Mode (activeUserId is null), returns the guest key.
    * When authenticated, returns a user-isolated key namespace.
    * @param {'APPLIANCES'|'SETTINGS'|'THEME'|'HISTORY'} entity
    * @returns {string}
    */
   _getKey(entity) {
+    const prefix = this.testNamespace || '';
     if (this.activeUserId && entity !== 'THEME') {
-      return `wattwatch_user_${this.activeUserId}_${entity.toLowerCase()}`;
+      return `${prefix}wattwatch_user_${this.activeUserId}_${entity.toLowerCase()}`;
     }
-    return STORAGE_KEYS[entity];
+    return `${prefix}${STORAGE_KEYS[entity]}`;
+  },
+
+  /**
+   * Resolves the guest storage key under active test namespace
+   * @param {'APPLIANCES'|'SETTINGS'|'THEME'|'HISTORY'} entity
+   * @returns {string}
+   */
+  _getGuestKey(entity) {
+    const prefix = this.testNamespace || '';
+    return `${prefix}${STORAGE_KEYS[entity]}`;
   },
 
   /**
@@ -148,8 +321,8 @@ const WattWatchStorage = {
    */
   hasGuestData() {
     try {
-      const appStr = localStorage.getItem(STORAGE_KEYS.APPLIANCES);
-      const histStr = localStorage.getItem(STORAGE_KEYS.HISTORY);
+      const appStr = localStorage.getItem(this._getGuestKey('APPLIANCES'));
+      const histStr = localStorage.getItem(this._getGuestKey('HISTORY'));
       const apps = appStr ? JSON.parse(appStr) : [];
       const hist = histStr ? JSON.parse(histStr) : [];
       const appCount = Array.isArray(apps) ? apps.length : 0;
@@ -205,10 +378,11 @@ const WattWatchStorage = {
     }
 
     try {
+      const prefix = this.testNamespace || '';
       // 1. Read guest data defensively
-      const guestAppliancesStr = localStorage.getItem(STORAGE_KEYS.APPLIANCES);
-      const guestHistoryStr = localStorage.getItem(STORAGE_KEYS.HISTORY);
-      const guestSettingsStr = localStorage.getItem(STORAGE_KEYS.SETTINGS);
+      const guestAppliancesStr = localStorage.getItem(this._getGuestKey('APPLIANCES'));
+      const guestHistoryStr = localStorage.getItem(this._getGuestKey('HISTORY'));
+      const guestSettingsStr = localStorage.getItem(this._getGuestKey('SETTINGS'));
 
       let guestAppliances = [];
       try {
@@ -234,9 +408,9 @@ const WattWatchStorage = {
       }
 
       // 2. Read existing user data
-      const userAppKey = `wattwatch_user_${uid}_appliances`;
-      const userHistKey = `wattwatch_user_${uid}_history`;
-      const userSettKey = `wattwatch_user_${uid}_settings`;
+      const userAppKey = `${prefix}wattwatch_user_${uid}_appliances`;
+      const userHistKey = `${prefix}wattwatch_user_${uid}_history`;
+      const userSettKey = `${prefix}wattwatch_user_${uid}_settings`;
 
       let userAppliances = [];
       try {
@@ -270,13 +444,15 @@ const WattWatchStorage = {
       // 3. Merge appliances avoiding duplicates (by normalized name and power rating)
       const mergedAppliances = [...userAppliances];
       for (const gApp of guestAppliances) {
-        if (!gApp || typeof gApp !== 'object' || !gApp.name || isNaN(Number(gApp.powerWatts))) {
+        const validated = this.validateAppliance(gApp);
+        if (!validated.valid) {
           skippedAppliancesCount++;
           continue;
         }
 
-        const normGName = String(gApp.name).trim().toLowerCase();
-        const gWatts = Number(gApp.powerWatts);
+        const appItem = validated.sanitized;
+        const normGName = appItem.name.toLowerCase();
+        const gWatts = appItem.powerWatts;
 
         const isDup = mergedAppliances.some(uApp =>
           uApp && uApp.name &&
@@ -285,7 +461,7 @@ const WattWatchStorage = {
         );
 
         if (!isDup) {
-          const newApp = { ...gApp };
+          const newApp = { ...appItem };
           // Ensure new unique ID in user space if conflicting ID exists
           if (mergedAppliances.some(a => a && a.id === newApp.id)) {
             newApp.id = `app_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
@@ -300,7 +476,7 @@ const WattWatchStorage = {
       // 4. Merge history by period (YYYY-MM), strictly preserving existing account snapshots
       const mergedHistory = [...userHistory];
       for (const gSnap of guestHistory) {
-        if (!gSnap || typeof gSnap !== 'object' || !gSnap.period) {
+        if (!gSnap || typeof gSnap !== 'object' || !this.validatePeriod(gSnap.period)) {
           skippedHistoryCount++;
           continue;
         }
@@ -310,6 +486,13 @@ const WattWatchStorage = {
           const newSnap = { ...gSnap };
           if (mergedHistory.some(h => h && h.id === newSnap.id)) {
             newSnap.id = `snap_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
+          }
+          // Validate appliances in snapshot
+          if (Array.isArray(newSnap.appliancesSnapshot)) {
+            newSnap.appliancesSnapshot = newSnap.appliancesSnapshot
+              .map(a => this.validateAppliance(a))
+              .filter(v => v.valid)
+              .map(v => v.sanitized);
           }
           mergedHistory.push(newSnap);
           transferredHistoryCount++;
@@ -414,17 +597,39 @@ const WattWatchStorage = {
   },
 
   /**
-   * Retrieves saved appliances from localStorage with safety fallback
-   * @returns {Array} List of appliance objects
+   * Retrieves saved appliances from localStorage with safety validation and corrupted data preservation
+   * @returns {Array} List of validated appliance objects
    */
   getAppliances() {
+    const key = this._getKey('APPLIANCES');
     try {
-      const data = localStorage.getItem(this._getKey('APPLIANCES'));
+      const data = localStorage.getItem(key);
       if (!data) return [];
       const parsed = JSON.parse(data);
-      return Array.isArray(parsed) ? parsed : [];
+      if (!Array.isArray(parsed)) {
+        throw new Error('Stored appliances payload is not an array');
+      }
+      const validated = [];
+      for (const item of parsed) {
+        const v = this.validateAppliance(item);
+        if (v.valid) {
+          validated.push(v.sanitized);
+        } else {
+          console.warn('[WattWatch Storage] Skipping invalid stored appliance record:', v.error, item);
+        }
+      }
+      return validated;
     } catch (e) {
       console.error('[WattWatch Storage] Error reading appliances:', e);
+      const raw = localStorage.getItem(key);
+      if (raw) {
+        const backupKey = `wattwatch_corrupted_${Date.now()}_${key}`;
+        try {
+          localStorage.setItem(backupKey, raw);
+          this.corruptedState = { key, backupKey, timestamp: Date.now() };
+          console.warn(`[WattWatch Storage] Preserved raw corrupted appliances data in "${backupKey}".`);
+        } catch (bErr) { /* ignore quota */ }
+      }
       return [];
     }
   },
@@ -506,17 +711,78 @@ const WattWatchStorage = {
   },
 
   /**
-   * Retrieves historical bill snapshots
+   * Retrieves historical bill snapshots with safety validation and corrupted data preservation
    * @returns {Array} List of snapshot objects
    */
   getHistory() {
+    const key = this._getKey('HISTORY');
     try {
-      const data = localStorage.getItem(this._getKey('HISTORY'));
+      const data = localStorage.getItem(key);
       if (!data) return [];
       const parsed = JSON.parse(data);
-      return Array.isArray(parsed) ? parsed : [];
+      if (!Array.isArray(parsed)) {
+        throw new Error('Stored history payload is not an array');
+      }
+      const validated = [];
+      const parseRate = (val, fallback = 8.00) => {
+        if (val !== undefined && val !== null && val !== '') {
+          const num = Number(val);
+          if (!isNaN(num) && num >= 0) return num;
+        }
+        return fallback;
+      };
+
+      for (const snap of parsed) {
+        if (snap && this.validatePeriod(snap.period)) {
+          const sanitizedSnapApps = Array.isArray(snap.appliancesSnapshot)
+            ? snap.appliancesSnapshot.map(a => this.validateAppliance(a)).filter(v => v.valid).map(v => v.sanitized)
+            : [];
+
+          let createdAt = Date.now();
+          if (typeof snap.createdAt === 'number' && snap.createdAt > 0) {
+            createdAt = snap.createdAt;
+          } else if (typeof snap.createdAt === 'string' && snap.createdAt.trim()) {
+            const parsedTime = new Date(snap.createdAt).getTime();
+            if (!isNaN(parsedTime) && parsedTime > 0) {
+              createdAt = parsedTime;
+            }
+          }
+
+          const electRate = parseRate(snap.electricityRate, 8.00);
+          const flatRate = parseRate(snap.flatRate, electRate);
+          const effectiveRate = parseRate(snap.effectiveRate, electRate);
+
+          validated.push({
+            id: (typeof snap.id === 'string' && /^[a-zA-Z0-9_\-]+$/.test(snap.id)) ? snap.id : `snap_${Date.now()}`,
+            period: snap.period.trim(),
+            periodLabel: typeof snap.periodLabel === 'string' ? snap.periodLabel.trim() : snap.period.trim(),
+            totalKwh: Math.max(0, Number(snap.totalKwh) || 0),
+            totalCost: Math.max(0, Number(snap.totalCost) || 0),
+            electricityRate: electRate,
+            flatRate: flatRate,
+            effectiveRate: effectiveRate,
+            tariffModel: (snap.tariffModel === 'slab' || snap.tariffModel === 'flat') ? snap.tariffModel : 'flat',
+            tariffBreakdown: snap.tariffBreakdown && typeof snap.tariffBreakdown === 'object' ? snap.tariffBreakdown : null,
+            appliancesCount: Math.max(0, Number(snap.appliancesCount) || sanitizedSnapApps.length),
+            totalUnits: Math.max(0, Number(snap.totalUnits) || sanitizedSnapApps.reduce((acc, a) => acc + (a.quantity || 1), 0)),
+            appliancesSnapshot: sanitizedSnapApps,
+            createdAt: createdAt,
+            notes: typeof snap.notes === 'string' ? snap.notes : ''
+          });
+        }
+      }
+      return validated;
     } catch (e) {
       console.error('[WattWatch Storage] Error reading history:', e);
+      const raw = localStorage.getItem(key);
+      if (raw) {
+        const backupKey = `wattwatch_corrupted_${Date.now()}_${key}`;
+        try {
+          localStorage.setItem(backupKey, raw);
+          this.corruptedState = { key, backupKey, timestamp: Date.now() };
+          console.warn(`[WattWatch Storage] Preserved raw corrupted history data in "${backupKey}".`);
+        } catch (bErr) { /* ignore quota */ }
+      }
       return [];
     }
   },
@@ -646,55 +912,67 @@ const WattWatchStorage = {
 
       // Validate each appliance schema
       const validAppliances = [];
+      let firstApplianceError = null;
       for (const item of parsed.appliances) {
-        if (!item || !item.name || typeof item.name !== 'string' || !item.name.trim()) {
+        const v = this.validateAppliance(item);
+        if (!v.valid) {
+          if (!firstApplianceError) firstApplianceError = v.error;
           continue;
         }
-        const power = Number(item.powerWatts);
-        const hours = Number(item.dailyHours);
-        const days = Number(item.operatingDays);
-        const qty = Number(item.quantity);
-
-        if (isNaN(power) || power <= 0) continue;
-        if (isNaN(hours) || hours < 0 || hours > 24) continue;
-        if (isNaN(days) || days < 1 || days > 31) continue;
-        if (isNaN(qty) || qty < 1) continue;
-
-        validAppliances.push({
-          id: item.id || `app_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`,
-          name: item.name.trim(),
-          category: item.category || 'Other',
-          powerWatts: power,
-          dailyHours: hours,
-          operatingDays: Math.round(days),
-          quantity: Math.round(qty),
-          createdAt: item.createdAt || Date.now()
-        });
+        validAppliances.push(v.sanitized);
       }
 
       if (validAppliances.length === 0 && parsed.appliances.length > 0) {
-        return { success: false, error: 'No valid appliance records found in imported file' };
+        return { success: false, error: `No valid appliance records found in imported file: ${firstApplianceError || 'Validation failed'}` };
       }
 
       // Validate historical snapshots if present
       const validHistory = [];
+      const parseRate = (val, fallback = 8.00) => {
+        if (val !== undefined && val !== null && val !== '') {
+          const num = Number(val);
+          if (!isNaN(num) && num >= 0) return num;
+        }
+        return fallback;
+      };
+
       if (Array.isArray(parsed.history)) {
         for (const snap of parsed.history) {
-          if (snap && snap.period && typeof snap.period === 'string' && !isNaN(Number(snap.totalKwh))) {
+          if (snap && this.validatePeriod(snap.period) && !isNaN(Number(snap.totalKwh))) {
+            const sanitizedSnapApps = Array.isArray(snap.appliancesSnapshot)
+              ? snap.appliancesSnapshot.map(a => this.validateAppliance(a)).filter(v => v.valid).map(v => v.sanitized)
+              : [];
+
+            let createdAt = Date.now();
+            if (typeof snap.createdAt === 'number' && snap.createdAt > 0) {
+              createdAt = snap.createdAt;
+            } else if (typeof snap.createdAt === 'string' && snap.createdAt.trim()) {
+              const parsedTime = new Date(snap.createdAt).getTime();
+              if (!isNaN(parsedTime) && parsedTime > 0) {
+                createdAt = parsedTime;
+              }
+            }
+
+            const electRate = parseRate(snap.electricityRate, 8.00);
+            const flatRate = parseRate(snap.flatRate, electRate);
+            const effectiveRate = parseRate(snap.effectiveRate, electRate);
+
             validHistory.push({
-              id: snap.id || `snap_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`,
-              period: snap.period,
-              periodLabel: snap.periodLabel || snap.period,
-              totalKwh: Number(snap.totalKwh) || 0,
-              totalCost: Number(snap.totalCost) || 0,
-              electricityRate: Number(snap.electricityRate) || 8.00,
-              tariffModel: snap.tariffModel || 'flat',
-              tariffBreakdown: snap.tariffBreakdown || null,
-              appliancesCount: Number(snap.appliancesCount) || 0,
-              totalUnits: Number(snap.totalUnits) || 0,
-              appliancesSnapshot: Array.isArray(snap.appliancesSnapshot) ? snap.appliancesSnapshot : [],
-              createdAt: snap.createdAt || Date.now(),
-              notes: snap.notes || ''
+              id: (typeof snap.id === 'string' && /^[a-zA-Z0-9_\-]+$/.test(snap.id)) ? snap.id : `snap_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`,
+              period: snap.period.trim(),
+              periodLabel: typeof snap.periodLabel === 'string' ? snap.periodLabel.trim() : snap.period.trim(),
+              totalKwh: Math.max(0, Number(snap.totalKwh) || 0),
+              totalCost: Math.max(0, Number(snap.totalCost) || 0),
+              electricityRate: electRate,
+              flatRate: flatRate,
+              effectiveRate: effectiveRate,
+              tariffModel: (snap.tariffModel === 'slab' || snap.tariffModel === 'flat') ? snap.tariffModel : 'flat',
+              tariffBreakdown: snap.tariffBreakdown && typeof snap.tariffBreakdown === 'object' ? snap.tariffBreakdown : null,
+              appliancesCount: Math.max(0, Number(snap.appliancesCount) || sanitizedSnapApps.length),
+              totalUnits: Math.max(0, Number(snap.totalUnits) || sanitizedSnapApps.reduce((acc, a) => acc + (a.quantity || 1), 0)),
+              appliancesSnapshot: sanitizedSnapApps,
+              createdAt: createdAt,
+              notes: typeof snap.notes === 'string' ? snap.notes : ''
             });
           }
         }
@@ -940,8 +1218,9 @@ const WattWatchStorage = {
   /**
    * Safely formats and escapes a CSV field value in accordance with RFC 4180
    * and spreadsheet formula injection defenses (CSV injection / DDE attacks).
-   * Neutralizes leading characters (=, +, -, @, \t, \r) by prepending a single quote (')
-   * while strictly preserving legitimate negative/positive numeric values.
+   * Neutralizes leading characters (=, +, -, @, \t, \r, \n) including when preceded
+   * by leading spaces by prepending a single quote (') while strictly preserving
+   * legitimate negative/positive numeric values (e.g. -15.5, +100).
    * @param {*} val
    * @returns {string}
    */
@@ -949,9 +1228,11 @@ const WattWatchStorage = {
     if (val === null || val === undefined) return '""';
     let str = String(val);
 
-    const firstChar = str.length > 0 ? str.charAt(0) : '';
-    const formulaChars = ['=', '+', '-', '@', '\t', '\r'];
-    if (formulaChars.includes(firstChar) && !this.isLegitimateNumber(str)) {
+    // Neutralize formula injection characters (=, +, -, @, \t, \r, \n)
+    // even when preceded by leading spaces (without stripping tabs/newlines)
+    const strippedSpaces = str.replace(/^[ \u00A0]+/, '');
+    const formulaChars = ['=', '+', '-', '@', '\t', '\r', '\n'];
+    if (strippedSpaces.length > 0 && formulaChars.includes(strippedSpaces.charAt(0)) && !this.isLegitimateNumber(str)) {
       str = "'" + str;
     }
 
@@ -1016,6 +1297,7 @@ const WattWatchStorage = {
 
   /**
    * Generates CSV string for active user's bill history snapshots
+   * Validates timestamps and guards each record against invalid formats
    * @returns {string}
    */
   generateHistoryCSV() {
@@ -1025,20 +1307,32 @@ const WattWatchStorage = {
       return headers.join(',');
     }
 
-    const rows = history.map(rec => {
-      const recordedDate = rec.createdAt ? new Date(rec.createdAt).toISOString().split('T')[0] : '';
-      const effRate = Number(rec.effectiveRate ?? rec.tariffBreakdown?.effectiveRatePerKwh ?? rec.electricityRate ?? 0).toFixed(2);
-      return [
-        this.escapeCsvField(rec.period || ''),
-        this.escapeCsvField(rec.periodLabel || rec.period || ''),
-        Number(rec.totalKwh || 0).toFixed(2),
-        Number(rec.totalCost || 0).toFixed(2),
-        this.escapeCsvField(rec.tariffModel || 'flat'),
-        effRate,
-        rec.appliancesCount || (rec.appliancesSnapshot ? rec.appliancesSnapshot.length : 0),
-        this.escapeCsvField(recordedDate)
-      ].join(',');
-    });
+    const rows = [];
+    for (const rec of history) {
+      if (!rec) continue;
+      try {
+        let recordedDate = '';
+        if (rec.createdAt) {
+          const d = new Date(rec.createdAt);
+          if (!isNaN(d.getTime())) {
+            recordedDate = d.toISOString().split('T')[0];
+          }
+        }
+        const effRate = Number(rec.effectiveRate ?? rec.tariffBreakdown?.effectiveRatePerKwh ?? rec.electricityRate ?? 0).toFixed(2);
+        rows.push([
+          this.escapeCsvField(rec.period || ''),
+          this.escapeCsvField(rec.periodLabel || rec.period || ''),
+          Number(rec.totalKwh || 0).toFixed(2),
+          Number(rec.totalCost || 0).toFixed(2),
+          this.escapeCsvField(rec.tariffModel || 'flat'),
+          effRate,
+          rec.appliancesCount || (rec.appliancesSnapshot ? rec.appliancesSnapshot.length : 0),
+          this.escapeCsvField(recordedDate)
+        ].join(','));
+      } catch (err) {
+        console.warn('[WattWatch Storage] Error formatting history CSV row:', err, rec);
+      }
+    }
 
     return [headers.join(','), ...rows].join('\r\n');
   },

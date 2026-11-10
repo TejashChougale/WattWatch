@@ -80,7 +80,7 @@ const WattWatchSimulator = {
           ${WattWatchAppliances.escapeHtml(app.name)}
         </div>
         <div style="font-size: 0.825rem; color: var(--text-secondary); line-height: 1.5;">
-          <strong>${app.powerWatts} Watts</strong> · ${app.dailyHours} hrs/day · ${app.operatingDays} days/mo · ${app.quantity} unit(s)<br>
+          <strong>${Number(app.powerWatts) || 0} Watts</strong> · ${Number(app.dailyHours) || 0} hrs/day · ${Number(app.operatingDays) || 30} days/mo · ${Number(app.quantity) || 1} unit(s)<br>
           Current Monthly Energy: <strong style="color: var(--royal-blue);">${WattWatchCalculations.formatKwh(enriched.monthlyKwh)}</strong><br>
           Current Monthly Cost: <strong style="color: var(--deep-burgundy);">${WattWatchCalculations.formatCurrency(enriched.monthlyCost)}</strong>${settings.tariffModel === 'slab' ? ` <span style="font-size: 0.72rem; color: var(--text-secondary);">(at ₹${curSummary.effectiveRatePerKwh.toFixed(2)}/u eff.)</span>` : ''}
         </div>

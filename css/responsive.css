@@ -175,13 +175,13 @@
     display: none;
   }
 
-  /* Make PDF Report and Add Appliance buttons 40px × 40px icon-only buttons */
+  /* Make PDF Report and Add Appliance buttons at least 44px for accessible touch targets */
   .topbar-right #btnOpenReportModal,
   .topbar-right .btn-gold {
-    width: 40px;
-    height: 40px;
-    min-width: 40px;
-    max-width: 40px;
+    width: 44px;
+    height: 44px;
+    min-width: 44px;
+    max-width: 44px;
     padding: 0;
     display: inline-flex;
     align-items: center;
@@ -373,9 +373,9 @@
   }
 
   .table-actions .btn-icon {
-    width: 36px;
-    height: 36px;
-    min-width: 36px;
+    width: 44px;
+    height: 44px;
+    min-width: 44px;
   }
 
   /* Item 5: Mobile Bottom-Sheet Modals */

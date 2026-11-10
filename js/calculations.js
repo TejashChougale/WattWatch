@@ -80,10 +80,25 @@ const WattWatchCalculations = {
       let remainingKwh = kwh;
       let lowerBound = 0;
 
-      for (let i = 0; i < settings.slabConfig.length; i++) {
-        const slab = settings.slabConfig[i];
-        const slabRate = Math.max(0, Number(slab.rate) || 0);
-        const upperBound = slab.upTo !== null && slab.upTo !== undefined ? Number(slab.upTo) : null;
+      // Filter and validate slabs: ensure non-negative rates and ascending limits
+      const validSlabs = [];
+      for (const slab of settings.slabConfig) {
+        if (!slab || typeof slab !== 'object') continue;
+        const rate = Math.max(0, Number(slab.rate) || 0);
+        const upTo = (slab.upTo !== null && slab.upTo !== undefined && !isNaN(Number(slab.upTo)))
+          ? Math.max(1, Number(slab.upTo))
+          : null;
+        validSlabs.push({ upTo, rate });
+      }
+
+      if (validSlabs.length === 0) {
+        validSlabs.push({ upTo: null, rate: flatRate });
+      }
+
+      for (let i = 0; i < validSlabs.length; i++) {
+        const slab = validSlabs[i];
+        const slabRate = slab.rate;
+        const upperBound = slab.upTo;
 
         let slabCapacity = 0;
         let unitsInSlab = 0;
@@ -103,11 +118,31 @@ const WattWatchCalculations = {
 
         slabBreakdown.push({
           tier: i + 1,
-          label: upperBound !== null ? `${slabBreakdown.length === 0 ? '0' : settings.slabConfig[i-1]?.upTo || 0} - ${upperBound} kWh` : `Above ${settings.slabConfig[i-1]?.upTo || lowerBound} kWh`,
+          label: upperBound !== null
+            ? `${i === 0 ? '0' : validSlabs[i-1]?.upTo || 0} - ${upperBound} kWh`
+            : `Above ${validSlabs[i-1]?.upTo || lowerBound} kWh`,
           units: unitsInSlab,
           rate: slabRate,
           cost: costInSlab
         });
+      }
+
+      // Do not silently drop consumption above the last slab:
+      // If consumption remains above the highest slab upper bound, cover excess at the last slab's rate
+      if (remainingKwh > 0 && validSlabs.length > 0) {
+        const lastSlab = validSlabs[validSlabs.length - 1];
+        const lastRate = lastSlab.rate;
+        const costInExcess = remainingKwh * lastRate;
+        energyCharges += costInExcess;
+
+        slabBreakdown.push({
+          tier: validSlabs.length + 1,
+          label: `Excess above ${lastSlab.upTo || lowerBound} kWh`,
+          units: remainingKwh,
+          rate: lastRate,
+          cost: costInExcess
+        });
+        remainingKwh = 0;
       }
     } else {
       // Standard Flat Rate model
@@ -477,7 +512,9 @@ const WattWatchCalculations = {
     let effectiveRate = rate;
     let totalMonthlyCost = 0;
 
-    if (isSlab && settings) {
+    if (settings) {
+      // Single consistent calculation source: calculateAdvancedTariff handles both 'slab' and 'flat' models,
+      // ensuring fixed charges and electricity duty/taxes are treated consistently across dashboard and advanced tariff.
       advancedTariff = this.calculateAdvancedTariff(totalMonthlyKwh, settings);
       effectiveRate = advancedTariff.effectiveRatePerKwh;
       totalMonthlyCost = advancedTariff.totalCost;
@@ -486,12 +523,13 @@ const WattWatchCalculations = {
       effectiveRate = rate;
     }
 
-    // Second pass: enrich appliances with costs using the effective tariff rate
+    // Second pass: enrich appliances with costs using the tariff rate (flat energy rate or slab effective rate)
+    const appCostRate = isSlab ? effectiveRate : rate;
     const enrichedList = appliances.map(app => {
       const dailyKwh = this.calculateDailyKwh(app.powerWatts, app.quantity, app.dailyHours);
       const monthlyKwh = this.calculateMonthlyKwh(app.powerWatts, app.quantity, app.dailyHours, app.operatingDays);
-      const monthlyCost = monthlyKwh * effectiveRate;
-      const dailyCost = dailyKwh * effectiveRate;
+      const monthlyCost = monthlyKwh * appCostRate;
+      const dailyCost = dailyKwh * appCostRate;
 
       return {
         ...app,
@@ -546,10 +584,15 @@ const WattWatchCalculations = {
     return {
       totalDailyKwh,
       totalMonthlyKwh,
+      totalDailyCost: totalDailyKwh * effectiveRate,
       totalMonthlyCost,
+      energyCharges: advancedTariff ? advancedTariff.energyCharges : totalMonthlyCost,
+      fixedCharges: advancedTariff ? advancedTariff.fixedCharge : 0,
+      taxCharges: advancedTariff ? advancedTariff.taxCharges : 0,
       totalAppliancesCount: appliances.length,
       totalUnits,
-      ratePerKwh: effectiveRate,
+      ratePerKwh: isSlab ? effectiveRate : rate,
+      baseRatePerKwh: rate,
       effectiveRatePerKwh: effectiveRate,
       tariffModel: isSlab ? 'slab' : 'flat',
       advancedTariff,

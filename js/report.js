@@ -128,14 +128,18 @@ const WattWatchReport = {
 
     let rowsHtml = '';
     reportData.appliances.forEach((app, idx) => {
+      const safeCat = WattWatchAppliances.escapeHtml(app.category || 'Other');
+      const safeWatts = Number(app.powerWatts) || 0;
+      const safeQty = Number(app.quantity) || 1;
+      const safeHours = Number(app.dailyHours) || 0;
       rowsHtml += `
         <tr>
           <td>#${idx + 1}</td>
           <td><strong>${WattWatchAppliances.escapeHtml(app.name)}</strong></td>
-          <td>${app.category}</td>
-          <td>${app.powerWatts}W</td>
-          <td>${app.quantity}</td>
-          <td>${app.dailyHours} hrs/day</td>
+          <td>${safeCat}</td>
+          <td>${safeWatts}W</td>
+          <td>${safeQty}</td>
+          <td>${safeHours} hrs/day</td>
           <td>${WattWatchCalculations.formatKwh(app.monthlyKwh)}</td>
           <td><strong>${WattWatchCalculations.formatCurrency(app.monthlyCost)}</strong></td>
         </tr>
@@ -160,14 +164,14 @@ const WattWatchReport = {
           <div style="display: flex; align-items: center; gap: 0.75rem;">
             <img src="assets/logo.svg" alt="WattWatch Logo" style="width: 48px; height: 48px;">
             <div>
-              <h1 style="font-family: 'Playfair Display', serif; font-size: 1.6rem; color: #172B55; margin: 0; line-height: 1.1;">WATTWATCH</h1>
+              <h1 style="font-family: var(--font-heading); font-size: 1.6rem; color: #172B55; margin: 0; line-height: 1.1;">WATTWATCH</h1>
               <div style="font-size: 0.75rem; letter-spacing: 0.15em; color: #B99A62; font-weight: 700; text-transform: uppercase;">Energy Intelligence Platform</div>
             </div>
           </div>
           <div style="text-align: right;">
-            <div style="font-family: 'Playfair Display', serif; font-size: 1.35rem; color: #6E293F; font-weight: 700;">MONTHLY ENERGY AUDIT</div>
-            <div style="font-size: 0.85rem; color: #687386;">Billing Period: <strong>${reportData.periodLabel}</strong></div>
-            <div style="font-size: 0.75rem; color: #687386;">Generated on: ${reportData.generatedAt}</div>
+            <div style="font-family: var(--font-heading); font-size: 1.35rem; color: #6E293F; font-weight: 700;">MONTHLY ENERGY AUDIT</div>
+            <div style="font-size: 0.85rem; color: #687386;">Billing Period: <strong>${WattWatchAppliances.escapeHtml(reportData.periodLabel || reportData.period)}</strong></div>
+            <div style="font-size: 0.75rem; color: #687386;">Generated on: ${WattWatchAppliances.escapeHtml(reportData.generatedAt)}</div>
           </div>
         </div>
 
@@ -175,17 +179,17 @@ const WattWatchReport = {
         <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; margin-bottom: 1.5rem;">
           <div style="background: #FAF7F0; border: 1px solid rgba(185, 154, 98, 0.35); padding: 0.85rem; border-radius: 6px;">
             <div style="font-size: 0.7rem; text-transform: uppercase; color: #687386; font-weight: 600;">Total Consumption</div>
-            <div style="font-family: 'Playfair Display', serif; font-size: 1.4rem; font-weight: 700; color: #172B55;">${WattWatchCalculations.formatKwh(reportData.totalKwh)}</div>
+            <div style="font-family: var(--font-heading); font-size: 1.4rem; font-weight: 700; color: #172B55;">${WattWatchCalculations.formatKwh(reportData.totalKwh)}</div>
           </div>
 
           <div style="background: #FAF7F0; border: 1px solid rgba(185, 154, 98, 0.35); padding: 0.85rem; border-radius: 6px;">
             <div style="font-size: 0.7rem; text-transform: uppercase; color: #687386; font-weight: 600;">Estimated Bill</div>
-            <div style="font-family: 'Playfair Display', serif; font-size: 1.4rem; font-weight: 700; color: #6E293F;">${WattWatchCalculations.formatCurrency(reportData.totalCost)}</div>
+            <div style="font-family: var(--font-heading); font-size: 1.4rem; font-weight: 700; color: #6E293F;">${WattWatchCalculations.formatCurrency(reportData.totalCost)}</div>
           </div>
 
           <div style="background: #FAF7F0; border: 1px solid rgba(185, 154, 98, 0.35); padding: 0.85rem; border-radius: 6px;">
             <div style="font-size: 0.7rem; text-transform: uppercase; color: #687386; font-weight: 600;">Tariff Model</div>
-            <div style="font-family: 'Playfair Display', serif; font-size: 1.15rem; font-weight: 600; color: #172B55;">
+            <div style="font-family: var(--font-heading); font-size: 1.15rem; font-weight: 600; color: #172B55;">
               ${reportData.tariffModel === 'slab' ? 'Slab (Eff. ₹' + Number(reportData.effectiveRate || reportData.rate).toFixed(2) + '/u)' : 'Flat ₹' + Number(reportData.rate).toFixed(2) + '/u'}
             </div>
             <div style="font-size: 0.7rem; color: #687386;">${reportData.tariffModel === 'slab' ? 'Effective Tariff Rate' : 'Base Tariff'}</div>
@@ -193,7 +197,7 @@ const WattWatchReport = {
 
           <div style="background: #FAF7F0; border: 1px solid rgba(185, 154, 98, 0.35); padding: 0.85rem; border-radius: 6px;">
             <div style="font-size: 0.7rem; text-transform: uppercase; color: #687386; font-weight: 600;">Appliances Tracked</div>
-            <div style="font-family: 'Playfair Display', serif; font-size: 1.4rem; font-weight: 700; color: #172B55;">${reportData.appliancesCount} Items</div>
+            <div style="font-family: var(--font-heading); font-size: 1.4rem; font-weight: 700; color: #172B55;">${reportData.appliancesCount} Items</div>
             <div style="font-size: 0.7rem; color: #687386;">${reportData.totalUnits} Total Units</div>
           </div>
         </div>
@@ -221,7 +225,7 @@ const WattWatchReport = {
 
         <!-- Appliance Itemization Table -->
         <div style="margin-bottom: 1.5rem;">
-          <h3 style="font-family: 'Playfair Display', serif; font-size: 1.15rem; color: #172B55; margin-bottom: 0.5rem;">
+          <h3 style="font-family: var(--font-heading); font-size: 1.15rem; color: #172B55; margin-bottom: 0.5rem;">
             Appliance Consumption Breakdown
           </h3>
           <table style="width: 100%; border-collapse: collapse; font-size: 0.8rem; text-align: left;">
@@ -246,7 +250,7 @@ const WattWatchReport = {
         <!-- Energy Saving Recommendations Section -->
         ${recs.tips.length > 0 ? `
           <div style="margin-bottom: 1.5rem;">
-            <h3 style="font-family: 'Playfair Display', serif; font-size: 1.15rem; color: #172B55; margin-bottom: 0.5rem;">
+            <h3 style="font-family: var(--font-heading); font-size: 1.15rem; color: #172B55; margin-bottom: 0.5rem;">
               Key Energy Conservation Recommendations
             </h3>
             ${tipsHtml}

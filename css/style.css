@@ -301,6 +301,21 @@ a:hover {
   background-color: #8E1C2D;
 }
 
+.btn-destructive-subtle {
+  color: #A92639 !important;
+  border-color: rgba(169, 38, 57, 0.35) !important;
+  background-color: transparent;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.btn-destructive-subtle:hover {
+  background-color: #A92639 !important;
+  color: #FFFFFF !important;
+  border-color: #A92639 !important;
+}
+
 .btn-sm {
   padding: 0.4rem 0.75rem;
   font-size: 0.8rem;

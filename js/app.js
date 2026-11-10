@@ -484,16 +484,22 @@ const WattWatchApp = {
 
     sorted.forEach((app, idx) => {
       const tr = document.createElement('tr');
+      const safeCategory = WattWatchAppliances.escapeHtml(app.category || 'Other');
+      const safeQty = Number(app.quantity) || 1;
+      const safeWatts = Number(app.powerWatts) || 0;
+      const safeHours = Number(app.dailyHours) || 0;
+      const safeDays = Number(app.operatingDays) || 30;
+
       tr.innerHTML = `
         <td style="font-weight: 700; color: var(--text-gold);">#${idx + 1}</td>
         <td>
           <strong>${WattWatchAppliances.escapeHtml(app.name)}</strong>
-          <div style="font-size: 0.72rem; color: var(--text-secondary);">${app.category} · ${app.quantity} unit(s)</div>
+          <div style="font-size: 0.72rem; color: var(--text-secondary);">${safeCategory} · ${safeQty} unit(s)</div>
         </td>
-        <td>${app.powerWatts} W</td>
-        <td>${app.dailyHours} h / day (${app.operatingDays} d)</td>
+        <td>${safeWatts} W</td>
+        <td>${safeHours} h / day (${safeDays} d)</td>
         <td><strong>${WattWatchCalculations.formatKwh(app.monthlyKwh)}</strong></td>
-        <td><strong style="color: var(--deep-burgundy);">${WattWatchCalculations.formatCurrency(app.monthlyCost)}</strong> <span style="font-size: 0.75rem; color: var(--text-secondary);">(${app.sharePercentage.toFixed(1)}%)</span></td>
+        <td><strong style="color: var(--deep-burgundy);">${WattWatchCalculations.formatCurrency(app.monthlyCost)}</strong> <span style="font-size: 0.75rem; color: var(--text-secondary);">(${(Number(app.sharePercentage) || 0).toFixed(1)}%)</span></td>
       `;
       tbody.appendChild(tr);
     });
@@ -529,14 +535,15 @@ const WattWatchApp = {
     analysis.tips.forEach(tip => {
       const card = document.createElement('div');
       card.className = 'tip-card';
+      const safeTipCategory = WattWatchAppliances.escapeHtml(tip.category || 'General');
       card.innerHTML = `
         <div>
           <div class="tip-card-header">
             <div>
-              <span class="badge ${tip.impactClass}">${tip.impactLevel}</span>
+              <span class="badge ${tip.impactClass}">${WattWatchAppliances.escapeHtml(tip.impactLevel)}</span>
               <h3 class="tip-appliance-title" style="margin-top: 0.4rem;">${WattWatchAppliances.escapeHtml(tip.applianceName)}</h3>
             </div>
-            <span class="badge badge-outline" style="border: 1px solid var(--border-card);">${tip.category}</span>
+            <span class="badge badge-outline" style="border: 1px solid var(--border-card);">${safeTipCategory}</span>
           </div>
           <div class="tip-reason">
             <strong>Diagnosis:</strong> ${WattWatchAppliances.escapeHtml(tip.reason)}

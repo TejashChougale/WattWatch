@@ -208,23 +208,23 @@ const WattWatchAppliances = {
 
     const name = nameInput.value.trim();
     const category = categoryInput.value;
-    const power = parseFloat(powerInput.value);
-    const qty = parseInt(qtyInput.value, 10);
-    const hours = parseFloat(hoursInput.value);
-    const days = parseInt(daysInput.value, 10);
+    const power = Number(powerInput.value);
+    const rawQty = qtyInput.value ? Number(qtyInput.value) : NaN;
+    const hours = Number(hoursInput.value);
+    const rawDays = daysInput.value ? Number(daysInput.value) : NaN;
 
     // Validate Name
     if (!name) {
       this.showFieldError('modalApplianceName', 'Appliance name is required');
       isValid = false;
-    } else if (name.length > 80) {
-      this.showFieldError('modalApplianceName', 'Name cannot exceed 80 characters');
+    } else if (name.length > 100) {
+      this.showFieldError('modalApplianceName', 'Name cannot exceed 100 characters');
       isValid = false;
     }
 
-    // Validate Category
-    if (!category) {
-      this.showFieldError('modalCategory', 'Please select a valid category');
+    // Validate Category against allowed whitelist
+    if (!category || !WattWatchStorage.ALLOWED_CATEGORIES.includes(category)) {
+      this.showFieldError('modalCategory', `Please select an allowed category (${WattWatchStorage.ALLOWED_CATEGORIES.join(', ')})`);
       isValid = false;
     }
 
@@ -237,12 +237,12 @@ const WattWatchAppliances = {
       isValid = false;
     }
 
-    // Validate Quantity
-    if (isNaN(qty) || qty < 1 || !Number.isInteger(qty)) {
-      this.showFieldError('modalQuantity', 'Quantity must be a positive whole number (min 1)');
+    // Validate Quantity: reject decimals, require whole integer >= 1
+    if (isNaN(rawQty) || !Number.isInteger(rawQty) || rawQty < 1) {
+      this.showFieldError('modalQuantity', 'Quantity must be a positive whole integer of at least 1 unit');
       isValid = false;
-    } else if (qty > 100) {
-      this.showFieldError('modalQuantity', 'Quantity cannot exceed 100');
+    } else if (rawQty > 1000) {
+      this.showFieldError('modalQuantity', 'Quantity cannot exceed 1,000 units');
       isValid = false;
     }
 
@@ -253,21 +253,29 @@ const WattWatchAppliances = {
     }
 
     // Validate Operating Days
-    if (isNaN(days) || days < 1 || days > 31 || !Number.isInteger(days)) {
+    if (isNaN(rawDays) || !Number.isInteger(rawDays) || rawDays < 1 || rawDays > 31) {
       this.showFieldError('modalOperatingDays', 'Operating days must be an integer between 1 and 31');
       isValid = false;
     }
 
     if (!isValid) return null;
 
-    return {
+    const candidate = {
       name,
       category,
       powerWatts: power,
-      quantity: qty,
+      quantity: rawQty,
       dailyHours: hours,
-      operatingDays: days
+      operatingDays: rawDays
     };
+
+    const validated = WattWatchStorage.validateAppliance(candidate);
+    if (!validated.valid) {
+      this.showFieldError('modalApplianceName', validated.error);
+      return null;
+    }
+
+    return validated.sanitized;
   },
 
   showFieldError(inputId, message) {
@@ -516,32 +524,33 @@ const WattWatchAppliances = {
 
     filteredList.forEach(app => {
       const tr = document.createElement('tr');
-      const badgeClass = `badge-${app.category.toLowerCase()}`;
+      const safeCat = this.escapeHtml(app.category || 'Other');
+      const badgeClass = `badge-${encodeURIComponent(String(app.category || 'other').toLowerCase().replace(/[^a-z0-9]/g, ''))}`;
 
       tr.innerHTML = `
         <td>
           <div class="appliance-name-cell">
             <span class="appliance-main-name">${this.escapeHtml(app.name)}</span>
-            <span class="appliance-sub-qty">Qty: ${app.quantity} unit${app.quantity > 1 ? 's' : ''}</span>
+            <span class="appliance-sub-qty">Qty: ${Number(app.quantity) || 1} unit${(Number(app.quantity) || 1) > 1 ? 's' : ''}</span>
           </div>
         </td>
         <td>
-          <span class="badge ${badgeClass}">${app.category}</span>
+          <span class="badge ${badgeClass}">${safeCat}</span>
         </td>
         <td>
-          <strong>${app.powerWatts} W</strong>
+          <strong>${Number(app.powerWatts) || 0} W</strong>
         </td>
         <td>
-          ${app.dailyHours} hrs / day
-          <div style="font-size: 0.72rem; color: var(--text-secondary);">${app.operatingDays} days/mo</div>
+          ${Number(app.dailyHours) || 0} hrs / day
+          <div style="font-size: 0.72rem; color: var(--text-secondary);">${Number(app.operatingDays) || 30} days/mo</div>
         </td>
         <td>
           <span class="kwh-val">${WattWatchCalculations.formatKwh(app.monthlyKwh)}</span>
-          <div style="font-size: 0.72rem; color: var(--text-secondary);">${app.dailyKwh.toFixed(2)} kWh/day</div>
+          <div style="font-size: 0.72rem; color: var(--text-secondary);">${(Number(app.dailyKwh) || 0).toFixed(2)} kWh/day</div>
         </td>
         <td>
           <span class="cost-val">${WattWatchCalculations.formatCurrency(app.monthlyCost)}</span>
-          <div style="font-size: 0.72rem; color: var(--text-secondary);">${app.sharePercentage.toFixed(1)}% of bill</div>
+          <div style="font-size: 0.72rem; color: var(--text-secondary);">${(Number(app.sharePercentage) || 0).toFixed(1)}% of bill</div>
         </td>
         <td>
           <div class="table-actions">
@@ -569,6 +578,53 @@ const WattWatchAppliances = {
     });
   },
 
+  _isRemovingAll: false,
+
+  /**
+   * Prompts user confirmation and removes all appliances from the active workspace only.
+   * Works consistently in guest mode and authenticated mode without affecting other accounts.
+   * Preserves billing history snapshots and settings intact.
+   */
+  removeAllAppliances() {
+    if (this._isRemovingAll) return;
+
+    const appliances = WattWatchStorage.getAppliances();
+    if (!Array.isArray(appliances) || appliances.length === 0) {
+      if (typeof WattWatchApp !== 'undefined' && WattWatchApp.showToast) {
+        WattWatchApp.showToast('No appliances in your active inventory to remove.', 'info', 'Inventory Empty');
+      }
+      return;
+    }
+
+    const count = appliances.length;
+    const isGuest = WattWatchStorage.getActiveUser() === null;
+    const workspaceDesc = isGuest ? 'Guest inventory' : 'Account inventory';
+
+    WattWatchApp.openConfirmDialog({
+      title: 'Remove All Appliances?',
+      message: `Are you sure you want to remove all ${count} appliance(s) from your ${workspaceDesc}? This will clear your current appliance inventory, but your historical billing snapshots and custom settings will remain completely untouched.`,
+      confirmText: `Remove All (${count})`,
+      cancelText: 'Cancel',
+      confirmClass: 'btn-danger',
+      onConfirm: () => {
+        try {
+          this._isRemovingAll = true;
+          // Save empty array to active workspace only
+          WattWatchStorage.saveAppliances([]);
+
+          if (typeof WattWatchApp !== 'undefined') {
+            if (WattWatchApp.refreshAll) WattWatchApp.refreshAll();
+            if (WattWatchApp.showToast) {
+              WattWatchApp.showToast(`Removed all ${count} appliance(s) from active inventory.`, 'info', 'Inventory Cleared');
+            }
+          }
+        } finally {
+          this._isRemovingAll = false;
+        }
+      }
+    });
+  },
+
   simulateAppliance(id) {
     WattWatchApp.navigateTo('simulator');
     const select = document.getElementById('simApplianceSelect');
@@ -579,7 +635,7 @@ const WattWatchAppliances = {
   },
 
   escapeHtml(str) {
-    if (!str) return '';
+    if (str === null || str === undefined) return '';
     return String(str)
       .replace(/&/g, '&amp;')
       .replace(/</g, '&lt;')
