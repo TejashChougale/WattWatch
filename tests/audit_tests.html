@@ -51,6 +51,14 @@
       <tbody id="applianceTableBody"></tbody>
       <tbody id="tariffSlabsTableBody"></tbody>
     </table>
+    <button type="button" id="btnRemoveAllAppliances"></button>
+    <div id="applianceEmptyState" style="display: none;">
+      <div class="empty-state-title"></div>
+      <div class="empty-state-desc"></div>
+    </div>
+    <div id="applianceTableWrap"></div>
+    <span id="applianceCountBadge"></span>
+    <span id="applianceTotalUnitsBadge"></span>
     <div id="historyEmptyState" style="display: none;"></div>
     <div id="historyTableWrap"></div>
     <div id="historyComparisonCard"></div>
@@ -116,6 +124,15 @@
     }
 
     async function runAllTests() {
+      const initialLocalStorageSnapshot = {};
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        initialLocalStorageSnapshot[k] = localStorage.getItem(k);
+      }
+
+      WattWatchStorage.setTestNamespace('wattwatch_audit_test_');
+      const nsKey = (k) => `${WattWatchStorage.getTestNamespace() || ''}${k}`;
+
       try {
       // 1. Core Energy Calculations
       assertAlmostEqual(WattWatchCalculations.calculateDailyKwh(1000, 1, 1), 1.0, 'Daily kWh (1000W, 1 unit, 1h)');
@@ -628,9 +645,9 @@
       assert(!restoredGuestApps.some(a => a.name === 'Personal User Solar Array'), 'User account data does not leak into Guest Mode');
 
       // Clean up test user keys
-      localStorage.removeItem(`wattwatch_user_${testUid}_appliances`);
-      localStorage.removeItem(`wattwatch_user_${testUid}_settings`);
-      localStorage.removeItem(`wattwatch_user_${testUid}_history`);
+      localStorage.removeItem(nsKey(`wattwatch_user_${testUid}_appliances`));
+      localStorage.removeItem(nsKey(`wattwatch_user_${testUid}_settings`));
+      localStorage.removeItem(nsKey(`wattwatch_user_${testUid}_history`));
 
       // 12. Authentication, Data Migration, Backup & First-Time Experience Tests
       // 12. Authentication Behavior Tests
@@ -744,14 +761,14 @@
 
       // 13. Migration Behavior Tests
       const migUid = 'audit_mig_rigorous_user';
-      localStorage.removeItem(`wattwatch_user_${migUid}_appliances`);
-      localStorage.removeItem(`wattwatch_user_${migUid}_history`);
-      localStorage.removeItem(`wattwatch_user_${migUid}_settings`);
+      localStorage.removeItem(nsKey(`wattwatch_user_${migUid}_appliances`));
+      localStorage.removeItem(nsKey(`wattwatch_user_${migUid}_history`));
+      localStorage.removeItem(nsKey(`wattwatch_user_${migUid}_settings`));
 
       // A. Empty guest data migration
       WattWatchStorage.setActiveUser(null);
       WattWatchStorage.saveAppliances([]);
-      localStorage.setItem(STORAGE_KEYS.HISTORY, JSON.stringify([]));
+      localStorage.setItem(nsKey(STORAGE_KEYS.HISTORY), JSON.stringify([]));
       const emptyMigRes = WattWatchStorage.migrateGuestData(migUid);
       assert(emptyMigRes.success === true && emptyMigRes.transferredAppliances === 0 && emptyMigRes.transferredHistory === 0, 'Migration with empty guest data succeeds with 0 transfers');
 
@@ -776,7 +793,7 @@
       assert(dupMigRes.skippedAppliances === 1, 'Duplicate appliance skipped (1 of 2)');
 
       // Verify existing user's Smart Television was preserved with original 4 hours, not overwritten with 2 hours
-      const userAppsCurrent = JSON.parse(localStorage.getItem(`wattwatch_user_${migUid}_appliances`));
+      const userAppsCurrent = JSON.parse(localStorage.getItem(nsKey(`wattwatch_user_${migUid}_appliances`)));
       const userTv = userAppsCurrent.find(a => a.name === 'Smart Television');
       assert(userTv && userTv.dailyHours === 4, 'Existing account appliance preserved intact without being overwritten');
 
@@ -784,27 +801,27 @@
       const initialUserHistory = [
         { id: 'u_hist_1', period: '2026-10', periodLabel: 'October 2026', totalKwh: 350, totalCost: 2800 }
       ];
-      localStorage.setItem(`wattwatch_user_${migUid}_history`, JSON.stringify(initialUserHistory));
+      localStorage.setItem(nsKey(`wattwatch_user_${migUid}_history`), JSON.stringify(initialUserHistory));
       const guestHistRecords = [
         { id: 'g_hist_1', period: '2026-10', periodLabel: 'October 2026', totalKwh: 100, totalCost: 800 }, // duplicate period
         { id: 'g_hist_2', period: '2026-09', periodLabel: 'September 2026', totalKwh: 290, totalCost: 2320 } // new period
       ];
-      localStorage.setItem(STORAGE_KEYS.HISTORY, JSON.stringify(guestHistRecords));
+      localStorage.setItem(nsKey(STORAGE_KEYS.HISTORY), JSON.stringify(guestHistRecords));
       const histMigRes = WattWatchStorage.migrateGuestData(migUid);
       assert(histMigRes.transferredHistory === 1, 'Migrated 1 non-duplicate history period');
       assert(histMigRes.skippedHistory === 1, 'Skipped duplicate history period');
-      const userHistAfter = JSON.parse(localStorage.getItem(`wattwatch_user_${migUid}_history`));
+      const userHistAfter = JSON.parse(localStorage.getItem(nsKey(`wattwatch_user_${migUid}_history`)));
       const octHist = userHistAfter.find(h => h.period === '2026-10');
       assert(octHist && octHist.totalKwh === 350, 'Existing account history snapshot preserved with original totalKwh 350');
 
       // E. Settings preservation
       const userCustomSettings = { tariffModel: 'flat', electricityRate: 14.50 };
-      localStorage.setItem(`wattwatch_user_${migUid}_settings`, JSON.stringify(userCustomSettings));
+      localStorage.setItem(nsKey(`wattwatch_user_${migUid}_settings`), JSON.stringify(userCustomSettings));
       const guestSettingsObj = { tariffModel: 'flat', electricityRate: 7.00 };
-      localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(guestSettingsObj));
+      localStorage.setItem(nsKey(STORAGE_KEYS.SETTINGS), JSON.stringify(guestSettingsObj));
       const settMigRes = WattWatchStorage.migrateGuestData(migUid);
       assert(settMigRes.importedSettings === false, 'Settings not imported when destination account already has settings');
-      const userSettAfter = JSON.parse(localStorage.getItem(`wattwatch_user_${migUid}_settings`));
+      const userSettAfter = JSON.parse(localStorage.getItem(nsKey(`wattwatch_user_${migUid}_settings`)));
       assert(userSettAfter.electricityRate === 14.50, 'Account settings preserved intact at 14.50');
 
       // F. Repeated migration (Idempotency)
@@ -814,26 +831,26 @@
       assert(repeatRes.importedSettings === false, 'Repeated migration transfers 0 settings (idempotent)');
 
       // G. Guest data remains 100% unchanged
-      const rawGuestAppsNow = JSON.parse(localStorage.getItem(STORAGE_KEYS.APPLIANCES));
-      const rawGuestHistNow = JSON.parse(localStorage.getItem(STORAGE_KEYS.HISTORY));
+      const rawGuestAppsNow = JSON.parse(localStorage.getItem(nsKey(STORAGE_KEYS.APPLIANCES)));
+      const rawGuestHistNow = JSON.parse(localStorage.getItem(nsKey(STORAGE_KEYS.HISTORY)));
       assert(rawGuestAppsNow.length === 2, 'Guest appliances in localStorage remain 100% untouched');
       assert(rawGuestHistNow.length === 2, 'Guest history in localStorage remains 100% untouched');
 
       // H. Transactional Rollback on Storage Write Failure (QuotaExceededError)
       const failMigUid = 'audit_mig_fail_user';
-      localStorage.setItem(`wattwatch_user_${failMigUid}_appliances`, JSON.stringify([{ id: 'u_pre', name: 'Pre-existing Microwave', category: 'Kitchen', powerWatts: 1200, dailyHours: 0.5, operatingDays: 30, quantity: 1 }]));
-      localStorage.setItem(`wattwatch_user_${failMigUid}_history`, JSON.stringify([{ id: 'h_pre', period: '2026-08', totalKwh: 200, totalCost: 1600 }]));
-      localStorage.setItem(`wattwatch_user_${failMigUid}_settings`, JSON.stringify({ electricityRate: 10.0 }));
+      localStorage.setItem(nsKey(`wattwatch_user_${failMigUid}_appliances`), JSON.stringify([{ id: 'u_pre', name: 'Pre-existing Microwave', category: 'Kitchen', powerWatts: 1200, dailyHours: 0.5, operatingDays: 30, quantity: 1 }]));
+      localStorage.setItem(nsKey(`wattwatch_user_${failMigUid}_history`), JSON.stringify([{ id: 'h_pre', period: '2026-08', totalKwh: 200, totalCost: 1600 }]));
+      localStorage.setItem(nsKey(`wattwatch_user_${failMigUid}_settings`), JSON.stringify({ electricityRate: 10.0 }));
 
       // Setup guest data to migrate
-      localStorage.setItem(STORAGE_KEYS.APPLIANCES, JSON.stringify([{ id: 'g_to_mig', name: 'Guest Air Cooler', category: 'Cooling', powerWatts: 150, dailyHours: 8, operatingDays: 30, quantity: 1 }]));
-      localStorage.setItem(STORAGE_KEYS.HISTORY, JSON.stringify([{ id: 'g_h_to_mig', period: '2026-07', totalKwh: 180, totalCost: 1440 }]));
+      localStorage.setItem(nsKey(STORAGE_KEYS.APPLIANCES), JSON.stringify([{ id: 'g_to_mig', name: 'Guest Air Cooler', category: 'Cooling', powerWatts: 150, dailyHours: 8, operatingDays: 30, quantity: 1 }]));
+      localStorage.setItem(nsKey(STORAGE_KEYS.HISTORY), JSON.stringify([{ id: 'g_h_to_mig', period: '2026-07', totalKwh: 180, totalCost: 1440 }]));
 
       // Mock localStorage.setItem to simulate QuotaExceededError when saving history
       const originalSetItem = localStorage.setItem.bind(localStorage);
       let hasThrown = false;
       localStorage.setItem = function(key, val) {
-        if (key === `wattwatch_user_${failMigUid}_history` && !hasThrown) {
+        if (key === nsKey(`wattwatch_user_${failMigUid}_history`) && !hasThrown) {
           hasThrown = true;
           const quotaErr = new Error('The quota has been exceeded');
           quotaErr.name = 'QuotaExceededError';
@@ -849,20 +866,20 @@
       assert(failMigRes.rolledBack === true, 'Migration returns rolledBack: true on QuotaExceededError');
 
       // Verify user account storage was completely rolled back to pre-existing state
-      const rolledBackApps = JSON.parse(localStorage.getItem(`wattwatch_user_${failMigUid}_appliances`));
-      const rolledBackHist = JSON.parse(localStorage.getItem(`wattwatch_user_${failMigUid}_history`));
+      const rolledBackApps = JSON.parse(localStorage.getItem(nsKey(`wattwatch_user_${failMigUid}_appliances`)));
+      const rolledBackHist = JSON.parse(localStorage.getItem(nsKey(`wattwatch_user_${failMigUid}_history`)));
       assert(rolledBackApps.length === 1 && rolledBackApps[0].name === 'Pre-existing Microwave', 'User appliances rolled back to pre-existing state after write failure');
       assert(rolledBackHist.length === 1 && rolledBackHist[0].period === '2026-08', 'User history rolled back to pre-existing state after write failure');
 
       // Clean up test keys
-      localStorage.removeItem(`wattwatch_user_${failMigUid}_appliances`);
-      localStorage.removeItem(`wattwatch_user_${failMigUid}_history`);
-      localStorage.removeItem(`wattwatch_user_${failMigUid}_settings`);
+      localStorage.removeItem(nsKey(`wattwatch_user_${failMigUid}_appliances`));
+      localStorage.removeItem(nsKey(`wattwatch_user_${failMigUid}_history`));
+      localStorage.removeItem(nsKey(`wattwatch_user_${failMigUid}_settings`));
 
       // Clean up test user
-      localStorage.removeItem(`wattwatch_user_${migUid}_appliances`);
-      localStorage.removeItem(`wattwatch_user_${migUid}_history`);
-      localStorage.removeItem(`wattwatch_user_${migUid}_settings`);
+      localStorage.removeItem(nsKey(`wattwatch_user_${migUid}_appliances`));
+      localStorage.removeItem(nsKey(`wattwatch_user_${migUid}_history`));
+      localStorage.removeItem(nsKey(`wattwatch_user_${migUid}_settings`));
 
       // 14. Monthly Electricity Consumption Comparison Tests
       function getPrevMonthHelper(refDate) {
@@ -928,13 +945,13 @@
       const testExportHist = [
         { id: 'exp_h1', period: '2026-10', periodLabel: 'October 2026', totalKwh: 340.5, totalCost: 2724, tariffModel: 'flat', effectiveRate: 8.0, appliancesCount: 5, createdAt: '2026-10-31T20:00:00.000Z' }
       ];
-      localStorage.setItem(STORAGE_KEYS.HISTORY, JSON.stringify(testExportHist));
+      localStorage.setItem(nsKey(STORAGE_KEYS.HISTORY), JSON.stringify(testExportHist));
       const histCsv = WattWatchStorage.generateHistoryCSV();
       assert(histCsv.startsWith('Period,Period Label,Total Energy kWh,Estimated Bill INR,Tariff Model,Effective Rate INR per kWh,Appliances Count,Recorded Date'), 'History CSV contains standard headers');
       assert(histCsv.includes('"2026-10","October 2026",340.50,2724.00,"flat",8.00,5,"2026-10-31"'), 'History CSV formats numbers, periods, and dates accurately');
 
       // D. Empty history dataset produces valid CSV headers
-      localStorage.setItem(STORAGE_KEYS.HISTORY, JSON.stringify([]));
+      localStorage.setItem(nsKey(STORAGE_KEYS.HISTORY), JSON.stringify([]));
       const emptyHistCsv = WattWatchStorage.generateHistoryCSV();
       assert(emptyHistCsv === 'Period,Period Label,Total Energy kWh,Estimated Bill INR,Tariff Model,Effective Rate INR per kWh,Appliances Count,Recorded Date', 'Empty history dataset produces valid headers-only CSV');
 
@@ -958,9 +975,9 @@
       assert(!parsedUserJson.appliances.some(a => a.name === 'Guest Only Bulb'), 'Account export isolates from guest data');
 
       // Clean up user isolation data
-      localStorage.removeItem(`wattwatch_user_${userIsoUid}_appliances`);
-      localStorage.removeItem(`wattwatch_user_${userIsoUid}_settings`);
-      localStorage.removeItem(`wattwatch_user_${userIsoUid}_history`);
+      localStorage.removeItem(nsKey(`wattwatch_user_${userIsoUid}_appliances`));
+      localStorage.removeItem(nsKey(`wattwatch_user_${userIsoUid}_settings`));
+      localStorage.removeItem(nsKey(`wattwatch_user_${userIsoUid}_history`));
       WattWatchStorage.setActiveUser(null);
 
       // F. No sensitive information in exported JSON or CSV
@@ -1065,7 +1082,7 @@
       ];
       const preFailSett = { electricityRate: 7.5, currency: 'INR', billingDays: 30, budgetInr: 2500, tariffModel: 'flat' };
       WattWatchStorage.saveAppliances(preFailApps);
-      localStorage.setItem(STORAGE_KEYS.HISTORY, JSON.stringify(preFailHist));
+      localStorage.setItem(nsKey(STORAGE_KEYS.HISTORY), JSON.stringify(preFailHist));
       WattWatchStorage.saveSettings(preFailSett);
 
       const failImportPayload = {
@@ -1083,7 +1100,7 @@
       const origSetItem = localStorage.setItem.bind(localStorage);
       let threwImportError = false;
       localStorage.setItem = function(k, v) {
-        if (!threwImportError && k === STORAGE_KEYS.HISTORY) {
+        if (!threwImportError && k === nsKey(STORAGE_KEYS.HISTORY)) {
           threwImportError = true;
           throw new DOMException('Simulated QuotaExceededError during JSON import', 'QuotaExceededError');
         }
@@ -1151,7 +1168,7 @@
         totalUnits: 3,
         createdAt: Date.now()
       };
-      localStorage.setItem(STORAGE_KEYS.HISTORY, JSON.stringify([sampleHistoryRecord]));
+      localStorage.setItem(nsKey(STORAGE_KEYS.HISTORY), JSON.stringify([sampleHistoryRecord]));
       WattWatchHistory.init();
       WattWatchHistory.renderHistoryView();
 
@@ -1202,22 +1219,233 @@
       assert(fontSans.includes('Inter'), 'Design system token --font-sans uses Inter font');
       assert(fontSerif.includes('Manrope') || fontSerif.includes('--font-heading') || fontSerif.includes('var('), '--font-serif aliases --font-heading for clean backwards compatibility');
 
+      // 17. "Remove All Appliances" Feature Tests
+      // A. Normal confirmation removes all appliances from active workspace
+      WattWatchStorage.setActiveUser(null); // Guest mode
+      const rmTestApps = [
+        { id: 'rm_1', name: 'Fan 1', category: 'Cooling', powerWatts: 50, dailyHours: 8, operatingDays: 30, quantity: 1 },
+        { id: 'rm_2', name: 'Fan 2', category: 'Cooling', powerWatts: 60, dailyHours: 6, operatingDays: 30, quantity: 2 },
+        { id: 'rm_3', name: 'Fridge', category: 'Kitchen', powerWatts: 200, dailyHours: 12, operatingDays: 30, quantity: 1 }
+      ];
+      WattWatchStorage.saveAppliances(rmTestApps);
+      assert(WattWatchStorage.getAppliances().length === 3, 'Pre-test has 3 appliances saved');
+
+      // Save a history record and custom setting to verify they are preserved
+      const snapToPreserve = { period: '2026-10', periodLabel: 'October 2026', totalKwh: 150, totalCost: 1200 };
+      WattWatchStorage.saveSnapshot(snapToPreserve);
+      const customSettingToPreserve = { electricityRate: 11.50, tariffModel: 'flat' };
+      WattWatchStorage.saveSettings(customSettingToPreserve);
+
+      let confirmOpened = false;
+      let confirmCfg = null;
+      window.WattWatchApp.openConfirmDialog = (cfg) => {
+        confirmOpened = true;
+        confirmCfg = cfg;
+        if (cfg && cfg.onConfirm) cfg.onConfirm(); // Simulate user confirmation
+      };
+
+      WattWatchAppliances.removeAllAppliances();
+      assert(confirmOpened === true, 'Remove All Appliances opens confirmation modal');
+      assert(confirmCfg && confirmCfg.title === 'Remove All Appliances?', 'Confirmation modal title is "Remove All Appliances?"');
+      assert(confirmCfg && confirmCfg.confirmText === 'Remove All (3)', 'Confirmation button shows exact appliance count (3)');
+      assert(WattWatchStorage.getAppliances().length === 0, 'Active workspace appliances successfully cleared after confirmation');
+
+      // Verify history and settings are completely untouched
+      const histAfterRm = WattWatchStorage.getHistory();
+      assert(histAfterRm.some(h => h.period === '2026-10'), 'Billing history snapshots preserved intact after Remove All');
+      const settAfterRm = WattWatchStorage.getSettings();
+      assert(settAfterRm.electricityRate === 11.50, 'Custom tariff settings preserved intact after Remove All');
+
+      // B. Cancel Remove All leaves appliances completely intact
+      WattWatchStorage.saveAppliances(rmTestApps.slice(0, 2));
+      assert(WattWatchStorage.getAppliances().length === 2, 'Saved 2 appliances for Cancel test');
+
+      let cancelSimulated = false;
+      window.WattWatchApp.openConfirmDialog = (cfg) => {
+        cancelSimulated = true;
+        // User clicks Cancel -> do NOT call cfg.onConfirm()
+      };
+
+      WattWatchAppliances.removeAllAppliances();
+      assert(cancelSimulated === true, 'Confirmation dialog was presented');
+      assert(WattWatchStorage.getAppliances().length === 2, 'Appliances remained completely intact when user cancelled Remove All');
+
+      // C. Empty inventory handling (graceful notification without opening dialog)
+      WattWatchStorage.saveAppliances([]);
+      let dialogOpenedOnEmpty = false;
+      let toastShownOnEmpty = false;
+      window.WattWatchApp.openConfirmDialog = () => { dialogOpenedOnEmpty = true; };
+      const origToast = window.WattWatchApp.showToast;
+      window.WattWatchApp.showToast = (msg) => {
+        if (msg && msg.includes('No appliances in your active inventory')) toastShownOnEmpty = true;
+      };
+
+      WattWatchAppliances.removeAllAppliances();
+      assert(dialogOpenedOnEmpty === false, 'Remove All does not open confirm dialog on empty inventory');
+      assert(toastShownOnEmpty === true, 'Remove All shows helpful toast notification on empty inventory');
+      window.WattWatchApp.showToast = origToast;
+
+      // D. Workspace isolation: Guest Mode vs Authenticated Account Mode
+      WattWatchStorage.setActiveUser(null);
+      const guestOnlyApps = [
+        { id: 'g_iso_1', name: 'Guest Desk Lamp', category: 'Lighting', powerWatts: 15, dailyHours: 5, operatingDays: 30, quantity: 1 },
+        { id: 'g_iso_2', name: 'Guest Kettle', category: 'Kitchen', powerWatts: 1500, dailyHours: 0.2, operatingDays: 30, quantity: 1 }
+      ];
+      WattWatchStorage.saveAppliances(guestOnlyApps);
+
+      const rmUserUid = 'rm_all_iso_user_99';
+      WattWatchStorage.setActiveUser(rmUserUid);
+      const userOnlyApps = [
+        { id: 'u_iso_1', name: 'Account AC', category: 'Cooling', powerWatts: 1500, dailyHours: 6, operatingDays: 30, quantity: 1 },
+        { id: 'u_iso_2', name: 'Account TV', category: 'Entertainment', powerWatts: 120, dailyHours: 4, operatingDays: 30, quantity: 1 }
+      ];
+      WattWatchStorage.saveAppliances(userOnlyApps);
+      assert(WattWatchStorage.getAppliances().length === 2, 'User has 2 private appliances');
+
+      // User calls Remove All Appliances and confirms
+      window.WattWatchApp.openConfirmDialog = (cfg) => {
+        if (cfg && cfg.onConfirm) cfg.onConfirm();
+      };
+      WattWatchAppliances.removeAllAppliances();
+      assert(WattWatchStorage.getAppliances().length === 0, 'User account inventory cleared');
+
+      // Switch back to Guest Mode: Guest appliances MUST remain 100% intact!
+      WattWatchStorage.setActiveUser(null);
+      const guestAppsCheck = WattWatchStorage.getAppliances();
+      assert(guestAppsCheck.length === 2, 'Guest inventory was completely isolated and unaffected by user account Remove All');
+      assert(guestAppsCheck[0].name === 'Guest Desk Lamp', 'Guest appliances remain intact');
+
+      // Clean up test user keys
+      localStorage.removeItem(nsKey(`wattwatch_user_${rmUserUid}_appliances`));
+      localStorage.removeItem(nsKey(`wattwatch_user_${rmUserUid}_settings`));
+      localStorage.removeItem(nsKey(`wattwatch_user_${rmUserUid}_history`));
+
+      // 18. Strict Appliance Domain Validation Tests
+      // Reject decimal quantities
+      assert(WattWatchStorage.validateAppliance({ name: 'Fan', category: 'Cooling', powerWatts: 50, dailyHours: 8, operatingDays: 30, quantity: 1.5 }).valid === false, 'validateAppliance rejects decimal quantity 1.5');
+      assert(WattWatchStorage.validateAppliance({ name: 'Fan', category: 'Cooling', powerWatts: 50, dailyHours: 8, operatingDays: 30, quantity: 0 }).valid === false, 'validateAppliance rejects quantity 0');
+      assert(WattWatchStorage.validateAppliance({ name: 'Fan', category: 'Cooling', powerWatts: 50, dailyHours: 8, operatingDays: 30, quantity: -2 }).valid === false, 'validateAppliance rejects negative quantity');
+      // Reject unwhitelisted categories
+      assert(WattWatchStorage.validateAppliance({ name: 'Fan', category: 'HackingCategory', powerWatts: 50, dailyHours: 8, operatingDays: 30, quantity: 1 }).valid === false, 'validateAppliance rejects unwhitelisted category');
+      assert(WattWatchStorage.validateAppliance({ name: 'Fan', category: '<script>', powerWatts: 50, dailyHours: 8, operatingDays: 30, quantity: 1 }).valid === false, 'validateAppliance rejects HTML category');
+      // Reject invalid hours & days
+      assert(WattWatchStorage.validateAppliance({ name: 'Fan', category: 'Cooling', powerWatts: 50, dailyHours: 25, operatingDays: 30, quantity: 1 }).valid === false, 'validateAppliance rejects hours > 24');
+      assert(WattWatchStorage.validateAppliance({ name: 'Fan', category: 'Cooling', powerWatts: 50, dailyHours: 8, operatingDays: 32, quantity: 1 }).valid === false, 'validateAppliance rejects days > 31');
+      assert(WattWatchStorage.validateAppliance({ name: '', category: 'Cooling', powerWatts: 50, dailyHours: 8, operatingDays: 30, quantity: 1 }).valid === false, 'validateAppliance rejects empty name');
+
+      // 19. Stored XSS Neutralization Tests
+      const xssApp = {
+        name: '<script>alert("xss")<' + '/script><img src=x onerror=alert(1)>',
+        category: 'Cooling',
+        powerWatts: 100,
+        dailyHours: 5,
+        operatingDays: 30,
+        quantity: 1
+      };
+      const validatedXss = WattWatchStorage.validateAppliance(xssApp);
+      assert(validatedXss.valid === true, 'validateAppliance accepts appliance with malicious name characters');
+      WattWatchStorage.saveAppliances([validatedXss.sanitized]);
+      WattWatchAppliances.renderApplianceTable();
+      const appTableBody = document.getElementById('applianceTableBody');
+      assert(!appTableBody.innerHTML.includes('<script>'), 'Appliance table renders script tags as safe HTML entities');
+      assert(!appTableBody.innerHTML.includes('<img src=x'), 'Appliance table renders img tags as safe HTML entities');
+
+      // 20. Corrupted LocalStorage Recovery & Quarantine Tests
+      const testKeyApp = WattWatchStorage._getKey('APPLIANCES');
+      localStorage.setItem(testKeyApp, 'MALFORMED_JSON_{{{');
+      const safeRecoveredApps = WattWatchStorage.getAppliances();
+      assert(Array.isArray(safeRecoveredApps) && safeRecoveredApps.length === 0, 'getAppliances recovers safely from malformed JSON without crashing');
+      assert(WattWatchStorage.hasCorruptedData() === true, 'Corrupted data state flagged');
+      let hasQuarantineKey = false;
+      const allCorruptedKeys = Object.keys(localStorage).filter(k => k.includes('wattwatch_corrupted_'));
+      if (allCorruptedKeys.length > 0) {
+        hasQuarantineKey = true;
+        allCorruptedKeys.forEach(k => localStorage.removeItem(k));
+      }
+      assert(hasQuarantineKey === true, 'Malformed data quarantined into wattwatch_corrupted_* key');
+      WattWatchStorage.corruptedState = null;
+
+      // 21. Slab Tariff Boundaries & Excess Consumption Coverage
+      const customCappedSlabSettings = {
+        tariffModel: 'slab',
+        electricityRate: 8.00,
+        fixedCharges: 0,
+        additionalTaxPercent: 0,
+        slabConfig: [
+          { upTo: 100, rate: 5.00 },
+          { upTo: 200, rate: 8.00 }
+        ]
+      };
+      const excessRes = WattWatchCalculations.calculateAdvancedTariff(300, customCappedSlabSettings);
+      assertAlmostEqual(excessRes.energyCharges, 2100.0, 'Slab tariff bills excess 100 kWh above final slab at highest rate (2100 INR)');
+      assertAlmostEqual(excessRes.totalCost, 2100.0, 'Slab tariff total bill includes excess consumption');
+      assert(excessRes.slabBreakdown.some(t => t.label.includes('Excess above 200 kWh')), 'Slab breakdown includes explicit Excess tier breakdown');
+
+      // 22. Keyboard Navigation & Modal Focus Trap Tests
+      WattWatchAuth.currentUser = null;
+      WattWatchAuth.hasUserChosenSession = false;
+      WattWatchAuth.openAuthModalOnStartup();
+      let escapePrevented = false;
+      const fakeEscapeEvent = {
+        key: 'Escape',
+        preventDefault: () => { escapePrevented = true; }
+      };
+      WattWatchAuth.handleKeydown(fakeEscapeEvent);
+      assert(escapePrevented === true, 'Escape key is prevented from closing modal during unresolved startup gate');
+      assert(document.getElementById('authModal').classList.contains('is-open'), 'Modal remains open after Escape key');
+
+      WattWatchAuth.hasUserChosenSession = true;
+      WattWatchAuth.handleKeydown({ key: 'Escape', preventDefault: () => {} });
+      assert(!document.getElementById('authModal').classList.contains('is-open'), 'Escape key closes modal once session is established');
+      WattWatchAuth.closeModal(true);
+      document.body.classList.remove('auth-gate-active');
+
       // Restore sample household for storage
       WattWatchStorage.loadSampleHousehold();
-
-      // Render summary on DOM
-      const passedCount = results.filter(r => r.passed).length;
-      const failedCount = results.filter(r => !r.passed).length;
-      const totalCount = results.length;
-
-      let html = `<div id="summary">TEST_RESULTS: TOTAL=${totalCount} PASSED=${passedCount} FAILED=${failedCount}</div><ul>`;
-      results.forEach(r => {
-        html += `<li class="${r.passed ? 'pass' : 'fail'}">${r.passed ? 'PASS' : 'FAIL'}: ${r.name} ${r.details ? '(' + r.details + ')' : ''}</li>`;
-      });
-      html += '</ul>';
-      document.getElementById('test-results').innerHTML = html;
       } catch (err) {
-        document.getElementById('test-results').innerHTML = `<div id="error">ERROR: ${err.message}\n${err.stack}</div>`;
+        console.error('Test runner caught unexpected error:', err);
+        results.push({ name: 'Test Suite Execution Error', passed: false, details: err.message });
+      } finally {
+        // Clean up test namespace keys
+        const allKeys = Object.keys(localStorage);
+        for (const k of allKeys) {
+          if (k.startsWith('wattwatch_audit_test_') || k.includes('wattwatch_corrupted_')) {
+            localStorage.removeItem(k);
+          }
+        }
+        WattWatchStorage.setTestNamespace(null);
+        WattWatchStorage.setActiveUser(null);
+        WattWatchAuth.closeModal(true);
+        document.body.classList.remove('auth-gate-active');
+
+        // Verify real user data was completely untouched
+        let realDataUntouched = true;
+        for (const k of Object.keys(initialLocalStorageSnapshot)) {
+          if (localStorage.getItem(k) !== initialLocalStorageSnapshot[k]) {
+            realDataUntouched = false;
+            break;
+          }
+        }
+        for (let i = 0; i < localStorage.length; i++) {
+          const k = localStorage.key(i);
+          if (!(k in initialLocalStorageSnapshot)) {
+            realDataUntouched = false;
+            break;
+          }
+        }
+        assert(realDataUntouched, 'Production localStorage data was completely untouched during test suite run');
+
+        // Render summary on DOM
+        const passedCount = results.filter(r => r.passed).length;
+        const failedCount = results.filter(r => !r.passed).length;
+        const totalCount = results.length;
+
+        let html = `<div id="summary">TEST_RESULTS: TOTAL=${totalCount} PASSED=${passedCount} FAILED=${failedCount}</div><ul>`;
+        results.forEach(r => {
+          html += `<li class="${r.passed ? 'pass' : 'fail'}">${r.passed ? 'PASS' : 'FAIL'}: ${r.name} ${r.details ? '(' + r.details + ')' : ''}</li>`;
+        });
+        html += '</ul>';
+        document.getElementById('test-results').innerHTML = html;
       }
     }
 
