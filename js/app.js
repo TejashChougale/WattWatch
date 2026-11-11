@@ -10,6 +10,10 @@ const WattWatchApp = {
   confirmCallback: null,
   budgetWarnedSession: { 75: false, 90: false, 100: false },
 
+  _eventsBound: false,
+  _themeBound: false,
+  previousActiveElement: null,
+
   /**
    * Application bootstrap
    */
@@ -28,11 +32,14 @@ const WattWatchApp = {
       WattWatchAuth.init();
     }
 
-    // Bind navigation & UI controls
-    this.bindNavigation();
-    this.bindSettings();
-    this.bindModalKeyboards();
-    this.bindFirstTimeGuide();
+    // Bind navigation & UI controls (once)
+    if (!this._eventsBound) {
+      this._eventsBound = true;
+      this.bindNavigation();
+      this.bindSettings();
+      this.bindModalKeyboards();
+      this.bindFirstTimeGuide();
+    }
 
     // First-time user guidance
     this.renderFirstTimeGuide();
@@ -51,7 +58,8 @@ const WattWatchApp = {
 
     // Bind Topbar Theme Toggle Button
     const themeBtn = document.getElementById('themeToggleBtn');
-    if (themeBtn) {
+    if (themeBtn && !this._themeBound) {
+      this._themeBound = true;
       themeBtn.addEventListener('click', () => {
         const current = document.documentElement.getAttribute('data-theme') || 'light';
         const nextTheme = current === 'dark' ? 'light' : 'dark';
@@ -207,6 +215,13 @@ const WattWatchApp = {
    * Refreshes all data models, UI summaries, tables, charts, and recommendations
    */
   refreshAll() {
+    // Notify user if corrupted storage was detected and safely quarantined
+    if (typeof WattWatchStorage !== 'undefined' && WattWatchStorage.hasCorruptedData && WattWatchStorage.hasCorruptedData()) {
+      const corrupted = WattWatchStorage.corruptedState;
+      WattWatchStorage.corruptedState = null;
+      this.showToast(`Corrupted storage detected in "${corrupted?.key || 'storage'}". Safely quarantined to "${corrupted?.backupKey || 'backup'}". Clean defaults restored.`, 'warning', 'Storage Recovery');
+    }
+
     const settings = WattWatchStorage.getSettings();
     const appliances = WattWatchStorage.getAppliances();
 
@@ -881,7 +896,7 @@ const WattWatchApp = {
   },
 
   /**
-   * Keyboard shortcuts & modal listeners (Esc closes modal)
+   * Keyboard shortcuts & modal listeners (Esc closes modal, Tab traps focus)
    */
   bindModalKeyboards() {
     window.addEventListener('keydown', (e) => {
@@ -893,16 +908,61 @@ const WattWatchApp = {
         if (typeof WattWatchAuth !== 'undefined' && WattWatchAuth.hasUserChosenSession) {
           WattWatchAuth.closeModal();
         }
+        return;
+      }
+
+      if (e.key === 'Tab') {
+        const modalIds = ['confirmModal', 'applianceModal', 'historyDetailModal', 'reportModal'];
+        let activeModal = null;
+        for (const id of modalIds) {
+          const m = document.getElementById(id);
+          if (m && m.classList.contains('is-open')) {
+            activeModal = m;
+            break;
+          }
+        }
+        if (activeModal) {
+          const focusables = activeModal.querySelectorAll(
+            'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+          );
+          const visibleFocusables = Array.from(focusables).filter(el => {
+            return el.offsetParent !== null && window.getComputedStyle(el).display !== 'none' && window.getComputedStyle(el).visibility !== 'hidden';
+          });
+
+          if (visibleFocusables.length > 0) {
+            const first = visibleFocusables[0];
+            const last = visibleFocusables[visibleFocusables.length - 1];
+
+            if (e.shiftKey) {
+              if (document.activeElement === first || !activeModal.contains(document.activeElement)) {
+                e.preventDefault();
+                last.focus();
+              }
+            } else {
+              if (document.activeElement === last || !activeModal.contains(document.activeElement)) {
+                e.preventDefault();
+                first.focus();
+              }
+            }
+          }
+        }
       }
     });
 
-    // Close on backdrop clicks for standard modals
-    ['applianceModal', 'confirmModal', 'historyDetailModal', 'reportModal'].forEach(id => {
+    // Close on backdrop clicks for standard modals using dedicated close handlers
+    const modalCloseMap = {
+      applianceModal: () => WattWatchAppliances.closeModal(),
+      confirmModal: () => this.closeConfirmDialog(),
+      historyDetailModal: () => WattWatchHistory.closeDetailsModal(),
+      reportModal: () => WattWatchReport.closeReportModal()
+    };
+
+    Object.keys(modalCloseMap).forEach(id => {
       const modal = document.getElementById(id);
       if (modal) {
         modal.addEventListener('click', (e) => {
           if (e.target === modal) {
-            modal.classList.remove('is-open');
+            modalCloseMap[id]();
           }
         });
       }
@@ -928,6 +988,8 @@ const WattWatchApp = {
     const modal = document.getElementById('confirmModal');
     if (!modal) return;
 
+    this.previousActiveElement = document.activeElement;
+
     document.getElementById('confirmModalTitle').textContent = title || 'Confirmation Required';
     document.getElementById('confirmModalMessage').textContent = message || 'Are you sure you want to proceed?';
 
@@ -938,6 +1000,7 @@ const WattWatchApp = {
     this.confirmCallback = onConfirm;
 
     modal.classList.add('is-open');
+    modal.setAttribute('aria-hidden', 'false');
     btnConfirm.focus();
   },
 
@@ -950,8 +1013,19 @@ const WattWatchApp = {
 
   closeConfirmDialog() {
     const modal = document.getElementById('confirmModal');
-    if (modal) modal.classList.remove('is-open');
+    if (modal) {
+      modal.classList.remove('is-open');
+      modal.setAttribute('aria-hidden', 'true');
+    }
     this.confirmCallback = null;
+
+    if (this.previousActiveElement && typeof this.previousActiveElement.focus === 'function') {
+      try {
+        this.previousActiveElement.focus();
+      } catch (e) {
+        // ignore
+      }
+    }
   },
 
   /**

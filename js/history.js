@@ -6,6 +6,8 @@
 
 const WattWatchHistory = {
   activeDetailSnapshotId: null,
+  _eventsBound: false,
+  previousActiveElement: null,
 
   init() {
     this.bindEvents();
@@ -22,6 +24,9 @@ const WattWatchHistory = {
   },
 
   bindEvents() {
+    if (this._eventsBound) return;
+    this._eventsBound = true;
+
     // Snapshot save button from History view
     const btnSaveSnapshot = document.getElementById('btnSaveCurrentSnapshot');
     if (btnSaveSnapshot) {
@@ -483,13 +488,28 @@ const WattWatchHistory = {
     `;
 
     const modal = document.getElementById('historyDetailModal');
-    if (modal) modal.classList.add('is-open');
+    if (modal) {
+      this.previousActiveElement = document.activeElement;
+      modal.classList.add('is-open');
+      modal.setAttribute('aria-hidden', 'false');
+    }
   },
 
   closeDetailsModal() {
     const modal = document.getElementById('historyDetailModal');
-    if (modal) modal.classList.remove('is-open');
+    if (modal) {
+      modal.classList.remove('is-open');
+      modal.setAttribute('aria-hidden', 'true');
+    }
     this.activeDetailSnapshotId = null;
+
+    if (this.previousActiveElement && typeof this.previousActiveElement.focus === 'function') {
+      try {
+        this.previousActiveElement.focus();
+      } catch (e) {
+        // ignore
+      }
+    }
   },
 
   /**

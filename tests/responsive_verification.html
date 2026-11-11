@@ -26,6 +26,8 @@
   <iframe id="frame320" src="../index.html" style="width: 320px; height: 700px;"></iframe>
   <iframe id="frame360" src="../index.html" style="width: 360px; height: 700px;"></iframe>
   <iframe id="frame390" src="../index.html" style="width: 390px; height: 700px;"></iframe>
+  <iframe id="frame768" src="../index.html" style="width: 768px; height: 700px;"></iframe>
+  <iframe id="frame1024" src="../index.html" style="width: 1024px; height: 700px;"></iframe>
   <iframe id="frame1366" src="../index.html" style="width: 1366px; height: 700px;"></iframe>
 
   <script>
@@ -36,6 +38,8 @@
         const f320 = document.getElementById('frame320');
         const f360 = document.getElementById('frame360');
         const f390 = document.getElementById('frame390');
+        const f768 = document.getElementById('frame768');
+        const f1024 = document.getElementById('frame1024');
         const f1366 = document.getElementById('frame1366');
 
         const win320 = f320.contentWindow;
@@ -44,6 +48,10 @@
         const doc360 = f360.contentDocument;
         const win390 = f390.contentWindow;
         const doc390 = f390.contentDocument;
+        const win768 = f768.contentWindow;
+        const doc768 = f768.contentDocument;
+        const win1024 = f1024.contentWindow;
+        const doc1024 = f1024.contentDocument;
         const win1366 = f1366.contentWindow;
         const doc1366 = f1366.contentDocument;
 
@@ -89,6 +97,65 @@
           name: 'Mobile 390px viewport horizontal overflow (scrollWidth <= clientWidth)',
           passed: delta390 <= 0,
           details: 'clientWidth=' + w390 + ', scrollWidth=' + sw390 + ', delta=' + delta390
+        });
+
+        // 4B. 768px Tablet Viewport Horizontal Overflow Check
+        const w768 = doc768.documentElement.clientWidth;
+        const sw768 = doc768.documentElement.scrollWidth;
+        const delta768 = sw768 - w768;
+        reports.push({
+          id: 'REQ-4B',
+          name: 'Tablet 768px viewport horizontal overflow (scrollWidth <= clientWidth)',
+          passed: delta768 <= 0,
+          details: 'clientWidth=' + w768 + ', scrollWidth=' + sw768 + ', delta=' + delta768
+        });
+
+        // 4C. 1024px Desktop Viewport Horizontal Overflow Check
+        const w1024 = doc1024.documentElement.clientWidth;
+        const sw1024 = doc1024.documentElement.scrollWidth;
+        const delta1024 = sw1024 - w1024;
+        const sidebar1024 = doc1024.getElementById('appSidebar');
+        const sidebarDisplay1024 = sidebar1024 ? win1024.getComputedStyle(sidebar1024).display : 'none';
+        reports.push({
+          id: 'REQ-4C',
+          name: 'Desktop 1024px layout (no overflow, sidebar visible)',
+          passed: delta1024 <= 0 && sidebarDisplay1024 !== 'none',
+          details: 'clientWidth=' + w1024 + ', scrollWidth=' + sw1024 + ', sidebarDisplay=' + sidebarDisplay1024
+        });
+
+        // 4D. Comprehensive Zero Overflow Across All Seven Views on All Viewports
+        const viewsToCheck = ['overview', 'appliances', 'history', 'analytics', 'simulator', 'report', 'settings'];
+        const framePairs = [
+          { win: win320, doc: doc320, w: 320 },
+          { win: win360, doc: doc360, w: 360 },
+          { win: win390, doc: doc390, w: 390 },
+          { win: win768, doc: doc768, w: 768 },
+          { win: win1024, doc: doc1024, w: 1024 },
+          { win: win1366, doc: doc1366, w: 1366 }
+        ];
+        let allViewsNoOverflow = true;
+        let viewOverflowDetails = '';
+        framePairs.forEach(fp => {
+          viewsToCheck.forEach(view => {
+            if (fp.win.WattWatchApp && fp.win.WattWatchApp.navigateTo) {
+              fp.win.WattWatchApp.navigateTo(view);
+            }
+            const cw = fp.doc.documentElement.clientWidth;
+            const sw = fp.doc.documentElement.scrollWidth;
+            if (sw > cw) {
+              allViewsNoOverflow = false;
+              viewOverflowDetails += `[${fp.w}px/${view}: sw=${sw}>cw=${cw}] `;
+            }
+          });
+          if (fp.win.WattWatchApp && fp.win.WattWatchApp.navigateTo) {
+            fp.win.WattWatchApp.navigateTo('overview');
+          }
+        });
+        reports.push({
+          id: 'REQ-4D',
+          name: 'All 7 views zero horizontal overflow across 320, 360, 390, 768, 1024, 1366px viewports',
+          passed: allViewsNoOverflow,
+          details: allViewsNoOverflow ? 'Verified 42 combinations (6 viewports x 7 views) with 0 overflow' : viewOverflowDetails
         });
 
         // 5. Desktop 1366px Layout Check
@@ -275,6 +342,35 @@
           name: 'Light and Dark Theme toggle works in mobile view',
           passed: themeOk,
           details: 'initial=' + initialTheme + ', toggled=' + toggledTheme + ', restored=' + restoredTheme
+        });
+
+        // 14B. Dark Theme Zero Overflow Across All Viewports and Views
+        let darkThemeNoOverflow = true;
+        let darkOverflowDetails = '';
+        framePairs.forEach(fp => {
+          fp.doc.documentElement.setAttribute('data-theme', 'dark');
+          viewsToCheck.forEach(view => {
+            if (fp.win.WattWatchApp && fp.win.WattWatchApp.navigateTo) {
+              fp.win.WattWatchApp.navigateTo(view);
+            }
+            const cw = fp.doc.documentElement.clientWidth;
+            const sw = fp.doc.documentElement.scrollWidth;
+            if (sw > cw) {
+              darkThemeNoOverflow = false;
+              darkOverflowDetails += `[Dark ${fp.w}px/${view}: sw=${sw}>cw=${cw}] `;
+            }
+          });
+          // Restore to light and overview
+          fp.doc.documentElement.setAttribute('data-theme', 'light');
+          if (fp.win.WattWatchApp && fp.win.WattWatchApp.navigateTo) {
+            fp.win.WattWatchApp.navigateTo('overview');
+          }
+        });
+        reports.push({
+          id: 'REQ-14B',
+          name: 'Dark Theme zero horizontal overflow across all 6 viewports and 7 views',
+          passed: darkThemeNoOverflow,
+          details: darkThemeNoOverflow ? 'Verified 42 dark-theme combinations (6 viewports x 7 views) with 0 overflow' : darkOverflowDetails
         });
 
         // 15. Add Appliance Dropdown at 390px

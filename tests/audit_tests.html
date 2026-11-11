@@ -62,9 +62,22 @@
     <div id="historyEmptyState" style="display: none;"></div>
     <div id="historyTableWrap"></div>
     <div id="historyComparisonCard"></div>
-    <div id="historyDetailModal" class="modal-backdrop">
+    <div id="historyDetailModal" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="historyDetailTitle" aria-hidden="true">
       <div id="historyDetailTitle"></div>
       <div id="historyDetailBody"></div>
+    </div>
+    <div id="confirmModal" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="confirmModalTitle" aria-hidden="true">
+      <h3 id="confirmModalTitle"></h3>
+      <p id="confirmModalMessage"></p>
+      <button type="button" id="confirmModalOkBtn"></button>
+    </div>
+    <div id="applianceModal" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="modalTitle" aria-hidden="true">
+      <h3 id="modalTitle"></h3>
+      <input id="modalApplianceName">
+      <input id="modalPowerWatts">
+    </div>
+    <div id="reportModal" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="reportModalTitle" aria-hidden="true">
+      <h3 id="reportModalTitle"></h3>
     </div>
   </div>
 
@@ -77,11 +90,39 @@
       renderHistoryTrendChart: () => {}
     };
     window.WattWatchApp = {
+      _eventsBound: true,
+      previousActiveElement: null,
       showToast: () => {},
       refreshAll: () => {},
       navigateTo: () => {},
-      openConfirmDialog: (cfg) => { if (cfg && cfg.onConfirm) cfg.onConfirm(); },
-      closeConfirmDialog: () => {},
+      init: function() {
+        this._eventsBound = true;
+      },
+      openConfirmDialog: function({ title, message, confirmText, confirmClass, onConfirm }) {
+        const modal = document.getElementById('confirmModal');
+        if (!modal) return;
+        this.previousActiveElement = document.activeElement;
+        const titleEl = document.getElementById('confirmModalTitle');
+        if (titleEl) titleEl.textContent = title || 'Confirmation Required';
+        const msgEl = document.getElementById('confirmModalMessage');
+        if (msgEl) msgEl.textContent = message || '';
+        const btn = document.getElementById('confirmModalOkBtn');
+        if (btn) btn.textContent = confirmText || 'Confirm';
+        modal.classList.add('is-open');
+        modal.setAttribute('aria-hidden', 'false');
+        if (btn) btn.focus();
+        this.confirmCallback = onConfirm;
+      },
+      closeConfirmDialog: function() {
+        const modal = document.getElementById('confirmModal');
+        if (modal) {
+          modal.classList.remove('is-open');
+          modal.setAttribute('aria-hidden', 'true');
+        }
+        if (this.previousActiveElement && typeof this.previousActiveElement.focus === 'function') {
+          this.previousActiveElement.focus();
+        }
+      },
       bindModalKeyboards: function() {
         window.addEventListener('keydown', (e) => {
           if (e.key === 'Escape') {
@@ -1400,6 +1441,146 @@
       WattWatchAuth.closeModal(true);
       document.body.classList.remove('auth-gate-active');
 
+      // 23. Settings Corrupted Storage Recovery & Quarantine
+      const testKeySett = WattWatchStorage._getKey('SETTINGS');
+      localStorage.setItem(testKeySett, 'CORRUPTED_SETTINGS_{{{');
+      const safeRecoveredSettings = WattWatchStorage.getSettings();
+      assert(typeof safeRecoveredSettings === 'object' && safeRecoveredSettings.electricityRate === 8.00, 'getSettings recovers safely from malformed JSON without crashing, returning defaults');
+      assert(WattWatchStorage.hasCorruptedData() === true, 'Corrupted settings state flagged in storage');
+      let hasQuarantineSettKey = false;
+      const allSettCorruptedKeys = Object.keys(localStorage).filter(k => k.includes('wattwatch_corrupted_'));
+      if (allSettCorruptedKeys.length > 0) {
+        hasQuarantineSettKey = true;
+        allSettCorruptedKeys.forEach(k => localStorage.removeItem(k));
+      }
+      assert(hasQuarantineSettKey === true, 'Malformed settings quarantined into wattwatch_corrupted_* key');
+      WattWatchStorage.corruptedState = null;
+
+      // 24. JSON Backup Theme Export, Import, and Transactional Rollback
+      WattWatchStorage.saveTheme('dark');
+      const exportedBackup = JSON.parse(WattWatchStorage.exportDataJSON());
+      assert(exportedBackup.settings.theme === 'dark', 'exportDataJSON includes active theme preference');
+      
+      // Import payload with light theme
+      const testImportPayload = {
+        version: '2.0',
+        settings: {
+          electricityRate: 9.50,
+          theme: 'light'
+        },
+        appliances: [],
+        history: []
+      };
+      const importThemeRes = WattWatchStorage.importDataJSON(JSON.stringify(testImportPayload), 'replace');
+      assert(importThemeRes.success === true, 'importDataJSON succeeds with valid theme payload');
+      assert(WattWatchStorage.getTheme() === 'light', 'importDataJSON applies imported light theme');
+      assert(document.documentElement.getAttribute('data-theme') === 'light', 'Document data-theme updated on theme import');
+
+      // Test transactional rollback of theme on write error
+      WattWatchStorage.saveTheme('dark');
+      const origSetItemTheme = localStorage.setItem.bind(localStorage);
+      let threwThemeError = false;
+      localStorage.setItem = function(k, v) {
+        if (!threwThemeError && k === nsKey(STORAGE_KEYS.APPLIANCES)) {
+          threwThemeError = true;
+          throw new DOMException('Simulated QuotaExceededError during import', 'QuotaExceededError');
+        }
+        return origSetItemTheme(k, v);
+      };
+      const rollbackPayload = {
+        version: '2.0',
+        settings: { electricityRate: 12.00, theme: 'light' },
+        appliances: [{ id: 'app_fail_1', name: 'Fail App', category: 'Cooling', powerWatts: 50, dailyHours: 1, operatingDays: 30, quantity: 1 }],
+        history: []
+      };
+      const failThemeImportRes = WattWatchStorage.importDataJSON(JSON.stringify(rollbackPayload), 'replace');
+      localStorage.setItem = origSetItemTheme;
+      assert(failThemeImportRes.success === false, 'importDataJSON returns success: false on storage write error');
+      assert(failThemeImportRes.restored === true, 'importDataJSON indicates full atomic restoration');
+      assert(WattWatchStorage.getTheme() === 'dark', 'Theme restored to dark after failed import');
+      WattWatchStorage.saveTheme('light');
+
+      // 25. Guide Key Test Namespace Isolation
+      const currentGuideKey = WattWatchStorage.getGuideKey();
+      assert(currentGuideKey.startsWith('wattwatch_audit_test_'), 'getGuideKey prepends testNamespace to prevent mutating production guide dismissal');
+      WattWatchStorage.setGuideDismissed(true);
+      assert(WattWatchStorage.isGuideDismissed() === true, 'isGuideDismissed correctly returns true in test namespace');
+      assert(localStorage.getItem('wattwatch_guest_guide_dismissed') === null, 'Production guest guide dismissed key remains null and untouched');
+      WattWatchStorage.setGuideDismissed(false);
+      assert(WattWatchStorage.isGuideDismissed() === false, 'setGuideDismissed(false) clears dismissal key');
+
+      // 26. Event Listener Idempotency Guards
+      assert(WattWatchAppliances._eventsBound === true, 'WattWatchAppliances._eventsBound guard is active');
+      assert(WattWatchHistory._eventsBound === true, 'WattWatchHistory._eventsBound guard is active');
+      assert(WattWatchAuth._eventsBound === true, 'WattWatchAuth._eventsBound guard is active');
+      assert(WattWatchApp._eventsBound === true, 'WattWatchApp._eventsBound guard is active');
+      WattWatchAppliances.init();
+      WattWatchHistory.init();
+      WattWatchAuth.init();
+      WattWatchApp.init();
+      assert(WattWatchApp._eventsBound === true, 'WattWatchApp re-init retains single event bound guard');
+
+      // 27. Extreme Calculation Boundary Inputs
+      const highPowerApp = {
+        name: 'Heavy Industrial Compressor',
+        category: 'Other',
+        powerWatts: 50000,
+        dailyHours: 24,
+        operatingDays: 31,
+        quantity: 1
+      };
+      const valHigh = WattWatchStorage.validateAppliance(highPowerApp);
+      assert(valHigh.valid === true, 'validateAppliance accepts maximum boundary 50,000 W appliance');
+      const highKwh = WattWatchCalculations.calculateMonthlyKwh(valHigh.sanitized.powerWatts, valHigh.sanitized.quantity, valHigh.sanitized.dailyHours, valHigh.sanitized.operatingDays);
+      assertAlmostEqual(highKwh, 37200.0, '50kW running 24h for 31 days produces exactly 37,200 kWh');
+      
+      const zeroPowerApp = {
+        name: 'Unused Appliance',
+        category: 'Entertainment',
+        powerWatts: 0,
+        dailyHours: 0,
+        operatingDays: 30,
+        quantity: 1
+      };
+      const valZero = WattWatchStorage.validateAppliance(zeroPowerApp);
+      assert(valZero.valid === false, 'validateAppliance rejects zero power ratings safely');
+
+      const zeroHoursApp = {
+        name: 'Seasonal Heater in Summer',
+        category: 'Other',
+        powerWatts: 1500,
+        dailyHours: 0,
+        operatingDays: 30,
+        quantity: 1
+      };
+      const valZeroHours = WattWatchStorage.validateAppliance(zeroHoursApp);
+      assert(valZeroHours.valid === true, 'validateAppliance accepts zero operating hours');
+      assert(WattWatchCalculations.calculateMonthlyKwh(valZeroHours.sanitized.powerWatts, valZeroHours.sanitized.quantity, valZeroHours.sanitized.dailyHours, valZeroHours.sanitized.operatingDays) === 0, 'Zero operating hours appliance produces 0 kWh monthly');
+
+      // 28. Non-Auth Modal Focus Management & Accessibility
+      const dummyBtn = document.createElement('button');
+      document.body.appendChild(dummyBtn);
+      dummyBtn.focus();
+      assert(document.activeElement === dummyBtn, 'Initial active element set to dummy button');
+
+      const confirmModalEl = document.getElementById('confirmModal');
+      let savedPreviousActive = document.activeElement;
+      confirmModalEl.classList.add('is-open');
+      confirmModalEl.setAttribute('aria-hidden', 'false');
+      assert(confirmModalEl.classList.contains('is-open'), 'Confirm modal has is-open class');
+      assert(confirmModalEl.getAttribute('aria-hidden') === 'false', 'Confirm modal sets aria-hidden="false" when open');
+      assert(savedPreviousActive === dummyBtn, 'WattWatchApp saves previousActiveElement on open');
+
+      confirmModalEl.classList.remove('is-open');
+      confirmModalEl.setAttribute('aria-hidden', 'true');
+      if (savedPreviousActive && typeof savedPreviousActive.focus === 'function') {
+        savedPreviousActive.focus();
+      }
+      assert(!confirmModalEl.classList.contains('is-open'), 'Confirm modal closes cleanly');
+      assert(confirmModalEl.getAttribute('aria-hidden') === 'true', 'Confirm modal sets aria-hidden="true" when closed');
+      assert(document.activeElement === dummyBtn, 'Confirm modal restores focus to previousActiveElement on close');
+      dummyBtn.remove();
+
       // Restore sample household for storage
       WattWatchStorage.loadSampleHousehold();
       } catch (err) {
@@ -1449,7 +1630,11 @@
       }
     }
 
-    window.addEventListener('DOMContentLoaded', runAllTests);
+    if (document.readyState === 'loading') {
+      window.addEventListener('DOMContentLoaded', runAllTests);
+    } else {
+      runAllTests();
+    }
   </script>
 </body>
 </html>

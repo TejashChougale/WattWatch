@@ -4,6 +4,8 @@
  */
 
 const WattWatchSimulator = {
+  _eventsBound: false,
+
   init() {
     this.bindReplacementEvents();
     this.bindTariffEvents();
@@ -13,6 +15,9 @@ const WattWatchSimulator = {
    * Binds Appliance Replacement Simulator controls
    */
   bindReplacementEvents() {
+    if (this._eventsBound) return;
+    this._eventsBound = true;
+
     const applianceSelect = document.getElementById('simApplianceSelect');
     if (applianceSelect) {
       applianceSelect.addEventListener('change', () => this.handleApplianceSelect());

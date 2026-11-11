@@ -572,7 +572,7 @@ const WattWatchCalculations = {
       }
       categoryBreakdown[cat].kwh += app.monthlyKwh;
       categoryBreakdown[cat].cost += app.monthlyCost;
-      categoryBreakdown[cat].count += app.quantity;
+      categoryBreakdown[cat].count += Number(app.quantity) || 1;
     });
 
     Object.keys(categoryBreakdown).forEach(cat => {

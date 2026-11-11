@@ -5,11 +5,17 @@
  */
 
 const WattWatchReport = {
+  _eventsBound: false,
+  previousActiveElement: null,
+
   init() {
     this.bindEvents();
   },
 
   bindEvents() {
+    if (this._eventsBound) return;
+    this._eventsBound = true;
+
     // Report trigger buttons
     const btnNavReport = document.getElementById('btnOpenReportModal');
     if (btnNavReport) {
@@ -52,12 +58,26 @@ const WattWatchReport = {
     this.updateReportPreview();
 
     const modal = document.getElementById('reportModal');
-    if (modal) modal.classList.add('is-open');
+    if (modal) {
+      this.previousActiveElement = document.activeElement;
+      modal.classList.add('is-open');
+      modal.setAttribute('aria-hidden', 'false');
+    }
   },
 
   closeReportModal() {
     const modal = document.getElementById('reportModal');
-    if (modal) modal.classList.remove('is-open');
+    if (modal) {
+      modal.classList.remove('is-open');
+      modal.setAttribute('aria-hidden', 'true');
+    }
+    if (this.previousActiveElement && typeof this.previousActiveElement.focus === 'function') {
+      try {
+        this.previousActiveElement.focus();
+      } catch (e) {
+        // ignore
+      }
+    }
   },
 
   /**

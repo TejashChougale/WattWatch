@@ -218,8 +218,17 @@ a:hover {
   user-select: none;
 }
 
-.btn:focus-visible {
-  outline: 2px solid var(--antique-gold);
+.btn:focus-visible,
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+.filter-pill:focus-visible,
+.theme-option-card:focus-visible,
+.nav-item:focus-visible,
+.auth-tab-btn:focus-visible {
+  outline: 2px solid var(--border-focus);
   outline-offset: 2px;
 }
 

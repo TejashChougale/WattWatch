@@ -657,13 +657,26 @@ const WattWatchStorage = {
    * @returns {Object} Settings
    */
   getSettings() {
+    const key = this._getKey('SETTINGS');
     try {
-      const data = localStorage.getItem(this._getKey('SETTINGS'));
+      const data = localStorage.getItem(key);
       if (!data) return { ...DEFAULT_SETTINGS };
       const parsed = JSON.parse(data);
+      if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+        throw new Error('Stored settings payload is not a valid object');
+      }
       return { ...DEFAULT_SETTINGS, ...parsed };
     } catch (e) {
       console.error('[WattWatch Storage] Error reading settings:', e);
+      const raw = localStorage.getItem(key);
+      if (raw) {
+        const backupKey = `wattwatch_corrupted_${Date.now()}_${key}`;
+        try {
+          localStorage.setItem(backupKey, raw);
+          this.corruptedState = { key, backupKey, timestamp: Date.now() };
+          console.warn(`[WattWatch Storage] Preserved raw corrupted settings data in "${backupKey}".`);
+        } catch (bErr) { /* ignore quota */ }
+      }
       return { ...DEFAULT_SETTINGS };
     }
   },
@@ -847,11 +860,13 @@ const WattWatchStorage = {
    * @returns {string} JSON string
    */
   exportDataJSON() {
+    const currentSettings = this.getSettings();
+    currentSettings.theme = this.getTheme();
     const exportPayload = {
       version: '2.0',
       exportedAt: new Date().toISOString(),
       generator: 'WattWatch Energy Analytics',
-      settings: this.getSettings(),
+      settings: currentSettings,
       appliances: this.getAppliances(),
       history: this.getHistory()
     };
@@ -1035,15 +1050,17 @@ const WattWatchStorage = {
         finalHistory.sort((a, b) => b.period.localeCompare(a.period));
       }
 
-      // Snapshot existing appliances, history and settings before writing
+      // Snapshot existing appliances, history, settings and theme before writing
       const appKey = this._getKey('APPLIANCES');
       const histKey = this._getKey('HISTORY');
       const settKey = this._getKey('SETTINGS');
+      const themeKey = this._getKey('THEME');
 
       const storageSnapshot = {
         appliances: localStorage.getItem(appKey),
         history: localStorage.getItem(histKey),
-        settings: localStorage.getItem(settKey)
+        settings: localStorage.getItem(settKey),
+        theme: localStorage.getItem(themeKey)
       };
 
       // Prepare merged or replaced settings
@@ -1068,6 +1085,9 @@ const WattWatchStorage = {
         if (parsed.settings.carbonEmissionFactor === null || !isNaN(Number(parsed.settings.carbonEmissionFactor))) {
           newSettings.carbonEmissionFactor = parsed.settings.carbonEmissionFactor;
         }
+        if (parsed.settings.theme === 'dark' || parsed.settings.theme === 'light') {
+          newSettings.theme = parsed.settings.theme;
+        }
       }
 
       // Perform transactional write with restoration on failure
@@ -1078,6 +1098,12 @@ const WattWatchStorage = {
         }
         if (newSettings !== null) {
           localStorage.setItem(settKey, JSON.stringify(newSettings));
+          if (newSettings.theme) {
+            localStorage.setItem(themeKey, newSettings.theme === 'dark' ? 'dark' : 'light');
+            if (typeof document !== 'undefined' && document.documentElement) {
+              document.documentElement.setAttribute('data-theme', newSettings.theme);
+            }
+          }
         }
       } catch (writeErr) {
         console.error('[WattWatch Storage] Write failure during JSON import, attempting restoration:', writeErr);
@@ -1085,6 +1111,7 @@ const WattWatchStorage = {
         let restoredApps = false;
         let restoredHist = false;
         let restoredSett = false;
+        let restoredTheme = false;
 
         try {
           if (storageSnapshot.appliances !== null) localStorage.setItem(appKey, storageSnapshot.appliances);
@@ -1110,7 +1137,21 @@ const WattWatchStorage = {
           console.error('[WattWatch Storage] Failed to restore settings:', rErr3);
         }
 
-        const fullRestoration = restoredApps && restoredHist && restoredSett;
+        try {
+          if (storageSnapshot.theme !== null) {
+            localStorage.setItem(themeKey, storageSnapshot.theme);
+            if (typeof document !== 'undefined' && document.documentElement) {
+              document.documentElement.setAttribute('data-theme', storageSnapshot.theme);
+            }
+          } else {
+            localStorage.removeItem(themeKey);
+          }
+          restoredTheme = true;
+        } catch (rErr4) {
+          console.error('[WattWatch Storage] Failed to restore theme:', rErr4);
+        }
+
+        const fullRestoration = restoredApps && restoredHist && restoredSett && restoredTheme;
 
         return {
           success: false,
@@ -1145,9 +1186,10 @@ const WattWatchStorage = {
    * @returns {string}
    */
   getGuideKey() {
+    const prefix = this.testNamespace || '';
     return this.activeUserId
-      ? `wattwatch_user_${this.activeUserId}_guide_dismissed`
-      : 'wattwatch_guest_guide_dismissed';
+      ? `${prefix}wattwatch_user_${this.activeUserId}_guide_dismissed`
+      : `${prefix}wattwatch_guest_guide_dismissed`;
   },
 
   /**
@@ -1377,6 +1419,7 @@ const WattWatchStorage = {
       localStorage.removeItem(this._getKey('APPLIANCES'));
       localStorage.removeItem(this._getKey('SETTINGS'));
       localStorage.removeItem(this._getKey('HISTORY'));
+      localStorage.removeItem(this.getGuideKey());
       return true;
     } catch (e) {
       console.error('[WattWatch Storage] Error clearing data:', e);

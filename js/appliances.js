@@ -29,6 +29,9 @@ const WattWatchAppliances = {
   sortBy: 'consumption_desc',
   editingApplianceId: null,
 
+  _eventsBound: false,
+  previousActiveElement: null,
+
   /**
    * Initializes appliance module DOM events
    */
@@ -41,6 +44,9 @@ const WattWatchAppliances = {
    * Binds UI events for search, filters, form, and modal
    */
   bindEvents() {
+    if (this._eventsBound) return;
+    this._eventsBound = true;
+
     // Search input
     const searchInput = document.getElementById('applianceSearchInput');
     if (searchInput) {
@@ -188,7 +194,7 @@ const WattWatchAppliances = {
 
     if (elDaily) elDaily.textContent = `${dailyKwh.toFixed(2)} kWh`;
     if (elMonthly) elMonthly.textContent = `${monthlyKwh.toFixed(2)} kWh`;
-    if (elCost) elCost.textContent = `₹${monthlyCost.toFixed(2)}`;
+    if (elCost) elCost.textContent = WattWatchCalculations.formatCurrency(monthlyCost, settings.currency);
   },
 
   /**
@@ -343,6 +349,7 @@ const WattWatchAppliances = {
 
     const backdrop = document.getElementById('applianceModal');
     if (backdrop) {
+      this.previousActiveElement = document.activeElement;
       backdrop.classList.add('is-open');
       backdrop.setAttribute('aria-hidden', 'false');
       document.getElementById('modalApplianceName')?.focus();
@@ -360,6 +367,14 @@ const WattWatchAppliances = {
     }
     this.editingApplianceId = null;
     this.clearValidationErrors();
+
+    if (this.previousActiveElement && typeof this.previousActiveElement.focus === 'function') {
+      try {
+        this.previousActiveElement.focus();
+      } catch (e) {
+        // ignore
+      }
+    }
   },
 
   /**
