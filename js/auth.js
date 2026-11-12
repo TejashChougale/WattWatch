@@ -45,6 +45,32 @@ const WattWatchAuth = {
   },
 
   /**
+   * Sets or restores the HTML5 inert property and aria-hidden on background application containers
+   * @param {boolean} isInert
+   */
+  setInertBackground(isInert) {
+    if (typeof WattWatchApp !== 'undefined' && WattWatchApp.setInertBackground) {
+      WattWatchApp.setInertBackground(isInert);
+      return;
+    }
+    const appLayout = document.querySelector('.app-layout');
+    if (isInert) {
+      if (appLayout) {
+        if ('inert' in appLayout) appLayout.inert = true;
+        appLayout.setAttribute('aria-hidden', 'true');
+      }
+    } else {
+      const hasOtherOpenModals = document.querySelectorAll('.modal-backdrop.is-open:not(#authModal)').length > 0;
+      if (!hasOtherOpenModals) {
+        if (appLayout) {
+          if ('inert' in appLayout) appLayout.inert = false;
+          appLayout.removeAttribute('aria-hidden');
+        }
+      }
+    }
+  },
+
+  /**
    * Updates close button visibility inside authModal
    * Hidden when user has not yet resolved the startup gate, visible once a session is established
    */
@@ -69,20 +95,19 @@ const WattWatchAuth = {
     const modal = document.getElementById('authModal');
     if (!modal) return;
 
-    // Prevent background controls from being accessible while modal is open
-    const appMain = document.querySelector('.app-main');
-    const sidebar = document.querySelector('.app-sidebar');
-    if (appMain) appMain.setAttribute('aria-hidden', 'true');
-    if (sidebar) sidebar.setAttribute('aria-hidden', 'true');
+    if (typeof WattWatchApp !== 'undefined' && WattWatchApp.modalManager) {
+      WattWatchApp.modalManager.open(modal, this.previousActiveElement);
+    } else {
+      this.setInertBackground(true);
+      modal.classList.add('is-open');
+      modal.setAttribute('aria-hidden', 'false');
+    }
 
     if (this.currentUser) {
       this.showResumePane();
     } else {
       this.switchTab('login');
     }
-
-    modal.classList.add('is-open');
-    modal.setAttribute('aria-hidden', 'false');
 
     setTimeout(() => {
       const firstInput = modal.querySelector('input:not([type="hidden"]):not([disabled]), button.btn-primary:not([disabled])');
@@ -370,10 +395,13 @@ const WattWatchAuth = {
     if (!modal) return;
 
     this.previousActiveElement = document.activeElement;
-    const appMain = document.querySelector('.app-main');
-    const sidebar = document.querySelector('.app-sidebar');
-    if (appMain) appMain.setAttribute('aria-hidden', 'true');
-    if (sidebar) sidebar.setAttribute('aria-hidden', 'true');
+    if (typeof WattWatchApp !== 'undefined' && WattWatchApp.modalManager) {
+      WattWatchApp.modalManager.open(modal, this.previousActiveElement);
+    } else {
+      this.setInertBackground(true);
+      modal.classList.add('is-open');
+      modal.setAttribute('aria-hidden', 'false');
+    }
 
     this.updateGuestImportCheckbox();
     this.updateCloseButtonsVisibility();
@@ -387,9 +415,6 @@ const WattWatchAuth = {
       if (navTabs) navTabs.style.display = 'flex';
       this.switchTab(defaultTab);
     }
-
-    modal.classList.add('is-open');
-    modal.setAttribute('aria-hidden', 'false');
 
     setTimeout(() => {
       const firstInput = modal.querySelector('input:not([type="hidden"]):not([disabled]), button.btn-primary:not([disabled])');
@@ -484,21 +509,26 @@ const WattWatchAuth = {
       return false;
     }
     const modal = document.getElementById('authModal');
+    let managerUsed = false;
     if (modal) {
-      modal.classList.remove('is-open');
-      modal.setAttribute('aria-hidden', 'true');
+      if (typeof WattWatchApp !== 'undefined' && WattWatchApp.modalManager) {
+        WattWatchApp.modalManager.close(modal);
+        managerUsed = true;
+      } else {
+        modal.classList.remove('is-open');
+        modal.setAttribute('aria-hidden', 'true');
+        this.setInertBackground(false);
+      }
+    } else {
+      this.setInertBackground(false);
     }
-    const appMain = document.querySelector('.app-main');
-    const sidebar = document.querySelector('.app-sidebar');
-    if (appMain) appMain.removeAttribute('aria-hidden');
-    if (sidebar) sidebar.removeAttribute('aria-hidden');
 
     document.body.classList.remove('auth-gate-active');
     this.clearAlert();
     this.updateCloseButtonsVisibility();
     this.updateTopbarState();
 
-    if (this.previousActiveElement && typeof this.previousActiveElement.focus === 'function') {
+    if (!managerUsed && this.previousActiveElement && typeof this.previousActiveElement.focus === 'function') {
       try {
         this.previousActiveElement.focus();
       } catch (e) {
@@ -618,21 +648,29 @@ const WattWatchAuth = {
       }
     } catch (e) {
       console.warn('[WattWatch Auth] Error signing out from Firebase:', e);
+      if (typeof WattWatchApp !== 'undefined' && WattWatchApp.showToast) {
+        WattWatchApp.showToast(`Sign-out failed: ${e.message || 'Please check your connection.'}`, 'error', 'Sign Out Failed');
+      }
+      return { success: false, error: e };
     }
 
     this.currentUser = null;
     this.hasUserChosenSession = false;
     this.chosenSessionType = null;
     document.body.classList.add('auth-gate-active');
+    this.setInertBackground(true);
     this.updateCloseButtonsVisibility();
     WattWatchStorage.setActiveUser(null);
     this.updateTopbarState();
-    this.switchTab('login');
-    const navTabs = document.querySelector('.auth-nav-tabs');
-    if (navTabs) navTabs.style.display = 'flex';
-    if (typeof WattWatchApp !== 'undefined' && WattWatchApp.showToast) {
-      WattWatchApp.showToast('Signed out of previous session. Please sign in or continue as guest.', 'info', 'Sign Out');
+    this.openAuthModal('login');
+    this.updateCloseButtonsVisibility();
+    if (typeof WattWatchApp !== 'undefined') {
+      if (WattWatchApp.refreshAll) WattWatchApp.refreshAll();
+      if (WattWatchApp.showToast) {
+        WattWatchApp.showToast('Signed out of previous session. Please sign in or choose Guest Mode.', 'info', 'Sign Out');
+      }
     }
+    return { success: true };
   },
 
   /**
@@ -932,30 +970,10 @@ const WattWatchAuth = {
   },
 
   /**
-   * Handles user sign-out and cleanly restores Guest Mode
+   * Handles user sign-out and cleanly presents the authentication gate
    */
   async signOut() {
-    try {
-      if (this.auth && this.firebaseSignOut) {
-        await this.firebaseSignOut(this.auth);
-      }
-    } catch (e) {
-      console.warn('[WattWatch Auth] Error signing out from Firebase:', e);
-    }
-
-    this.currentUser = null;
-    this.hasUserChosenSession = true;
-    this.chosenSessionType = 'guest';
-    WattWatchStorage.setActiveUser(null);
-    this.closeModal(true);
-    this.updateTopbarState();
-
-    if (typeof WattWatchApp !== 'undefined') {
-      if (WattWatchApp.refreshAll) WattWatchApp.refreshAll();
-      if (WattWatchApp.showToast) {
-        WattWatchApp.showToast('Signed out successfully. Switched to Guest Mode. Your account appliances and billing snapshots remain safely stored in this browser.', 'info', 'Guest Mode');
-      }
-    }
+    return await this.signOutAndSwitchToLogin();
   },
 
   /**

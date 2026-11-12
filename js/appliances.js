@@ -326,22 +326,32 @@ const WattWatchAppliances = {
       if (titleEl) titleEl.textContent = 'Edit Appliance';
       if (submitBtn) submitBtn.textContent = 'Update Appliance';
 
-      document.getElementById('modalApplianceName').value = existing.name;
-      document.getElementById('modalCategory').value = existing.category;
-      document.getElementById('modalPowerWatts').value = existing.powerWatts;
-      document.getElementById('modalQuantity').value = existing.quantity;
-      document.getElementById('modalDailyHours').value = existing.dailyHours;
-      document.getElementById('modalOperatingDays').value = existing.operatingDays;
+      const nameEl = document.getElementById('modalApplianceName');
+      if (nameEl) nameEl.value = existing.name;
+      const catEl = document.getElementById('modalCategory');
+      if (catEl) catEl.value = existing.category;
+      const pwrEl = document.getElementById('modalPowerWatts');
+      if (pwrEl) pwrEl.value = existing.powerWatts;
+      const qtyEl = document.getElementById('modalQuantity');
+      if (qtyEl) qtyEl.value = existing.quantity;
+      const hrsEl = document.getElementById('modalDailyHours');
+      if (hrsEl) hrsEl.value = existing.dailyHours;
+      const daysEl = document.getElementById('modalOperatingDays');
+      if (daysEl) daysEl.value = existing.operatingDays;
 
       if (presetSelect) presetSelect.value = '';
     } else {
       if (titleEl) titleEl.textContent = 'Add New Appliance';
       if (submitBtn) submitBtn.textContent = 'Save Appliance';
 
-      document.getElementById('applianceForm').reset();
-      document.getElementById('modalQuantity').value = '1';
-      document.getElementById('modalOperatingDays').value = '30';
-      document.getElementById('modalDailyHours').value = '4';
+      const form = document.getElementById('applianceForm');
+      if (form) form.reset();
+      const qty = document.getElementById('modalQuantity');
+      if (qty) qty.value = '1';
+      const opDays = document.getElementById('modalOperatingDays');
+      if (opDays) opDays.value = '30';
+      const dailyHrs = document.getElementById('modalDailyHours');
+      if (dailyHrs) dailyHrs.value = '4';
       if (presetSelect) presetSelect.value = '';
     }
 
@@ -350,8 +360,12 @@ const WattWatchAppliances = {
     const backdrop = document.getElementById('applianceModal');
     if (backdrop) {
       this.previousActiveElement = document.activeElement;
-      backdrop.classList.add('is-open');
-      backdrop.setAttribute('aria-hidden', 'false');
+      if (typeof WattWatchApp !== 'undefined' && WattWatchApp.modalManager) {
+        WattWatchApp.modalManager.open(backdrop, this.previousActiveElement);
+      } else {
+        backdrop.classList.add('is-open');
+        backdrop.setAttribute('aria-hidden', 'false');
+      }
       document.getElementById('modalApplianceName')?.focus();
     }
   },
@@ -362,19 +376,22 @@ const WattWatchAppliances = {
   closeModal() {
     const backdrop = document.getElementById('applianceModal');
     if (backdrop) {
-      backdrop.classList.remove('is-open');
-      backdrop.setAttribute('aria-hidden', 'true');
+      if (typeof WattWatchApp !== 'undefined' && WattWatchApp.modalManager) {
+        WattWatchApp.modalManager.close(backdrop);
+      } else {
+        backdrop.classList.remove('is-open');
+        backdrop.setAttribute('aria-hidden', 'true');
+        if (this.previousActiveElement && typeof this.previousActiveElement.focus === 'function') {
+          try {
+            this.previousActiveElement.focus();
+          } catch (e) {
+            // ignore
+          }
+        }
+      }
     }
     this.editingApplianceId = null;
     this.clearValidationErrors();
-
-    if (this.previousActiveElement && typeof this.previousActiveElement.focus === 'function') {
-      try {
-        this.previousActiveElement.focus();
-      } catch (e) {
-        // ignore
-      }
-    }
   },
 
   /**

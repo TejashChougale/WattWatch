@@ -912,13 +912,15 @@ const WattWatchApp = {
       }
 
       if (e.key === 'Tab') {
-        const modalIds = ['confirmModal', 'applianceModal', 'historyDetailModal', 'reportModal'];
-        let activeModal = null;
-        for (const id of modalIds) {
-          const m = document.getElementById(id);
-          if (m && m.classList.contains('is-open')) {
-            activeModal = m;
-            break;
+        let activeModal = this.modalManager ? this.modalManager.getTopModal() : null;
+        if (!activeModal) {
+          const modalIds = ['confirmModal', 'applianceModal', 'historyDetailModal', 'reportModal', 'authModal'];
+          for (const id of modalIds) {
+            const m = document.getElementById(id);
+            if (m && m.classList.contains('is-open')) {
+              activeModal = m;
+              break;
+            }
           }
         }
         if (activeModal) {
@@ -982,6 +984,127 @@ const WattWatchApp = {
   },
 
   /**
+   * Centralized Modal Accessibility & Focus Manager
+   * Coordinates background inertness, modal stacks, and focus restoration
+   */
+  modalManager: {
+    stack: [],
+
+    open(modal, previousActive) {
+      if (!modal || !(modal instanceof Element)) return;
+      const appLayout = document.querySelector('.app-layout');
+
+      // Make any underlying open modal inert
+      if (this.stack.length > 0) {
+        const underlying = this.stack[this.stack.length - 1];
+        if (underlying && underlying.element && 'inert' in underlying.element) {
+          underlying.element.inert = true;
+        }
+      }
+
+      // Record modal in stack (preserving previousActive if reopening an already-open modal)
+      const existingIdx = this.stack.findIndex(e => e.element === modal);
+      const savedPreviousActive = existingIdx !== -1 ? this.stack[existingIdx].previousActive : null;
+      if (existingIdx !== -1) {
+        this.stack.splice(existingIdx, 1);
+      }
+      this.stack.push({
+        element: modal,
+        previousActive: previousActive || savedPreviousActive || document.activeElement
+      });
+
+      // Isolate background application container cleanly
+      if (appLayout) {
+        if ('inert' in appLayout) appLayout.inert = true;
+        appLayout.setAttribute('aria-hidden', 'true');
+      }
+
+      modal.classList.add('is-open');
+      modal.setAttribute('aria-hidden', 'false');
+      if ('inert' in modal) {
+        modal.inert = false;
+      }
+    },
+
+    close(modal) {
+      if (!modal || !(modal instanceof Element)) return;
+      const appLayout = document.querySelector('.app-layout');
+
+      modal.classList.remove('is-open');
+      modal.setAttribute('aria-hidden', 'true');
+      if ('inert' in modal) {
+        modal.inert = false;
+      }
+
+      const idx = this.stack.findIndex(e => e.element === modal);
+      let entry = null;
+      const wasTop = idx !== -1 && idx === this.stack.length - 1;
+      if (idx !== -1) {
+        entry = this.stack.splice(idx, 1)[0];
+      }
+
+      if (this.stack.length > 0) {
+        // Restore interaction to the new top modal
+        const top = this.stack[this.stack.length - 1];
+        if (top && top.element && 'inert' in top.element) {
+          top.element.inert = false;
+        }
+        if (appLayout) {
+          if ('inert' in appLayout) appLayout.inert = true;
+          appLayout.setAttribute('aria-hidden', 'true');
+        }
+      } else {
+        // All modals are closed: restore background layout if no other modals are open
+        if (!this.hasOpenModals()) {
+          if (appLayout) {
+            if ('inert' in appLayout) appLayout.inert = false;
+            appLayout.removeAttribute('aria-hidden');
+          }
+        }
+      }
+
+      // Restore focus to entry.previousActive only if closing the top modal (so focus stays in the top modal if closing an underlying one)
+      if (wasTop && entry && entry.previousActive && typeof entry.previousActive.focus === 'function') {
+        try {
+          entry.previousActive.focus();
+        } catch (e) {
+          // ignore focus error
+        }
+      }
+    },
+
+    getTopModal() {
+      if (this.stack.length === 0) return null;
+      return this.stack[this.stack.length - 1].element;
+    },
+
+    hasOpenModals() {
+      return this.stack.length > 0 || document.querySelectorAll('.modal-backdrop.is-open').length > 0;
+    }
+  },
+
+  /**
+   * Sets or restores the HTML5 inert property and aria-hidden on background application containers
+   * @param {boolean} isInert
+   */
+  setInertBackground(isInert) {
+    const appLayout = document.querySelector('.app-layout');
+    if (isInert) {
+      if (appLayout) {
+        if ('inert' in appLayout) appLayout.inert = true;
+        appLayout.setAttribute('aria-hidden', 'true');
+      }
+    } else {
+      if (!this.modalManager.hasOpenModals()) {
+        if (appLayout) {
+          if ('inert' in appLayout) appLayout.inert = false;
+          appLayout.removeAttribute('aria-hidden');
+        }
+      }
+    }
+  },
+
+  /**
    * Reusable Custom Confirmation Dialog
    */
   openConfirmDialog({ title, message, confirmText, confirmClass, onConfirm }) {
@@ -990,18 +1113,21 @@ const WattWatchApp = {
 
     this.previousActiveElement = document.activeElement;
 
-    document.getElementById('confirmModalTitle').textContent = title || 'Confirmation Required';
-    document.getElementById('confirmModalMessage').textContent = message || 'Are you sure you want to proceed?';
+    const titleEl = document.getElementById('confirmModalTitle');
+    if (titleEl) titleEl.textContent = title || 'Confirmation Required';
+    const msgEl = document.getElementById('confirmModalMessage');
+    if (msgEl) msgEl.textContent = message || 'Are you sure you want to proceed?';
 
     const btnConfirm = document.getElementById('confirmModalOkBtn');
-    btnConfirm.textContent = confirmText || 'Confirm';
-    btnConfirm.className = `btn ${confirmClass || 'btn-primary'}`;
+    if (btnConfirm) {
+      btnConfirm.textContent = confirmText || 'Confirm';
+      btnConfirm.className = `btn ${confirmClass || 'btn-primary'}`;
+    }
 
     this.confirmCallback = onConfirm;
 
-    modal.classList.add('is-open');
-    modal.setAttribute('aria-hidden', 'false');
-    btnConfirm.focus();
+    this.modalManager.open(modal, this.previousActiveElement);
+    if (btnConfirm) btnConfirm.focus();
   },
 
   confirmAction() {
@@ -1014,18 +1140,9 @@ const WattWatchApp = {
   closeConfirmDialog() {
     const modal = document.getElementById('confirmModal');
     if (modal) {
-      modal.classList.remove('is-open');
-      modal.setAttribute('aria-hidden', 'true');
+      this.modalManager.close(modal);
     }
     this.confirmCallback = null;
-
-    if (this.previousActiveElement && typeof this.previousActiveElement.focus === 'function') {
-      try {
-        this.previousActiveElement.focus();
-      } catch (e) {
-        // ignore
-      }
-    }
   },
 
   /**
@@ -1296,6 +1413,10 @@ const WattWatchApp = {
     setTimeout(dismiss, 4200);
   }
 };
+
+if (typeof window !== 'undefined') {
+  window.WattWatchApp = WattWatchApp;
+}
 
 // Auto-boot on DOM ready
 document.addEventListener('DOMContentLoaded', () => {

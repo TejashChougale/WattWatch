@@ -411,105 +411,122 @@ const WattWatchHistory = {
   /**
    * Opens snapshot detail modal
    */
-  openDetailsModal(id) {
-    const history = WattWatchStorage.getHistory();
-    const snap = history.find(h => h.id === id);
-    if (!snap) return;
+  openDetailsModal(id = null) {
+    let snap = null;
+    if (id) {
+      const history = WattWatchStorage.getHistory();
+      snap = history.find(h => h.id === id);
+    }
 
-    this.activeDetailSnapshotId = id;
+    this.activeDetailSnapshotId = id || null;
 
     const titleEl = document.getElementById('historyDetailTitle');
     const bodyEl = document.getElementById('historyDetailBody');
-    if (!titleEl || !bodyEl) return;
 
-    titleEl.textContent = `Billing Snapshot: ${snap.periodLabel || snap.period}`;
+    if (snap) {
+      if (titleEl) titleEl.textContent = `Billing Snapshot: ${snap.periodLabel || snap.period}`;
 
-    let breakdownRows = '';
-    const appliances = snap.appliancesSnapshot || [];
+      let breakdownRows = '';
+      const appliances = snap.appliancesSnapshot || [];
 
-    appliances.forEach((app, idx) => {
-      const safeCat = WattWatchAppliances.escapeHtml(app.category || 'Other');
-      const safeWatts = Number(app.powerWatts) || 0;
-      const safeQty = Number(app.quantity) || 1;
-      const safeHours = Number(app.dailyHours) || 0;
-      breakdownRows += `
-        <tr>
-          <td>#${idx + 1}</td>
-          <td><strong>${WattWatchAppliances.escapeHtml(app.name)}</strong> (${safeCat})</td>
-          <td>${safeWatts}W</td>
-          <td>${safeQty}</td>
-          <td>${safeHours}h/day</td>
-          <td><strong>${WattWatchCalculations.formatKwh(app.monthlyKwh)}</strong></td>
-          <td><strong>${WattWatchCalculations.formatCurrency(app.monthlyCost)}</strong></td>
-        </tr>
-      `;
-    });
+      appliances.forEach((app, idx) => {
+        const safeCat = WattWatchAppliances.escapeHtml(app.category || 'Other');
+        const safeWatts = Number(app.powerWatts) || 0;
+        const safeQty = Number(app.quantity) || 1;
+        const safeHours = Number(app.dailyHours) || 0;
+        breakdownRows += `
+          <tr>
+            <td>#${idx + 1}</td>
+            <td><strong>${WattWatchAppliances.escapeHtml(app.name)}</strong> (${safeCat})</td>
+            <td>${safeWatts}W</td>
+            <td>${safeQty}</td>
+            <td>${safeHours}h/day</td>
+            <td><strong>${WattWatchCalculations.formatKwh(app.monthlyKwh)}</strong></td>
+            <td><strong>${WattWatchCalculations.formatCurrency(app.monthlyCost)}</strong></td>
+          </tr>
+        `;
+      });
 
-    bodyEl.innerHTML = `
-      <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; margin-bottom: 1.25rem;">
-        <div style="background: var(--soft-blue); padding: 0.85rem; border-radius: var(--radius-md);">
-          <div style="font-size: 0.72rem; color: var(--text-secondary); text-transform: uppercase;">Total Energy</div>
-          <div style="font-family: var(--font-serif); font-size: 1.35rem; font-weight: 700; color: var(--royal-blue);">${WattWatchCalculations.formatKwh(snap.totalKwh)}</div>
-        </div>
-        <div style="background: var(--light-burgundy); padding: 0.85rem; border-radius: var(--radius-md);">
-          <div style="font-size: 0.72rem; color: var(--text-secondary); text-transform: uppercase;">Total Bill</div>
-          <div style="font-family: var(--font-serif); font-size: 1.35rem; font-weight: 700; color: var(--deep-burgundy);">${WattWatchCalculations.formatCurrency(snap.totalCost)}</div>
-        </div>
-        <div style="background: var(--antique-gold-subtle); padding: 0.85rem; border-radius: var(--radius-md);">
-          <div style="font-size: 0.72rem; color: var(--text-secondary); text-transform: uppercase;">Tariff Applied</div>
-          <div style="font-family: var(--font-serif); font-size: 1.35rem; font-weight: 700; color: var(--text-gold);">
-            ₹${Number(snap.effectiveRate ?? snap.tariffBreakdown?.effectiveRatePerKwh ?? snap.electricityRate ?? 0).toFixed(2)}/u
+      if (bodyEl) {
+        bodyEl.innerHTML = `
+          <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; margin-bottom: 1.25rem;">
+            <div style="background: var(--soft-blue); padding: 0.85rem; border-radius: var(--radius-md);">
+              <div style="font-size: 0.72rem; color: var(--text-secondary); text-transform: uppercase;">Total Energy</div>
+              <div style="font-family: var(--font-serif); font-size: 1.35rem; font-weight: 700; color: var(--royal-blue);">${WattWatchCalculations.formatKwh(snap.totalKwh)}</div>
+            </div>
+            <div style="background: var(--light-burgundy); padding: 0.85rem; border-radius: var(--radius-md);">
+              <div style="font-size: 0.72rem; color: var(--text-secondary); text-transform: uppercase;">Total Bill</div>
+              <div style="font-family: var(--font-serif); font-size: 1.35rem; font-weight: 700; color: var(--deep-burgundy);">${WattWatchCalculations.formatCurrency(snap.totalCost)}</div>
+            </div>
+            <div style="background: var(--antique-gold-subtle); padding: 0.85rem; border-radius: var(--radius-md);">
+              <div style="font-size: 0.72rem; color: var(--text-secondary); text-transform: uppercase;">Tariff Applied</div>
+              <div style="font-family: var(--font-serif); font-size: 1.35rem; font-weight: 700; color: var(--text-gold);">
+                ₹${Number(snap.effectiveRate ?? snap.tariffBreakdown?.effectiveRatePerKwh ?? snap.electricityRate ?? 0).toFixed(2)}/u
+              </div>
+              <div style="font-size: 0.72rem; color: var(--text-secondary); margin-top: 0.2rem;">
+                ${snap.tariffModel === 'slab' ? 'Progressive Slab (Effective Avg)' : 'Uniform Flat Rate'}
+              </div>
+            </div>
           </div>
-          <div style="font-size: 0.72rem; color: var(--text-secondary); margin-top: 0.2rem;">
-            ${snap.tariffModel === 'slab' ? 'Progressive Slab (Effective Avg)' : 'Uniform Flat Rate'}
-          </div>
-        </div>
-      </div>
 
-      <h4 style="font-family: var(--font-serif); margin-bottom: 0.75rem;">Frozen Appliance Inventory (${appliances.length} Items)</h4>
-      <div class="table-responsive" style="max-height: 280px; overflow-y: auto;">
-        <table class="appliance-table" style="font-size: 0.825rem;">
-          <thead>
-            <tr>
-              <th>#</th>
-              <th>Appliance</th>
-              <th>Power</th>
-              <th>Qty</th>
-              <th>Usage</th>
-              <th>Energy</th>
-              <th>Cost</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${breakdownRows || '<tr><td colspan="7">No appliance items recorded.</td></tr>'}
-          </tbody>
-        </table>
-      </div>
-    `;
+          <h4 style="font-family: var(--font-serif); margin-bottom: 0.75rem;">Frozen Appliance Inventory (${appliances.length} Items)</h4>
+          <div class="table-responsive" style="max-height: 280px; overflow-y: auto;">
+            <table class="appliance-table" style="font-size: 0.825rem;">
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>Appliance</th>
+                  <th>Power</th>
+                  <th>Qty</th>
+                  <th>Usage</th>
+                  <th>Energy</th>
+                  <th>Cost</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${breakdownRows || '<tr><td colspan="7">No appliance items recorded.</td></tr>'}
+              </tbody>
+            </table>
+          </div>
+        `;
+      }
+    } else {
+      if (titleEl) titleEl.textContent = 'Billing Snapshot Details';
+      if (bodyEl) {
+        bodyEl.innerHTML = '<p style="color: var(--text-secondary); padding: 1rem;">No snapshot details available.</p>';
+      }
+    }
 
     const modal = document.getElementById('historyDetailModal');
     if (modal) {
       this.previousActiveElement = document.activeElement;
-      modal.classList.add('is-open');
-      modal.setAttribute('aria-hidden', 'false');
+      if (typeof WattWatchApp !== 'undefined' && WattWatchApp.modalManager) {
+        WattWatchApp.modalManager.open(modal, this.previousActiveElement);
+      } else {
+        modal.classList.add('is-open');
+        modal.setAttribute('aria-hidden', 'false');
+      }
     }
   },
 
   closeDetailsModal() {
     const modal = document.getElementById('historyDetailModal');
     if (modal) {
-      modal.classList.remove('is-open');
-      modal.setAttribute('aria-hidden', 'true');
-    }
-    this.activeDetailSnapshotId = null;
-
-    if (this.previousActiveElement && typeof this.previousActiveElement.focus === 'function') {
-      try {
-        this.previousActiveElement.focus();
-      } catch (e) {
-        // ignore
+      if (typeof WattWatchApp !== 'undefined' && WattWatchApp.modalManager) {
+        WattWatchApp.modalManager.close(modal);
+      } else {
+        modal.classList.remove('is-open');
+        modal.setAttribute('aria-hidden', 'true');
+        if (this.previousActiveElement && typeof this.previousActiveElement.focus === 'function') {
+          try {
+            this.previousActiveElement.focus();
+          } catch (e) {
+            // ignore
+          }
+        }
       }
     }
+    this.activeDetailSnapshotId = null;
   },
 
   /**

@@ -60,22 +60,30 @@ const WattWatchReport = {
     const modal = document.getElementById('reportModal');
     if (modal) {
       this.previousActiveElement = document.activeElement;
-      modal.classList.add('is-open');
-      modal.setAttribute('aria-hidden', 'false');
+      if (typeof WattWatchApp !== 'undefined' && WattWatchApp.modalManager) {
+        WattWatchApp.modalManager.open(modal, this.previousActiveElement);
+      } else {
+        modal.classList.add('is-open');
+        modal.setAttribute('aria-hidden', 'false');
+      }
     }
   },
 
   closeReportModal() {
     const modal = document.getElementById('reportModal');
     if (modal) {
-      modal.classList.remove('is-open');
-      modal.setAttribute('aria-hidden', 'true');
-    }
-    if (this.previousActiveElement && typeof this.previousActiveElement.focus === 'function') {
-      try {
-        this.previousActiveElement.focus();
-      } catch (e) {
-        // ignore
+      if (typeof WattWatchApp !== 'undefined' && WattWatchApp.modalManager) {
+        WattWatchApp.modalManager.close(modal);
+      } else {
+        modal.classList.remove('is-open');
+        modal.setAttribute('aria-hidden', 'true');
+        if (this.previousActiveElement && typeof this.previousActiveElement.focus === 'function') {
+          try {
+            this.previousActiveElement.focus();
+          } catch (e) {
+            // ignore
+          }
+        }
       }
     }
   },

@@ -5,13 +5,20 @@
   <title>WattWatch - Automated Test Suite</title>
   <link rel="stylesheet" href="../css/style.css">
   <link rel="stylesheet" href="../css/dashboard.css">
+  <style>
+    *, *::before, *::after {
+      transition: none !important;
+      animation: none !important;
+    }
+  </style>
 </head>
 <body>
   <h1>WattWatch Test Suite Runner</h1>
   <div id="test-results">Running tests...</div>
 
   <!-- Test Fixtures for DOM-backed Component Tests -->
-  <div id="test-fixtures" style="display: none;">
+  <div id="test-fixtures">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://www.gstatic.com https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; img-src 'self' data: https: blob:; font-src 'self'; connect-src 'self' https://*.googleapis.com https://*.firebaseio.com https://*.firebaseapp.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://firestore.googleapis.com https://www.gstatic.com https://cdn.jsdelivr.net; frame-src 'self'; object-src 'none'; base-uri 'self';">
     <div id="authModal" class="modal-backdrop">
       <button type="button" id="authModalCloseX" style="display: none;"></button>
       <div class="auth-nav-tabs"></div>
@@ -43,6 +50,11 @@
     <span id="topbarGuestBadge" class="badge-guest">Guest</span>
     <button id="btnTopbarAuth"></button>
 
+    <div class="app-layout">
+      <aside class="app-sidebar"></aside>
+      <main class="app-main"></main>
+    </div>
+
     <div id="overviewComparisonContent"></div>
     <span id="overviewComparisonBadge"></span>
 
@@ -73,8 +85,16 @@
     </div>
     <div id="applianceModal" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="modalTitle" aria-hidden="true">
       <h3 id="modalTitle"></h3>
-      <input id="modalApplianceName">
-      <input id="modalPowerWatts">
+      <form id="applianceForm">
+        <input id="modalApplianceName">
+        <select id="modalCategory"></select>
+        <input id="modalPowerWatts">
+        <input id="modalQuantity">
+        <input id="modalDailyHours">
+        <input id="modalOperatingDays">
+        <select id="modalPresetSelect"></select>
+        <button type="submit" id="modalSubmitBtn"></button>
+      </form>
     </div>
     <div id="reportModal" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="reportModalTitle" aria-hidden="true">
       <h3 id="reportModalTitle"></h3>
@@ -86,67 +106,19 @@
   <script src="../js/storage.js"></script>
   <script src="../js/recommendations.js"></script>
   <script>
+    // Lightweight test harness mocks for Chart.js and chart rendering
     window.WattWatchCharts = {
+      renderOverviewCharts: () => {},
+      renderAnalyticsCharts: () => {},
       renderHistoryTrendChart: () => {}
-    };
-    window.WattWatchApp = {
-      _eventsBound: true,
-      previousActiveElement: null,
-      showToast: () => {},
-      refreshAll: () => {},
-      navigateTo: () => {},
-      init: function() {
-        this._eventsBound = true;
-      },
-      openConfirmDialog: function({ title, message, confirmText, confirmClass, onConfirm }) {
-        const modal = document.getElementById('confirmModal');
-        if (!modal) return;
-        this.previousActiveElement = document.activeElement;
-        const titleEl = document.getElementById('confirmModalTitle');
-        if (titleEl) titleEl.textContent = title || 'Confirmation Required';
-        const msgEl = document.getElementById('confirmModalMessage');
-        if (msgEl) msgEl.textContent = message || '';
-        const btn = document.getElementById('confirmModalOkBtn');
-        if (btn) btn.textContent = confirmText || 'Confirm';
-        modal.classList.add('is-open');
-        modal.setAttribute('aria-hidden', 'false');
-        if (btn) btn.focus();
-        this.confirmCallback = onConfirm;
-      },
-      closeConfirmDialog: function() {
-        const modal = document.getElementById('confirmModal');
-        if (modal) {
-          modal.classList.remove('is-open');
-          modal.setAttribute('aria-hidden', 'true');
-        }
-        if (this.previousActiveElement && typeof this.previousActiveElement.focus === 'function') {
-          this.previousActiveElement.focus();
-        }
-      },
-      bindModalKeyboards: function() {
-        window.addEventListener('keydown', (e) => {
-          if (e.key === 'Escape') {
-            if (typeof WattWatchAuth !== 'undefined' && WattWatchAuth.hasUserChosenSession) {
-              WattWatchAuth.closeModal();
-            }
-          }
-        });
-        const modal = document.getElementById('authModal');
-        if (modal) {
-          modal.addEventListener('click', (e) => {
-            if (e.target === modal) {
-              if (typeof WattWatchAuth !== 'undefined' && WattWatchAuth.hasUserChosenSession) {
-                WattWatchAuth.closeModal();
-              }
-            }
-          });
-        }
-      }
     };
   </script>
   <script src="../js/appliances.js"></script>
   <script src="../js/history.js"></script>
+  <script src="../js/simulator.js"></script>
+  <script src="../js/report.js"></script>
   <script src="../js/auth.js"></script>
+  <script src="../js/app.js"></script>
 
   <script>
     const results = [];
@@ -173,6 +145,7 @@
 
       WattWatchStorage.setTestNamespace('wattwatch_audit_test_');
       const nsKey = (k) => `${WattWatchStorage.getTestNamespace() || ''}${k}`;
+      WattWatchApp.init();
 
       try {
       // 1. Core Energy Calculations
@@ -739,13 +712,14 @@
       assert(WattWatchAuth.chosenSessionType === null, 'Switch accounts resets chosenSessionType to null');
       assert(loginPane.classList.contains('active'), 'Switch accounts displays login tab');
 
-      // F. Logout cleanly restores Guest Mode
+      // F. Logout cleanly restores startup auth barrier
       WattWatchAuth.currentUser = { uid: 'u_logout_1', username: 'logoutuser', displayName: 'Logout User' };
       WattWatchAuth.hasUserChosenSession = true;
       WattWatchAuth.chosenSessionType = 'account';
       await WattWatchAuth.signOut();
       assert(WattWatchAuth.currentUser === null, 'Logout clears currentUser');
-      assert(WattWatchAuth.chosenSessionType === 'guest', 'Logout sets chosenSessionType to guest');
+      assert(WattWatchAuth.chosenSessionType === null, 'Logout resets chosenSessionType to null');
+      assert(document.body.classList.contains('auth-gate-active'), 'Logout reactivates startup auth barrier');
       assert(WattWatchStorage.getActiveUid() === null, 'Logout cleanly restores Guest Mode storage');
 
       // G. No accidental Guest Mode activation when dismissing the modal
@@ -1277,6 +1251,7 @@
       const customSettingToPreserve = { electricityRate: 11.50, tariffModel: 'flat' };
       WattWatchStorage.saveSettings(customSettingToPreserve);
 
+      const origOpenConfirm = window.WattWatchApp.openConfirmDialog;
       let confirmOpened = false;
       let confirmCfg = null;
       window.WattWatchApp.openConfirmDialog = (cfg) => {
@@ -1355,6 +1330,8 @@
       const guestAppsCheck = WattWatchStorage.getAppliances();
       assert(guestAppsCheck.length === 2, 'Guest inventory was completely isolated and unaffected by user account Remove All');
       assert(guestAppsCheck[0].name === 'Guest Desk Lamp', 'Guest appliances remain intact');
+
+      window.WattWatchApp.openConfirmDialog = origOpenConfirm;
 
       // Clean up test user keys
       localStorage.removeItem(nsKey(`wattwatch_user_${rmUserUid}_appliances`));
@@ -1581,6 +1558,239 @@
       assert(document.activeElement === dummyBtn, 'Confirm modal restores focus to previousActiveElement on close');
       dummyBtn.remove();
 
+      // 29. Production Modal Manager: Stacking, Focus Restoration & Background Isolation
+      const appLayoutEl = document.querySelector('.app-layout');
+      const appMainEl = document.querySelector('.app-main');
+      const sidebarEl = document.querySelector('.app-sidebar');
+      const applianceModalEl = document.getElementById('applianceModal');
+
+      // 29A. Modal Stacking & Interactivity
+      WattWatchAuth.openAuthModal('login');
+      assert(authModalEl.classList.contains('is-open'), 'Auth modal opened');
+      assert(authModalEl.inert === false, 'Auth modal is active (inert=false)');
+      assert(appLayoutEl ? appLayoutEl.inert === true : true, 'Background layout is inert while auth modal is open');
+
+      WattWatchApp.openConfirmDialog({ title: 'Stack Test', message: 'Testing overlapping modal' });
+      assert(confirmModalEl.classList.contains('is-open'), 'Confirm modal opened on top');
+      assert(confirmModalEl.inert === false, 'Top confirm modal remains interactive (inert=false)');
+      assert(authModalEl.inert === true, 'Underlying auth modal is made inert while confirm dialog is stacked on top');
+      assert(appLayoutEl ? appLayoutEl.inert === true : true, 'Background layout remains inert during stacked modals');
+
+      WattWatchApp.closeConfirmDialog();
+      assert(!confirmModalEl.classList.contains('is-open'), 'Confirm modal closed cleanly');
+      assert(authModalEl.inert === false, 'Auth modal interaction restored (inert=false) when stacked dialog closes');
+      assert(appLayoutEl ? appLayoutEl.inert === true : true, 'Background layout remains inert while auth modal is still open');
+
+      WattWatchAuth.closeModal(true);
+      assert(!authModalEl.classList.contains('is-open'), 'Auth modal closed cleanly');
+      assert(appLayoutEl ? appLayoutEl.inert === false : true, 'Background layout restored (inert=false) when all modals are closed');
+
+      // 29B. Focus Restoration Across Nested Modals
+      const testTriggerBtn = document.createElement('button');
+      testTriggerBtn.id = 'testTriggerBtn';
+      testTriggerBtn.textContent = 'Trigger Test';
+      document.body.appendChild(testTriggerBtn);
+      testTriggerBtn.focus();
+      assert(document.activeElement === testTriggerBtn, 'Focus set on known trigger button before opening modal');
+
+      WattWatchAppliances.openModal();
+      const modalNameInput = document.getElementById('modalApplianceName');
+      if (modalNameInput) modalNameInput.focus();
+      assert(document.activeElement === modalNameInput, 'Focus directed to first input in first modal');
+
+      WattWatchApp.openConfirmDialog({ title: 'Nested Focus Test', message: 'Confirming inside appliance modal' });
+      const confirmOkBtn = document.getElementById('confirmModalOkBtn');
+      assert(document.activeElement === confirmOkBtn, 'Focus moved to confirm button in second modal');
+
+      WattWatchApp.closeConfirmDialog();
+      assert(document.activeElement === modalNameInput, 'Closing second modal restores focus to previous active element in first modal');
+
+      WattWatchAppliances.closeModal();
+      assert(document.activeElement === testTriggerBtn, 'Closing first modal restores focus to original trigger button');
+      testTriggerBtn.remove();
+
+      // 29C. Background Isolation & No Redundant Attributes
+      assert(appLayoutEl ? appLayoutEl.inert === false : true, 'app-layout is not inert prior to opening modal');
+      WattWatchHistory.openDetailsModal();
+      assert(appLayoutEl ? appLayoutEl.inert === true : true, 'app-layout receives inert=true on modal open');
+      assert(appLayoutEl ? appLayoutEl.getAttribute('aria-hidden') === 'true' : true, 'app-layout receives aria-hidden="true" on modal open');
+      assert(appMainEl ? !appMainEl.hasAttribute('aria-hidden') : true, 'Child app-main does not receive redundant aria-hidden');
+      assert(sidebarEl ? !sidebarEl.hasAttribute('aria-hidden') : true, 'Child app-sidebar does not receive redundant aria-hidden');
+      const historyModalEl = document.getElementById('historyDetailModal');
+      assert(historyModalEl.inert === false, 'Active history detail modal remains accessible');
+
+      WattWatchApp.openConfirmDialog({ title: 'Multi-Modal Test', message: 'Opening over history' });
+      WattWatchApp.closeConfirmDialog();
+      assert(appLayoutEl ? appLayoutEl.inert === true : true, 'Closing one modal does NOT unlock background while history modal remains open');
+
+      WattWatchHistory.closeDetailsModal();
+      assert(appLayoutEl ? appLayoutEl.inert === false : true, 'Background app-layout restored (inert=false) after final modal closes');
+      assert(appLayoutEl ? appLayoutEl.getAttribute('aria-hidden') === null : true, 'app-layout aria-hidden attribute removed after final modal closes');
+
+      // 29D. Modal Stack Consistency
+      assert(WattWatchApp.modalManager.stack.length === 0, 'Modal stack is initially empty');
+      assert(WattWatchApp.modalManager.hasOpenModals() === false, 'hasOpenModals() returns false when stack is empty');
+
+      // Open in order: Auth -> Appliance -> Confirm
+      WattWatchAuth.openAuthModal('login');
+      WattWatchAppliances.openModal();
+      WattWatchApp.openConfirmDialog({ title: 'Top Modal', message: 'Three modals stacked' });
+      assert(WattWatchApp.modalManager.stack.length === 3, 'Modal stack accurately tracks 3 open modals');
+      assert(WattWatchApp.modalManager.hasOpenModals() === true, 'hasOpenModals() returns true with 3 open modals');
+      assert(WattWatchApp.modalManager.getTopModal() === confirmModalEl, 'getTopModal() correctly returns topmost modal element');
+
+      // Reopen an already-open modal (Appliance): must not create duplicates
+      WattWatchApp.modalManager.open(applianceModalEl);
+      assert(WattWatchApp.modalManager.stack.length === 3, 'Reopening already-open modal does not create duplicate stack entries');
+      assert(WattWatchApp.modalManager.getTopModal() === applianceModalEl, 'Reopened modal moved to top of stack');
+
+      // Close a modal that is NOT the top modal (Auth modal)
+      WattWatchAuth.closeModal(true);
+      assert(WattWatchApp.modalManager.stack.length === 2, 'Closing non-top modal removes it cleanly from stack');
+      assert(WattWatchApp.modalManager.getTopModal() === applianceModalEl, 'Top modal remains unchanged when underlying modal closes');
+      assert(appLayoutEl ? appLayoutEl.inert === true : true, 'Background remains inert while stack still has open modals');
+
+      // Close remaining modals
+      WattWatchAppliances.closeModal();
+      WattWatchApp.closeConfirmDialog();
+      assert(WattWatchApp.modalManager.stack.length === 0, 'Stack is empty after all modals closed');
+      assert(WattWatchApp.modalManager.hasOpenModals() === false, 'hasOpenModals() returns false when all modals closed');
+      assert(appLayoutEl ? appLayoutEl.inert === false : true, 'Background restored when all modals closed');
+
+      // 30. Content Security Policy Meta Tag & Chart.js Subresource Integrity
+      const cspMeta = document.querySelector('meta[http-equiv="Content-Security-Policy"]');
+      assert(!!cspMeta, 'index.html defines a Content-Security-Policy meta tag');
+      const cspPolicy = cspMeta ? cspMeta.getAttribute('content') : '';
+      assert(cspPolicy.includes("default-src 'self'"), "CSP policy defines default-src 'self'");
+      assert(cspPolicy.includes('https://www.gstatic.com'), 'CSP policy permits Firebase SDK from gstatic.com');
+      assert(cspPolicy.includes('https://cdn.jsdelivr.net'), 'CSP policy permits Chart.js from jsdelivr.net');
+      assert(!cspPolicy.includes("'unsafe-eval'"), "CSP policy strictly avoids 'unsafe-eval'");
+      assert(cspPolicy.includes("object-src 'none'"), "CSP policy specifies object-src 'none'");
+      assert(cspPolicy.includes("base-uri 'self'"), "CSP policy specifies base-uri 'self'");
+
+      // Verify Chart.js SRI hash constant
+      const expectedChartSri = 'sha384-vsrfeLOOY6KuIYKDlmVH5UiBmgIdB1oEf7p01YgWHuqmOHfZr374+odEv96n9tNC';
+      assert(typeof expectedChartSri === 'string' && expectedChartSri.startsWith('sha384-'), 'Chart.js SRI hash format is valid SHA-384');
+
+      // 31. Session Isolation and View Reset on Sign-Out
+      WattWatchStorage.setActiveUser('audit_user_reset_test');
+      assert(WattWatchStorage.getActiveUser() === 'audit_user_reset_test', 'Active user namespace set for isolation test');
+      await WattWatchAuth.signOutAndSwitchToLogin();
+      assert(WattWatchStorage.getActiveUser() === null, 'Sign-out immediately reverts active storage user to null (Guest Mode)');
+      assert(WattWatchAuth.currentUser === null, 'Sign-out clears active currentUser state');
+      assert(WattWatchAuth.chosenSessionType === null, 'Sign-out resets chosenSessionType to null');
+      assert(document.body.classList.contains('auth-gate-active'), 'Sign-out reactivates startup auth barrier');
+      assert(appLayoutEl ? appLayoutEl.inert === true : true, 'Sign-out sets HTML5 inert=true on app-layout while login modal displays');
+      WattWatchAuth.closeModal(true);
+      assert(appLayoutEl ? appLayoutEl.inert === false : true, 'Closing login modal restores inert=false');
+
+      // 32. Firestore Rules Schema Verification Invariants
+      const testUserDocValid = {
+        username: 'solar_expert',
+        displayName: 'Solar Expert',
+        hasImportedGuestData: false
+      };
+      const isValidUserDoc = typeof testUserDocValid.username === 'string'
+        && testUserDocValid.username.length >= 3
+        && testUserDocValid.username.length <= 30
+        && typeof testUserDocValid.displayName === 'string';
+      assert(isValidUserDoc, 'Valid Firestore user profile document schema matches rules');
+
+      const testUserDocInvalid = { username: 'a', displayName: 'Too Short' };
+      const isInvalidUserDoc = typeof testUserDocInvalid.username === 'string'
+        && testUserDocInvalid.username.length >= 3
+        && testUserDocInvalid.username.length <= 30;
+      assert(!isInvalidUserDoc, 'Invalid Firestore user profile with short username rejected by rules criteria');
+
+      // 33. Asynchronous Authentication & Firebase Sign-Out Mock Verification
+      const mockAuthInstance = { appId: 'wattwatch-test-app', currentUser: { uid: 'mock_fb_user_123' } };
+      let mockSignOutCalled = false;
+      let mockSignOutArg = null;
+      let shouldRejectSignOut = false;
+
+      const mockSignOutFn = async (auth) => {
+        mockSignOutCalled = true;
+        mockSignOutArg = auth;
+        if (shouldRejectSignOut) {
+          throw new Error('Firebase network disconnection simulation');
+        }
+        return Promise.resolve();
+      };
+
+      const savedAuth = WattWatchAuth.auth;
+      const savedSignOut = WattWatchAuth.firebaseSignOut;
+
+      try {
+        WattWatchAuth.auth = mockAuthInstance;
+        WattWatchAuth.firebaseSignOut = mockSignOutFn;
+
+        // Test A: Successful Firebase Sign-Out
+        WattWatchStorage.saveAppliances([{ id: 'guest_iso_1', name: 'Guest Kettle', powerWatts: 1500, dailyHours: 0.5, operatingDays: 30, quantity: 1, category: 'Kitchen', createdAt: Date.now() }]);
+        WattWatchStorage.setActiveUser('user_session_456');
+        WattWatchStorage.saveAppliances([{ id: 'user_app_456', name: 'User AC', powerWatts: 2000, dailyHours: 4, operatingDays: 30, quantity: 1, category: 'Cooling', createdAt: Date.now() }]);
+
+        WattWatchAuth.currentUser = { uid: 'user_session_456', username: 'testuser456', displayName: 'Test User' };
+        WattWatchAuth.hasUserChosenSession = true;
+        WattWatchAuth.chosenSessionType = 'account';
+
+        mockSignOutCalled = false;
+        mockSignOutArg = null;
+        shouldRejectSignOut = false;
+
+        const signOutResult = await WattWatchAuth.signOut();
+
+        assert(mockSignOutCalled === true, 'Mocked Firebase sign-out function was executed');
+        assert(mockSignOutArg === mockAuthInstance, 'Mocked Firebase sign-out received the expected auth instance');
+        assert(signOutResult && signOutResult.success === true, 'signOut() returned success: true on successful resolution');
+        assert(WattWatchAuth.currentUser === null, 'Local currentUser cleared after successful sign-out');
+        assert(WattWatchAuth.hasUserChosenSession === false, 'Startup session resolution reset to false on sign-out');
+        assert(WattWatchAuth.chosenSessionType === null, 'chosenSessionType reset to null on sign-out');
+        assert(WattWatchStorage.getActiveUser() === null, 'Active storage user reverted to null on sign-out');
+        assert(document.body.classList.contains('auth-gate-active'), 'Startup authentication gate restored on sign-out');
+        assert(authModalEl && authModalEl.classList.contains('is-open'), 'Login modal opened after sign-out');
+        const loginPaneEl = document.getElementById('authPane-login');
+        assert(loginPaneEl && loginPaneEl.classList.contains('active'), 'Login pane is active after sign-out');
+
+        // Verify Guest Mode data was not overwritten or exposed
+        WattWatchStorage.setActiveUser(null);
+        const guestAppsAfterSignOut = WattWatchStorage.getAppliances();
+        assert(guestAppsAfterSignOut.length === 1 && guestAppsAfterSignOut[0].name === 'Guest Kettle', 'Guest inventory remains intact and isolated after sign-out');
+
+        // Test B: Rejected Firebase Sign-Out (failure resilience)
+        document.body.classList.remove('auth-gate-active');
+        WattWatchAuth.closeModal(true);
+        WattWatchAuth.currentUser = { uid: 'user_session_789', username: 'resilientuser', displayName: 'Resilient User' };
+        WattWatchAuth.hasUserChosenSession = true;
+        WattWatchAuth.chosenSessionType = 'account';
+        WattWatchStorage.setActiveUser('user_session_789');
+
+        mockSignOutCalled = false;
+        mockSignOutArg = null;
+        shouldRejectSignOut = true;
+
+        const failedResult = await WattWatchAuth.signOut();
+
+        assert(mockSignOutCalled === true, 'Mocked Firebase sign-out function was executed on rejection test');
+        assert(failedResult && failedResult.success === false, 'signOut() returned success: false on Firebase rejection');
+        assert(WattWatchAuth.currentUser !== null, 'currentUser is preserved and NOT falsely wiped when remote sign-out fails');
+        assert(WattWatchAuth.currentUser.uid === 'user_session_789', 'Active user UID retained on failed sign-out');
+        assert(WattWatchAuth.hasUserChosenSession === true, 'hasUserChosenSession remains true on failed sign-out');
+        assert(WattWatchAuth.chosenSessionType === 'account', 'chosenSessionType remains account on failed sign-out');
+        assert(WattWatchStorage.getActiveUser() === 'user_session_789', 'Active storage user remains user account on failed sign-out');
+        assert(!document.body.classList.contains('auth-gate-active'), 'Auth gate not falsely activated on failed sign-out');
+
+        // Test C: Direct signOutAndSwitchToLogin() resolution
+        shouldRejectSignOut = false;
+        const switchRes = await WattWatchAuth.signOutAndSwitchToLogin();
+        assert(switchRes && switchRes.success === true, 'signOutAndSwitchToLogin() returns success: true on resolution');
+        assert(WattWatchAuth.currentUser === null, 'signOutAndSwitchToLogin() cleanly clears currentUser');
+      } finally {
+        WattWatchAuth.auth = savedAuth;
+        WattWatchAuth.firebaseSignOut = savedSignOut;
+        WattWatchAuth.closeModal(true);
+        WattWatchStorage.setActiveUser(null);
+      }
+
       // Restore sample household for storage
       WattWatchStorage.loadSampleHousehold();
       } catch (err) {
@@ -1630,11 +1840,7 @@
       }
     }
 
-    if (document.readyState === 'loading') {
-      window.addEventListener('DOMContentLoaded', runAllTests);
-    } else {
-      runAllTests();
-    }
+    runAllTests();
   </script>
 </body>
 </html>

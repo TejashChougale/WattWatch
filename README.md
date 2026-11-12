@@ -5,7 +5,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-B99A62.svg)](https://opensource.org/licenses/MIT)
 [![Pure Vanilla JS](https://img.shields.io/badge/Stack-Vanilla%20JS%20%7C%20HTML5%20%7C%20CSS3-172B55.svg)](#technology-stack)
 [![Chart.js v4](https://img.shields.io/badge/Visuals-Chart.js%20v4-6E293F.svg)](https://www.chartjs.org/)
-[![Audit Test Suite](https://img.shields.io/badge/Audit%20Tests-396%2F396%20Passed-2E946E.svg)](#-automated-testing--quality-assurance)
+[![Audit Test Suite](https://img.shields.io/badge/Audit%20Tests-474%2F474%20Passed-2E946E.svg)](#-automated-testing--quality-assurance)
 [![Responsive Verification](https://img.shields.io/badge/Responsive-20%2F20%20Passed-2E946E.svg)](#-automated-testing--quality-assurance)
 
 > **WattWatch** is an enterprise-grade client-side energy intelligence platform. It provides comprehensive household electricity monitoring, frozen historical monthly billing snapshots, an active electricity budget tracker, month-to-month comparative deltas, an interactive appliance replacement simulator, an advanced progressive multi-slab tariff engine, a carbon footprint estimator, and client-side PDF energy audit reports.
@@ -62,7 +62,7 @@ WattWatch is built entirely with pure vanilla web technologies: standard HTML5, 
   * **Sign In / Create Account**: Authenticates with Firebase and unlocks the user's private workspace.
   * **Continue as Guest**: Activates the isolated local guest workspace.
 * **No Accidental Gate Bypass**: The startup authentication gate cannot be dismissed by pressing `Escape`, clicking the backdrop, or clicking modal close buttons. Background controls are inaccessible until an explicit choice is made.
-* **Focus Trap & Keyboard Accessibility**: A full `Tab` / `Shift+Tab` keyboard focus trap cycles focus inside the active modal; Escape dismisses only once a valid session exists.
+* **Focus Trap & Keyboard Accessibility**: A full `Tab` / `Shift+Tab` keyboard focus trap cycles focus inside the active modal; Escape dismisses only once a valid session exists. The HTML5 `inert` property and `aria-hidden` are applied to the background application layout while modals are open, fully restoring interactivity upon dismissal.
 * **Strict Workspace Isolation**: Guest data is stored under default keys (`wattwatch_appliances`, `wattwatch_settings`, `wattwatch_history_v1`). Authenticated accounts store their records under isolated keys (`wattwatch_user_{uid}_*`). Switching accounts or reverting to guest mode never leaks or overwrites records.
 * **Guest-to-Account Migration**: When creating or logging into an account, users can merge local guest records into their account workspace. The migration is non-destructive, duplicate-safe (skips existing records without overwriting), idempotent, and includes atomic rollback on storage quota failure.
 
@@ -72,6 +72,7 @@ WattWatch is built entirely with pure vanilla web technologies: standard HTML5, 
 * **Atomic Backup Import & Restoration**: Importing JSON backups captures an in-memory snapshot of current appliances, history, and settings before writing. If storage quota is exceeded or an I/O error occurs, the pre-import state is automatically restored, and the user is honestly informed whether restoration succeeded.
 * **Corrupted LocalStorage Recovery**: Malformed JSON in browser storage is detected safely without crashing the dashboard. The raw corrupted string is preserved under a quarantine key (`wattwatch_corrupted_${timestamp}_${key}`), while the application initializes a clean fallback state and warns the user.
 * **Strict Domain Validation**: Appliance additions enforce integer quantities $\ge 1$, category whitelisting (`Cooling`, `Lighting`, `Kitchen`, `Entertainment`, `Computing`, `Other`), realistic power bounds ($\le 50,000$ W), daily operating hours ($0 \le h \le 24$), and operating days ($1 \le d \le 31$).
+* **Content Security Policy & Subresource Integrity**: A client-side CSP meta policy restricts script, style, image, and network connect origins, completely disallowing dynamic code evaluation (`unsafe-eval`). Because WattWatch uses static vanilla HTML with declarative event attributes and dynamic utility styling, `'unsafe-inline'` is permitted, representing an origin boundary rather than a strict nonce/hash-only sandbox. Chart.js CDN fallbacks include cryptographic Subresource Integrity (`integrity="sha384-..."`) and `crossorigin="anonymous"` verification.
 
 ---
 
@@ -155,9 +156,28 @@ WattWatch integrates with Firebase Authentication and Cloud Firestore for user p
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Each authenticated user may read and write only their own user document
+
+    function isOwner(userId) {
+      return request.auth != null && request.auth.uid == userId;
+    }
+
+    function isValidUserProfile(data) {
+      return data.keys().hasAll(['username', 'displayName'])
+        && data.username is string
+        && data.username.size() >= 3
+        && data.username.size() <= 30
+        && data.displayName is string
+        && data.displayName.size() >= 1
+        && data.displayName.size() <= 50
+        && (!('hasImportedGuestData' in data) || data.hasImportedGuestData is bool);
+    }
+
     match /users/{userId} {
-      allow read, write: if request.auth != null && request.auth.uid == userId;
+      allow read: if isOwner(userId);
+      allow create: if isOwner(userId) && isValidUserProfile(request.resource.data);
+      allow update: if isOwner(userId) && isValidUserProfile(request.resource.data)
+        && request.resource.data.username == resource.data.username;
+      allow delete: if isOwner(userId);
     }
 
     // Default deny for all other collections and documents
@@ -230,7 +250,7 @@ WattWatch features a comprehensive, automated test harness designed to run direc
 
 | Test Suite | File Path | Total Tests | Passed | Failed | Scope |
 | :--- | :--- | :---: | :---: | :---: | :--- |
-| **Audit Test Suite** | [`tests/audit_tests.html`](tests/audit_tests.html) | **396** | **396** | **0** | Energy formulas, tariff slabs, budget tracking, CSV injection, atomic JSON rollback, theme export/import rollback, focus trap, Remove All Appliances, stored XSS, corrupted storage recovery, workspace isolation. |
+| **Audit Test Suite** | [`tests/audit_tests.html`](tests/audit_tests.html) | **474** | **474** | **0** | Energy formulas, tariff slabs, budget tracking, CSV injection, atomic JSON rollback, theme export/import rollback, focus trap & modal stacking manager, Remove All Appliances, stored XSS, corrupted storage recovery, workspace isolation, CSP meta verification, Chart.js SRI integrity, and Firebase asynchronous sign-out resilience. |
 | **Responsive Verification** | [`tests/responsive_verification.html`](tests/responsive_verification.html) | **20** | **20** | **0** | Mobile viewports (320px, 360px, 390px), tablet (768px), desktop (1024px, 1366px), zero overflow across all 7 views and both light and dark themes, touch targets ($\ge 44\text{px}$), font sizes ($\ge 16\text{px}$), modal bottom sheets. |
 
 ### 2. Isolated Test Execution
@@ -240,7 +260,7 @@ The test suite utilizes a dedicated `testNamespace` (`wattwatch_audit_test_`). R
 
 #### In Any Browser (Interactive UI)
 Simply double-click or open the test files in your browser:
-* Open `tests/audit_tests.html` to run the 396-test audit suite.
+* Open `tests/audit_tests.html` to run the 474-test audit suite.
 * Open `tests/responsive_verification.html` to run the 20-test responsive layout verification suite.
 
 #### In Headless Chrome (CLI / Automated CI)
@@ -293,8 +313,8 @@ WattWatch-Web/
 │   └── chart.umd.min.js         # Production Chart.js v4 bundle for 100% offline local execution
 │
 ├── tests/
-│   ├── audit_tests.html         # Automated 365-assertion audit test suite
-│   └── responsive_verification.html # Automated 16-check responsive layout verification suite
+│   ├── audit_tests.html         # Automated 474-assertion audit test suite
+│   └── responsive_verification.html # Automated 20-check responsive layout verification suite
 │
 └── assets/
     └── logo.svg                 # Custom SVG geometric shield and energy lightning crest

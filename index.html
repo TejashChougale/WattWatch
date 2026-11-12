@@ -5,6 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>WattWatch</title>
   
+  <!-- Content Security Policy (CSP) -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://www.gstatic.com https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; img-src 'self' data: https: blob:; font-src 'self'; connect-src 'self' https://*.googleapis.com https://*.firebaseio.com https://*.firebaseapp.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://firestore.googleapis.com https://www.gstatic.com https://cdn.jsdelivr.net; frame-src 'self'; object-src 'none'; base-uri 'self';">
+
   <!-- Meta description and branding -->
   <meta name="description" content="WattWatch is an advanced electricity management and analytics platform. Monitor consumption, track electricity budgets, compare historical billing periods, simulate appliance replacements, test slab tariffs, and estimate carbon emissions.">
   <link rel="icon" type="image/svg+xml" href="assets/logo.svg">
@@ -1778,11 +1781,11 @@
   <!-- ==========================================
        JAVASCRIPT MODULES
        ========================================== -->
-  <!-- Chart.js: Local high-speed bundle with CDN fallback -->
+  <!-- Chart.js: Local high-speed bundle with CDN fallback and Subresource Integrity -->
   <script src="js/chart.umd.min.js"></script>
   <script>
     if (typeof Chart === 'undefined') {
-      document.write('<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"><\/script>');
+      document.write('<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js" integrity="sha384-vsrfeLOOY6KuIYKDlmVH5UiBmgIdB1oEf7p01YgWHuqmOHfZr374+odEv96n9tNC" crossorigin="anonymous"><\/script>');
     }
   </script>
 
