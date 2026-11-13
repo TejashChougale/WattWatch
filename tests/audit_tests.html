@@ -2,6 +2,9 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
+  <script>
+    window.__wattwatchLocalTestAllowed = ['localhost', '127.0.0.1', '[::1]'].includes(location.hostname);
+  </script>
   <title>WattWatch - Automated Test Suite</title>
   <link rel="stylesheet" href="../css/style.css">
   <link rel="stylesheet" href="../css/dashboard.css">
@@ -1840,7 +1843,12 @@
       }
     }
 
-    runAllTests();
+    if (window.__wattwatchLocalTestAllowed) {
+      runAllTests();
+    } else {
+      document.getElementById('test-results').textContent =
+        'Tests are restricted to a local development server. Open this page at http://localhost or http://127.0.0.1.';
+    }
   </script>
 </body>
 </html>
