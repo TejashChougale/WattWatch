@@ -2,6 +2,9 @@
    WATTWATCH - RESPONSIVE & MOBILE STYLES
    ========================================================================== */
 
+/* Keep billing indicator chips readable when visible. */
+.topbar-chip { white-space: nowrap; }
+
 /* --- Tablet & Medium Screens (<= 1024px) --- */
 @media screen and (max-width: 1024px) {
   :root {
@@ -113,6 +116,13 @@
   }
 }
 
+/* Accessible touch targets on phones and tablets. */
+@media screen and (max-width: 768px) {
+  button, .btn, .filter-pill, .theme-toggle-btn, .mobile-menu-toggle {
+    min-height: 44px;
+  }
+}
+
 /* --- Mobile Phones (<= 640px) --- */
 @media screen and (max-width: 640px) {
   /* Mobile Horizontal Overflow Prevention */
@@ -172,6 +182,10 @@
 
   /* Hide .btn-label inside .topbar-right */
   .topbar-right .btn-label {
+    display: none;
+  }
+
+  .topbar-right .badge-guest {
     display: none;
   }
 
@@ -271,6 +285,10 @@
   .modal-form-row,
   .guide-steps-grid {
     grid-template-columns: 1fr;
+  }
+
+  #view-analytics .metrics-grid-3col {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .calc-preview-box {
