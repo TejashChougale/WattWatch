@@ -1800,7 +1800,7 @@
         // Clean up test namespace keys
         const allKeys = Object.keys(localStorage);
         for (const k of allKeys) {
-          if (k.startsWith('wattwatch_audit_test_') || k.includes('wattwatch_corrupted_')) {
+          if (k.startsWith('wattwatch_audit_test_') || (k.includes('wattwatch_corrupted_') && !(k in initialLocalStorageSnapshot))) {
             localStorage.removeItem(k);
           }
         }
