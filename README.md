@@ -1,14 +1,14 @@
 # WattWatch ⚡
 
-### Advanced Electricity Management & Analytics Platform
+### Electricity Management & Analytics Platform
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-B99A62.svg)](https://opensource.org/licenses/MIT)
 [![Pure Vanilla JS](https://img.shields.io/badge/Stack-Vanilla%20JS%20%7C%20HTML5%20%7C%20CSS3-172B55.svg)](#technology-stack)
 [![Chart.js v4](https://img.shields.io/badge/Visuals-Chart.js%20v4-6E293F.svg)](https://www.chartjs.org/)
-[![Audit Test Suite](https://img.shields.io/badge/Audit%20Tests-474%2F474%20Passed-2E946E.svg)](#-automated-testing--quality-assurance)
-[![Responsive Verification](https://img.shields.io/badge/Responsive-20%2F20%20Passed-2E946E.svg)](#-automated-testing--quality-assurance)
+[![Audit Test Suite](https://img.shields.io/badge/Audit%20Tests-Audit%20Suite-2E946E.svg)](#-automated-testing--quality-assurance)
+[![Responsive Verification](https://img.shields.io/badge/Responsive-Responsive%20Checks-2E946E.svg)](#-automated-testing--quality-assurance)
 
-> **WattWatch** is an enterprise-grade client-side energy intelligence platform. It provides comprehensive household electricity monitoring, frozen historical monthly billing snapshots, an active electricity budget tracker, month-to-month comparative deltas, an interactive appliance replacement simulator, an advanced progressive multi-slab tariff engine, a carbon footprint estimator, and client-side PDF energy audit reports.
+> **WattWatch** is an client-side electricity management and analytics application. It provides comprehensive household electricity monitoring, frozen historical monthly billing snapshots, an active electricity budget tracker, month-to-month comparative deltas, an interactive appliance replacement simulator, an advanced progressive multi-slab tariff engine, a carbon footprint estimator, and client-side PDF energy audit reports.
 
 ---
 
@@ -250,8 +250,8 @@ WattWatch features a comprehensive, automated test harness designed to run direc
 
 | Test Suite | File Path | Total Tests | Passed | Failed | Scope |
 | :--- | :--- | :---: | :---: | :---: | :--- |
-| **Audit Test Suite** | [`tests/audit_tests.html`](tests/audit_tests.html) | **474** | **474** | **0** | Energy formulas, tariff slabs, budget tracking, CSV injection, atomic JSON rollback, theme export/import rollback, focus trap & modal stacking manager, Remove All Appliances, stored XSS, corrupted storage recovery, workspace isolation, CSP meta verification, Chart.js SRI integrity, and Firebase asynchronous sign-out resilience. |
-| **Responsive Verification** | [`tests/responsive_verification.html`](tests/responsive_verification.html) | **20** | **20** | **0** | Mobile viewports (320px, 360px, 390px), tablet (768px), desktop (1024px, 1366px), zero overflow across all 7 views and both light and dark themes, touch targets ($\ge 44\text{px}$), font sizes ($\ge 16\text{px}$), modal bottom sheets. |
+| **Audit Test Suite** | [`tests/audit_tests.html`](tests/audit_tests.html) | **Not yet verified in this checkout | Not yet verified | Not yet verified | Energy formulas, tariff slabs, budget tracking, CSV injection, atomic JSON rollback, theme export/import rollback, focus trap & modal stacking manager, Remove All Appliances, stored XSS, corrupted storage recovery, workspace isolation, CSP meta verification, Chart.js SRI integrity, and Firebase asynchronous sign-out resilience. |
+| **Responsive Verification** | [`tests/responsive_verification.html`](tests/responsive_verification.html) | Not yet verified in this checkout | Not yet verified | Not yet verified | Mobile viewports (320px, 360px, 390px), tablet (768px), desktop (1024px, 1366px), zero overflow across all 7 views and both light and dark themes, touch targets ($\ge 44\text{px}$), font sizes ($\ge 16\text{px}$), modal bottom sheets. |
 
 ### 2. Isolated Test Execution
 The test suite utilizes a dedicated `testNamespace` (`wattwatch_audit_test_`). Running tests will **never overwrite, modify, or erase real user or guest data** in `localStorage`. Once execution completes, all test keys are cleaned up, and the suite asserts that production keys remain completely untouched.
@@ -259,9 +259,9 @@ The test suite utilizes a dedicated `testNamespace` (`wattwatch_audit_test_`). R
 ### 3. How to Run the Tests
 
 #### In Any Browser (Interactive UI)
-Simply double-click or open the test files in your browser:
-* Open `tests/audit_tests.html` to run the 474-test audit suite.
-* Open `tests/responsive_verification.html` to run the 20-test responsive layout verification suite.
+Start a local HTTP server and open the test files on `localhost` (the test pages intentionally refuse to run on a hosted site):
+* Open `tests/audit_tests.html` to run the audit suite.
+* Open `tests/responsive_verification.html` to run the responsive layout verification suite.
 
 #### In Headless Chrome (CLI / Automated CI)
 ```powershell
@@ -336,4 +336,4 @@ WattWatch requires no build steps, compilers, or server processes:
 
 This project is licensed under the MIT License — see the [LICENSE](LICENSE) file for details.
 
-*WattWatch — Precision Energy Intelligence.*
+*WattWatch — Electricity Management & Analytics.*
