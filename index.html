@@ -9,7 +9,7 @@
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://www.gstatic.com https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; img-src 'self' data: https: blob:; font-src 'self'; connect-src 'self' https://*.googleapis.com https://*.firebaseio.com https://*.firebaseapp.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://firestore.googleapis.com https://www.gstatic.com https://cdn.jsdelivr.net; frame-src 'self'; object-src 'none'; base-uri 'self';">
 
   <!-- Meta description and branding -->
-  <meta name="description" content="WattWatch is an advanced electricity management and analytics platform. Monitor consumption, track electricity budgets, compare historical billing periods, simulate appliance replacements, test slab tariffs, and estimate carbon emissions.">
+  <meta name="description" content="WattWatch is an electricity management and analytics platform. Monitor consumption, track electricity budgets, compare historical billing periods, simulate appliance replacements, test slab tariffs, and estimate carbon emissions.">
   <link rel="icon" type="image/svg+xml" href="assets/logo.svg">
 
   <!-- Core Stylesheets -->
@@ -35,7 +35,7 @@
           <img src="assets/logo.svg" alt="WattWatch Logo" class="brand-logo-svg">
           <div class="brand-text">
             <span class="brand-name">WATT<span>WATCH</span></span>
-            <span class="brand-subtitle">Energy Intelligence</span>
+            <span class="brand-subtitle">Electricity Management</span>
           </div>
         </a>
       </div>
@@ -417,14 +417,8 @@
           <!-- Quick Actions Bar -->
           <div class="quick-actions-bar">
             <span class="quick-actions-label">Quick Actions:</span>
-            <button type="button" class="btn btn-secondary btn-sm" onclick="WattWatchAppliances.openModal()">
-              + Add Appliance
-            </button>
             <button type="button" class="btn btn-secondary btn-sm" id="btnOverviewSaveSnapshot">
               Save Bill Snapshot
-            </button>
-            <button type="button" class="btn btn-secondary btn-sm" onclick="WattWatchReport.openReportModal()">
-              Generate PDF Report
             </button>
             <button type="button" class="btn btn-secondary btn-sm" onclick="WattWatchApp.navigateTo('history')">
               Bill History
@@ -797,7 +791,7 @@
             <div class="card-header">
               <div>
                 <h3 class="card-title">Carbon Footprint Estimator</h3>
-                <p class="card-subtitle">Quantified greenhouse gas emissions ($\text{kg CO}_2\text{e}$) derived from your electrical load profile</p>
+                <p class="card-subtitle">Quantified greenhouse gas emissions (kg CO₂e) derived from your electrical load profile</p>
               </div>
               <span class="badge badge-cooling">Environmental Analytics</span>
             </div>
@@ -833,7 +827,7 @@
                 <line x1="12" y1="16" x2="12.01" y2="16"/>
               </svg>
               <div>
-                <strong>Carbon Estimation Formula & Assumptions:</strong> $\text{Emissions (kg CO}_2\text{e)} = \text{Monthly kWh} \times \text{Grid Emission Factor}$. Standard factor reflects Central Electricity Authority (CEA) India baseline ($0.82\text{ kg CO}_2/\text{kWh}$). Can be modified or disabled in Settings.
+                <strong>Carbon Estimation Formula & Assumptions:</strong> Emissions (kg CO₂e) = Monthly kWh × Grid Emission Factor. The standard factor reflects the Central Electricity Authority (CEA) India baseline (0.82 kg CO₂/kWh). You can modify or disable it in Settings.
               </div>
             </div>
           </div>
@@ -1068,7 +1062,7 @@
               <circle cx="12" cy="12" r="4"/>
             </svg>
             <h3 class="empty-state-title">No Recommendations Available</h3>
-            <p class="empty-state-desc">Add appliances to your inventory so our rule-based energy intelligence engine can analyze your load profiles and recommend specific optimizations.</p>
+            <p class="empty-state-desc">Add appliances to your inventory so our appliance analysis system can analyze your load profiles and recommend specific optimizations.</p>
             <button type="button" class="btn btn-primary" onclick="WattWatchAppliances.openModal()">
               + Add Appliance
             </button>
@@ -1712,7 +1706,7 @@
               <span class="badge badge-user">Authenticated Account</span>
             </div>
             <p style="font-size: 0.78rem; color: var(--text-secondary); margin-top: 1rem; line-height: 1.45;">
-              Your appliance inventory, settings, and billing comparisons are saved under your private account.
+              Your appliance inventory, settings, and billing comparisons are stored locally in this browser.
             </p>
           </div>
 
