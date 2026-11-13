@@ -195,8 +195,8 @@ const WattWatchStorage = {
     if (typeof app.quantity === 'boolean' || isNaN(numQty) || !Number.isFinite(numQty) || !Number.isInteger(numQty) || numQty < 1) {
       return { valid: false, error: 'Quantity must be a positive whole integer of at least 1 unit' };
     }
-    if (numQty > 1000) {
-      return { valid: false, error: 'Quantity cannot exceed 1,000 units' };
+    if (numQty > 100) {
+      return { valid: false, error: 'Quantity cannot exceed 100 units' };
     }
 
     // Daily hours: strictly finite number >= 0 and <= 24
@@ -1079,7 +1079,22 @@ const WattWatchStorage = {
         if (parsed.settings.tariffModel === 'slab' || parsed.settings.tariffModel === 'flat') {
           newSettings.tariffModel = parsed.settings.tariffModel;
         }
-        if (Array.isArray(parsed.settings.slabConfig)) newSettings.slabConfig = parsed.settings.slabConfig;
+        if (Array.isArray(parsed.settings.slabConfig)) {
+          const candidate = parsed.settings.slabConfig;
+          const validSlabs = candidate.length > 0 && candidate.every((item, index) => {
+            if (!item || typeof item !== 'object' || Array.isArray(item)) return false;
+            const rate = Number(item.rate);
+            if (!Number.isFinite(rate) || rate < 0) return false;
+            if (item.upTo === null) return index === candidate.length - 1;
+            const limit = Number(item.upTo);
+            if (!Number.isFinite(limit) || limit <= 0) return false;
+            return index === 0 || limit > Number(candidate[index - 1].upTo);
+          }) && candidate[candidate.length - 1].upTo === null;
+          if (validSlabs) newSettings.slabConfig = candidate.map(item => ({
+            upTo: item.upTo === null ? null : Number(item.upTo),
+            rate: Number(item.rate)
+          }));
+        }
         if (!isNaN(Number(parsed.settings.fixedCharges))) newSettings.fixedCharges = Number(parsed.settings.fixedCharges);
         if (!isNaN(Number(parsed.settings.additionalTaxPercent))) newSettings.additionalTaxPercent = Number(parsed.settings.additionalTaxPercent);
         if (parsed.settings.carbonEmissionFactor === null || !isNaN(Number(parsed.settings.carbonEmissionFactor))) {
