@@ -80,20 +80,22 @@ const WattWatchCalculations = {
       let remainingKwh = kwh;
       let lowerBound = 0;
 
-      // Filter and validate slabs: ensure non-negative rates and ascending limits
-      const validSlabs = [];
-      for (const slab of settings.slabConfig) {
-        if (!slab || typeof slab !== 'object') continue;
-        const rate = Math.max(0, Number(slab.rate) || 0);
-        const upTo = (slab.upTo !== null && slab.upTo !== undefined && !isNaN(Number(slab.upTo)))
-          ? Math.max(1, Number(slab.upTo))
-          : null;
-        validSlabs.push({ upTo, rate });
-      }
-
-      if (validSlabs.length === 0) {
-        validSlabs.push({ upTo: null, rate: flatRate });
-      }
+      // Accept only a strictly increasing slab schedule with one open-ended final tier.
+      const candidateSlabs = settings.slabConfig;
+      const validConfig = candidateSlabs.length > 0
+        && candidateSlabs[candidateSlabs.length - 1]?.upTo === null
+        && candidateSlabs.every((slab, index) => {
+          if (!slab || typeof slab !== 'object' || Array.isArray(slab)) return false;
+          const rate = Number(slab.rate);
+          if (!Number.isFinite(rate) || rate < 0) return false;
+          if (slab.upTo === null) return index === candidateSlabs.length - 1;
+          const limit = Number(slab.upTo);
+          return Number.isFinite(limit) && limit > 0
+            && (index === 0 || limit > Number(candidateSlabs[index - 1].upTo));
+        });
+      const validSlabs = validConfig
+        ? candidateSlabs.map(slab => ({ upTo: slab.upTo === null ? null : Number(slab.upTo), rate: Number(slab.rate) }))
+        : [{ upTo: null, rate: flatRate }];
 
       for (let i = 0; i < validSlabs.length; i++) {
         const slab = validSlabs[i];
@@ -127,23 +129,7 @@ const WattWatchCalculations = {
         });
       }
 
-      // Do not silently drop consumption above the last slab:
-      // If consumption remains above the highest slab upper bound, cover excess at the last slab's rate
-      if (remainingKwh > 0 && validSlabs.length > 0) {
-        const lastSlab = validSlabs[validSlabs.length - 1];
-        const lastRate = lastSlab.rate;
-        const costInExcess = remainingKwh * lastRate;
-        energyCharges += costInExcess;
-
-        slabBreakdown.push({
-          tier: validSlabs.length + 1,
-          label: `Excess above ${lastSlab.upTo || lowerBound} kWh`,
-          units: remainingKwh,
-          rate: lastRate,
-          cost: costInExcess
-        });
-        remainingKwh = 0;
-      }
+      // The final validated tier is open-ended, so no excess fallback is needed.
     } else {
       // Standard Flat Rate model
       energyCharges = kwh * flatRate;
