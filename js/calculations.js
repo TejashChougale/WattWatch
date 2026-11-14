@@ -55,7 +55,7 @@ const WattWatchCalculations = {
     const num = Number(qty);
     if (!Number.isInteger(num)) return NaN;
     if (allowZero ? num < 0 : num < 1) return NaN;
-    if (num > 1000) return NaN;
+    if (num > 100) return NaN;
     return num;
   },
 
