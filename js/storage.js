@@ -611,12 +611,27 @@ const WattWatchStorage = {
         throw new Error('Stored appliances payload is not an array');
       }
       const validated = [];
+      const invalidRecords = [];
       for (const item of parsed) {
         const v = this.validateAppliance(item);
         if (v.valid) {
           validated.push(v.sanitized);
         } else {
+          invalidRecords.push(item);
           console.warn('[WattWatch Storage] Skipping invalid stored appliance record:', v.error, item);
+        }
+      }
+
+      // Preserve the complete original payload before any later save can replace it.
+      this._appliancePreservationBlocked = false;
+      if (invalidRecords.length > 0) {
+        const backupKey = `wattwatch_invalid_appliances_${Date.now()}_${key}`;
+        try {
+          localStorage.setItem(backupKey, data);
+          this.invalidApplianceBackup = { key, backupKey, count: invalidRecords.length, timestamp: Date.now() };
+        } catch (backupError) {
+          this._appliancePreservationBlocked = true;
+          console.error('[WattWatch Storage] Could not preserve invalid appliance records; writes are blocked to prevent data loss.', backupError);
         }
       }
       return validated;
@@ -644,6 +659,10 @@ const WattWatchStorage = {
     try {
       if (!Array.isArray(appliances)) {
         throw new Error('Appliances must be an array');
+      }
+      if (this._appliancePreservationBlocked) {
+        console.error('[WattWatch Storage] Refusing to overwrite appliance data because invalid records could not be backed up.');
+        return false;
       }
       localStorage.setItem(this._getKey('APPLIANCES'), JSON.stringify(appliances));
       return true;
