@@ -625,13 +625,25 @@ const WattWatchStorage = {
       // Preserve the complete original payload before any later save can replace it.
       this._appliancePreservationBlocked = false;
       if (invalidRecords.length > 0) {
-        const backupKey = `wattwatch_invalid_appliances_${Date.now()}_${key}`;
-        try {
-          localStorage.setItem(backupKey, data);
-          this.invalidApplianceBackup = { key, backupKey, count: invalidRecords.length, timestamp: Date.now() };
-        } catch (backupError) {
-          this._appliancePreservationBlocked = true;
-          console.error('[WattWatch Storage] Could not preserve invalid appliance records; writes are blocked to prevent data loss.', backupError);
+        // Avoid creating duplicate backups every time the dashboard refreshes.
+        const alreadyPreserved = this.invalidApplianceBackup
+          && this.invalidApplianceBackup.key === key
+          && this.invalidApplianceBackup.sourceData === data;
+        if (!alreadyPreserved) {
+          const backupKey = `wattwatch_invalid_appliances_${Date.now()}_${key}`;
+          try {
+            localStorage.setItem(backupKey, data);
+            this.invalidApplianceBackup = {
+              key,
+              backupKey,
+              count: invalidRecords.length,
+              timestamp: Date.now(),
+              sourceData: data
+            };
+          } catch (backupError) {
+            this._appliancePreservationBlocked = true;
+            console.error('[WattWatch Storage] Could not preserve invalid appliance records; writes are blocked to prevent data loss.', backupError);
+          }
         }
       }
       return validated;
