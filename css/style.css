@@ -592,8 +592,13 @@ body.auth-gate-active .app-container {
   filter: blur(1.5px);
 }
 
-body.auth-gate-active #authModal {
+body.auth-gate-active #authModal,
+body.auth-gate-active #privacyModal {
   pointer-events: auto !important;
+}
+
+#privacyModal {
+  z-index: 1010;
 }
 
 /* --- Toast Notification System --- */

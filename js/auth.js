@@ -109,9 +109,16 @@ const WattWatchAuth = {
       this.switchTab('login');
     }
 
-    setTimeout(() => {
-      const firstInput = modal.querySelector('input:not([type="hidden"]):not([disabled]), button.btn-primary:not([disabled])');
-      if (firstInput) firstInput.focus();
+    if (this._startupFocusTimeout) {
+      clearTimeout(this._startupFocusTimeout);
+      this._startupFocusTimeout = null;
+    }
+    this._startupFocusTimeout = setTimeout(() => {
+      this._startupFocusTimeout = null;
+      if (modal && !modal.inert && modal.classList.contains('is-open')) {
+        const firstInput = modal.querySelector('input:not([type="hidden"]):not([disabled]), button.btn-primary:not([disabled])');
+        if (firstInput) firstInput.focus();
+      }
     }, 60);
   },
 
@@ -416,10 +423,27 @@ const WattWatchAuth = {
       this.switchTab(defaultTab);
     }
 
-    setTimeout(() => {
-      const firstInput = modal.querySelector('input:not([type="hidden"]):not([disabled]), button.btn-primary:not([disabled])');
-      if (firstInput) firstInput.focus();
+    if (this._startupFocusTimeout) {
+      clearTimeout(this._startupFocusTimeout);
+      this._startupFocusTimeout = null;
+    }
+    this._startupFocusTimeout = setTimeout(() => {
+      this._startupFocusTimeout = null;
+      if (modal && !modal.inert && modal.classList.contains('is-open')) {
+        const firstInput = modal.querySelector('input:not([type="hidden"]):not([disabled]), button.btn-primary:not([disabled])');
+        if (firstInput) firstInput.focus();
+      }
     }, 60);
+  },
+
+  /**
+   * Opens the dedicated privacy notice without bypassing or weakening the authentication gate
+   * @param {HTMLElement} [trigger]
+   */
+  openPrivacyNotice(trigger) {
+    if (typeof WattWatchApp !== 'undefined' && typeof WattWatchApp.openPrivacyModal === 'function') {
+      WattWatchApp.openPrivacyModal(trigger);
+    }
   },
 
   /**
@@ -589,12 +613,20 @@ const WattWatchAuth = {
       else if (tabName === 'recovery') titleEl.textContent = 'Account Security & Access';
     }
 
-    // Auto-focus first input in newly activated tab
-    setTimeout(() => {
-      const activePane = document.getElementById(`authPane-${tabName}`);
-      if (activePane) {
-        const firstInput = activePane.querySelector('input');
-        if (firstInput) firstInput.focus();
+    // Auto-focus first input in newly activated tab only if modal is open and not inert
+    if (this._tabFocusTimeout) {
+      clearTimeout(this._tabFocusTimeout);
+      this._tabFocusTimeout = null;
+    }
+    this._tabFocusTimeout = setTimeout(() => {
+      this._tabFocusTimeout = null;
+      const modal = document.getElementById('authModal');
+      if (modal && !modal.inert && modal.classList.contains('is-open')) {
+        const activePane = document.getElementById(`authPane-${tabName}`);
+        if (activePane) {
+          const firstInput = activePane.querySelector('input');
+          if (firstInput) firstInput.focus();
+        }
       }
     }, 50);
   },
@@ -803,10 +835,18 @@ const WattWatchAuth = {
               cancelText: 'Keep Separate',
               confirmClass: 'btn-primary',
               onConfirm: () => {
-                const res = WattWatchStorage.migrateGuestData(user.uid);
-                if (res.success) {
-                  WattWatchApp.showToast(`Transferred ${res.transferredAppliances} appliance(s) and ${res.transferredHistory} record(s) into your account in this browser.`, 'success', 'Data Merged');
-                  WattWatchApp.refreshAll();
+                try {
+                  const res = WattWatchStorage.migrateGuestData(user.uid);
+                  if (res && res.success) {
+                    WattWatchApp.showToast(`Transferred ${res.transferredAppliances} appliance(s) and ${res.transferredHistory} record(s) into your account in this browser.`, 'success', 'Data Merged');
+                    WattWatchApp.refreshAll();
+                  } else {
+                    const errorDetail = res && res.error ? res.error : 'Migration encountered an error.';
+                    WattWatchApp.showToast(`Unable to transfer guest data: ${errorDetail}. Guest data remains safely preserved in your browser.`, 'warning', 'Migration Incomplete');
+                  }
+                } catch (migrationErr) {
+                  console.error('[WattWatch Auth] Guest migration error during login:', migrationErr);
+                  WattWatchApp.showToast('Unable to transfer guest data. Your local guest records have been kept completely intact.', 'warning', 'Transfer Failed');
                 }
               }
             });

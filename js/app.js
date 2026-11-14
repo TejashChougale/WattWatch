@@ -274,15 +274,29 @@ const WattWatchApp = {
    */
   updateGlobalTariffPills(summary, settings, effectiveBill, advancedTariff) {
     const isSlab = settings.tariffModel === 'slab';
-    const rawRate = Number(settings.electricityRate);
-    const flatRate = (settings.electricityRate !== undefined && settings.electricityRate !== null && settings.electricityRate !== '' && !isNaN(rawRate) && rawRate >= 0)
-      ? rawRate
-      : 8.00;
-    const effectiveRate = isSlab ? advancedTariff.effectiveRatePerKwh : flatRate;
+    let effectiveRate = NaN;
+    let rateStr = '-- / kWh';
 
-    const rateStr = isSlab
-      ? `Slab Tariff (₹${effectiveRate.toFixed(2)}/kWh avg)`
-      : `${settings.currency || '₹'}${effectiveRate.toFixed(2)} / kWh`;
+    if (isSlab) {
+      if (advancedTariff && advancedTariff.isValid) {
+        effectiveRate = advancedTariff.effectiveRatePerKwh;
+        rateStr = Number.isFinite(effectiveRate)
+          ? `Slab Tariff (₹${effectiveRate.toFixed(2)}/kWh avg)`
+          : 'Slab Tariff (Configured)';
+      } else {
+        rateStr = 'Invalid Slab Configuration';
+      }
+    } else {
+      const validRate = (typeof WattWatchCalculations !== 'undefined')
+        ? WattWatchCalculations.validateTariffRate(settings.electricityRate, 8.00)
+        : Number(settings.electricityRate || 8.00);
+      if (Number.isFinite(validRate) && validRate >= 0) {
+        effectiveRate = validRate;
+        rateStr = `${settings.currency || '₹'}${effectiveRate.toFixed(2)} / kWh`;
+      } else {
+        rateStr = 'Invalid Flat Rate';
+      }
+    }
 
     const topbarTariff = document.getElementById('topbarTariffRate');
     if (topbarTariff) topbarTariff.textContent = rateStr;
@@ -292,12 +306,17 @@ const WattWatchApp = {
 
     const sidebarRate = document.getElementById('sidebarTariffVal');
     if (sidebarRate) {
-      sidebarRate.textContent = isSlab
-        ? `₹${effectiveRate.toFixed(2)}/u`
-        : `${settings.currency || '₹'}${effectiveRate.toFixed(2)}`;
-      sidebarRate.title = isSlab
-        ? `Progressive Slab Tariff: Effective rate is ₹${effectiveRate.toFixed(2)}/kWh across ${summary.totalMonthlyKwh.toFixed(1)} kWh`
-        : `Uniform Flat Rate: ₹${effectiveRate.toFixed(2)} per kWh`;
+      if (Number.isFinite(effectiveRate)) {
+        sidebarRate.textContent = isSlab
+          ? `₹${effectiveRate.toFixed(2)}/u`
+          : `${settings.currency || '₹'}${effectiveRate.toFixed(2)}`;
+        sidebarRate.title = isSlab
+          ? `Progressive Slab Tariff: Effective rate is ₹${effectiveRate.toFixed(2)}/kWh across ${Number.isFinite(summary.totalMonthlyKwh) ? summary.totalMonthlyKwh.toFixed(1) : 0} kWh`
+          : `Uniform Flat Rate: ₹${effectiveRate.toFixed(2)} per kWh`;
+      } else {
+        sidebarRate.textContent = '₹--';
+        sidebarRate.title = 'Invalid Tariff Configuration';
+      }
     }
 
     const sidebarLabel = document.querySelector('.sidebar-tariff-card .tariff-info-label');
@@ -307,7 +326,7 @@ const WattWatchApp = {
 
     const badge = document.getElementById('navApplianceCountBadge');
     if (badge) {
-      badge.textContent = summary.totalAppliancesCount.toString();
+      badge.textContent = (summary.totalAppliancesCount !== undefined ? summary.totalAppliancesCount : 0).toString();
     }
   },
 
@@ -328,15 +347,14 @@ const WattWatchApp = {
     // Update metric bill subtext with Effective Rate in slab mode
     const elBillSubtext = document.getElementById('metricBillSubtext');
     if (elBillSubtext) {
-      const rawRate = Number(settings.electricityRate);
-      const flatRate = (settings.electricityRate !== undefined && settings.electricityRate !== null && settings.electricityRate !== '' && !isNaN(rawRate) && rawRate >= 0)
-        ? rawRate
-        : 8.00;
-
-      if (settings.tariffModel === 'slab') {
-        const effRate = advancedTariff ? advancedTariff.effectiveRatePerKwh : (summary.totalMonthlyKwh > 0 ? effectiveBill / summary.totalMonthlyKwh : flatRate);
+      if (summary.isValid === false) {
+        elBillSubtext.innerHTML = `<span>Calculation unavailable: invalid appliance or tariff setting</span>`;
+      } else if (settings.tariffModel === 'slab') {
+        const effRate = advancedTariff ? advancedTariff.effectiveRatePerKwh : (summary.totalMonthlyKwh > 0 ? effectiveBill / summary.totalMonthlyKwh : 8.00);
         elBillSubtext.innerHTML = `<span>Effective Rate: <strong style="color: var(--royal-blue);">₹${effRate.toFixed(2)} / kWh</strong> (Slab)</span>`;
       } else {
+        const rateCheck = WattWatchCalculations.validateTariffRate(settings.electricityRate, 8.00);
+        const flatRate = !isNaN(rateCheck) ? rateCheck : 8.00;
         elBillSubtext.innerHTML = `<span>Flat rate at ₹${flatRate.toFixed(2)} / kWh</span>`;
       }
     }
@@ -375,6 +393,21 @@ const WattWatchApp = {
     const elPercent = document.getElementById('budgetCardPercent');
     const elProgress = document.getElementById('budgetCardProgressFill');
     const elBadge = document.getElementById('budgetCardBadge');
+
+    if (b.status === 'invalid') {
+      if (elAmount) elAmount.textContent = '₹-- (Invalid)';
+      if (elRemaining) elRemaining.textContent = 'Invalid budget setting';
+      if (elPercent) elPercent.textContent = '--%';
+      if (elProgress) {
+        elProgress.style.width = '0%';
+        elProgress.style.backgroundColor = 'var(--muted-slate)';
+      }
+      if (elBadge) {
+        elBadge.className = 'badge badge-outline';
+        elBadge.textContent = 'Invalid Budget';
+      }
+      return;
+    }
 
     if (!b.hasBudget) {
       if (elAmount) elAmount.textContent = '₹0.00 (Unset)';
@@ -901,6 +934,11 @@ const WattWatchApp = {
   bindModalKeyboards() {
     window.addEventListener('keydown', (e) => {
       if (e.key === 'Escape') {
+        const privacyModal = document.getElementById('privacyModal');
+        if (privacyModal && privacyModal.classList.contains('is-open')) {
+          this.closePrivacyModal();
+          return;
+        }
         WattWatchAppliances.closeModal();
         WattWatchHistory.closeDetailsModal();
         WattWatchReport.closeReportModal();
@@ -914,7 +952,7 @@ const WattWatchApp = {
       if (e.key === 'Tab') {
         let activeModal = this.modalManager ? this.modalManager.getTopModal() : null;
         if (!activeModal) {
-          const modalIds = ['confirmModal', 'applianceModal', 'historyDetailModal', 'reportModal', 'authModal'];
+          const modalIds = ['privacyModal', 'confirmModal', 'applianceModal', 'historyDetailModal', 'reportModal', 'authModal'];
           for (const id of modalIds) {
             const m = document.getElementById(id);
             if (m && m.classList.contains('is-open')) {
@@ -956,7 +994,8 @@ const WattWatchApp = {
       applianceModal: () => WattWatchAppliances.closeModal(),
       confirmModal: () => this.closeConfirmDialog(),
       historyDetailModal: () => WattWatchHistory.closeDetailsModal(),
-      reportModal: () => WattWatchReport.closeReportModal()
+      reportModal: () => WattWatchReport.closeReportModal(),
+      privacyModal: () => this.closePrivacyModal()
     };
 
     Object.keys(modalCloseMap).forEach(id => {
@@ -1146,6 +1185,73 @@ const WattWatchApp = {
   },
 
   /**
+   * Opens the dedicated Privacy & Data Architecture Notice modal
+   * @param {HTMLElement} [triggerElement]
+   */
+  openPrivacyModal(triggerElement) {
+    const modal = document.getElementById('privacyModal');
+    if (!modal) return;
+    const trigger = triggerElement || document.activeElement;
+    if (this.modalManager && typeof this.modalManager.open === 'function') {
+      this.modalManager.open(modal, trigger);
+    } else {
+      // Safe fallback when modalManager is unavailable
+      this._privacyFallbackTrigger = trigger;
+      const authModal = document.getElementById('authModal');
+      if (authModal && authModal.classList.contains('is-open') && 'inert' in authModal) {
+        authModal.inert = true;
+      }
+      this.setInertBackground(true);
+      modal.classList.add('is-open');
+      modal.setAttribute('aria-hidden', 'false');
+      if ('inert' in modal) modal.inert = false;
+    }
+    if (this._privacyFocusTimeout) {
+      clearTimeout(this._privacyFocusTimeout);
+      this._privacyFocusTimeout = null;
+    }
+    const closeBtn = document.getElementById('privacyModalCloseX') || modal.querySelector('button');
+    if (closeBtn) {
+      this._privacyFocusTimeout = setTimeout(() => {
+        this._privacyFocusTimeout = null;
+        if (modal.classList.contains('is-open') && modal.getAttribute('aria-hidden') === 'false') {
+          try { closeBtn.focus(); } catch (e) {}
+        }
+      }, 50);
+    }
+  },
+
+  /**
+   * Closes the dedicated Privacy & Data Architecture Notice modal
+   */
+  closePrivacyModal() {
+    if (this._privacyFocusTimeout) {
+      clearTimeout(this._privacyFocusTimeout);
+      this._privacyFocusTimeout = null;
+    }
+    const modal = document.getElementById('privacyModal');
+    if (!modal) return;
+    if (this.modalManager && typeof this.modalManager.close === 'function') {
+      this.modalManager.close(modal);
+    } else {
+      // Safe fallback restoration
+      modal.classList.remove('is-open');
+      modal.setAttribute('aria-hidden', 'true');
+      if ('inert' in modal) modal.inert = false;
+      const authModal = document.getElementById('authModal');
+      if (authModal && authModal.classList.contains('is-open')) {
+        if ('inert' in authModal) authModal.inert = false;
+      } else {
+        this.setInertBackground(false);
+      }
+      if (this._privacyFallbackTrigger && typeof this._privacyFallbackTrigger.focus === 'function') {
+        try { this._privacyFallbackTrigger.focus(); } catch (e) {}
+      }
+      this._privacyFallbackTrigger = null;
+    }
+  },
+
+  /**
    * Renders or hides the first-time user guidance card based on saved dismissal state
    */
   renderFirstTimeGuide() {
@@ -1320,18 +1426,18 @@ const WattWatchApp = {
         <div class="metric-card">
           <span class="metric-title">Current Month (Projected)</span>
           <div class="metric-value">${currentKwh.toFixed(1)} <span style="font-size: 0.9rem; font-weight: 500;">kWh</span></div>
-          <div class="metric-subtext">${currentMonthLabel} · ${WattWatchCalculations.formatCurrency(currentCost)}</div>
+          <div class="metric-subtext">${WattWatchAppliances.escapeHtml(currentMonthLabel)} · ${WattWatchCalculations.formatCurrency(currentCost)}</div>
         </div>
 
         <div class="metric-card">
-          <span class="metric-title">Previous Month (${prevMonthLabel})</span>
+          <span class="metric-title">Previous Month (${WattWatchAppliances.escapeHtml(prevMonthLabel)})</span>
           <div class="metric-value">${prevKwh.toFixed(1)} <span style="font-size: 0.9rem; font-weight: 500;">kWh</span></div>
           <div class="metric-subtext">Recorded Snapshot · ${WattWatchCalculations.formatCurrency(prevCost)}</div>
         </div>
 
         <div class="metric-card">
           <div class="metric-card-header">
-            <span class="metric-title">Energy Variance vs ${prevMonth.label}</span>
+            <span class="metric-title">Energy Variance vs ${WattWatchAppliances.escapeHtml(prevMonth.label)}</span>
             <span class="badge ${kwhBadgeClass}">${kwhIcon} ${Math.abs(kwhPercentDiff).toFixed(1)}%</span>
           </div>
           <div class="metric-value" style="color: ${isKwhInc ? 'var(--deep-burgundy)' : (isKwhDec ? 'var(--royal-blue)' : 'var(--text-primary)')}; font-size: 1.15rem;">
@@ -1347,7 +1453,7 @@ const WattWatchApp = {
       <div style="background: var(--bg-surface-elevated, rgba(15, 23, 42, 0.02)); border: 1px solid var(--border-card); border-radius: var(--radius-md); padding: 1rem;">
         <div style="margin-bottom: 0.75rem;">
           <div style="display: flex; justify-content: space-between; font-size: 0.8rem; margin-bottom: 0.35rem;">
-            <span style="font-weight: 600; color: var(--text-primary);">Current (${currentMonthLabel})</span>
+            <span style="font-weight: 600; color: var(--text-primary);">Current (${WattWatchAppliances.escapeHtml(currentMonthLabel)})</span>
             <span style="color: var(--royal-blue); font-weight: 700;">${currentKwh.toFixed(1)} kWh</span>
           </div>
           <div style="height: 10px; background: rgba(0,0,0,0.06); border-radius: 5px; overflow: hidden;">
@@ -1357,7 +1463,7 @@ const WattWatchApp = {
 
         <div>
           <div style="display: flex; justify-content: space-between; font-size: 0.8rem; margin-bottom: 0.35rem;">
-            <span style="font-weight: 600; color: var(--text-primary);">${prevMonthLabel}</span>
+            <span style="font-weight: 600; color: var(--text-primary);">${WattWatchAppliances.escapeHtml(prevMonthLabel)}</span>
             <span style="color: var(--antique-gold); font-weight: 700;">${prevKwh.toFixed(1)} kWh</span>
           </div>
           <div style="height: 10px; background: rgba(0,0,0,0.06); border-radius: 5px; overflow: hidden;">

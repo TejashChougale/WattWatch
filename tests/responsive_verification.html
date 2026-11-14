@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <script>
-    window.__wattwatchLocalTestAllowed = ['localhost', '127.0.0.1', '[::1]'].includes(location.hostname);
+    window.__wattwatchLocalTestAllowed = ['localhost', '127.0.0.1', '[::1]'].includes(location.hostname) || location.protocol === 'file:' || location.hostname === '';
   </script>
   <title>WattWatch Comprehensive Responsive Verification</title>
   <style>

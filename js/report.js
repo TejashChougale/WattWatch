@@ -98,12 +98,25 @@ const WattWatchReport = {
 
     const selectedVal = select.value;
     const settings = WattWatchStorage.getSettings();
+    const btnPrint = document.getElementById('btnExecutePrintReport');
     let reportData = null;
 
     if (selectedVal === 'current') {
       const appliances = WattWatchStorage.getAppliances();
       const summary = WattWatchCalculations.calculateHouseholdSummary(appliances, settings);
       const tariff = summary.advancedTariff || WattWatchCalculations.calculateAdvancedTariff(summary.totalMonthlyKwh, settings);
+
+      if (!summary.isValid || !tariff.isValid) {
+        if (btnPrint) btnPrint.disabled = true;
+        container.innerHTML = `
+          <div style="margin: 2rem; padding: 1.5rem; border: 1px solid #A92639; border-radius: 8px; background: rgba(169, 38, 57, 0.08); color: #172B55;">
+            <h3 style="color: #A92639; margin-top: 0; font-family: var(--font-heading);">Report Generation Unavailable</h3>
+            <p style="margin-bottom: 0; font-size: 0.95rem;">Current household inventory contains invalid numeric entries or invalid tariff configuration. Please correct invalid appliance parameters or tariff settings to generate an official energy audit report.</p>
+          </div>
+        `;
+        return;
+      }
+      if (btnPrint) btnPrint.disabled = false;
 
       const now = new Date();
       const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
@@ -127,6 +140,19 @@ const WattWatchReport = {
       const history = WattWatchStorage.getHistory();
       const snap = history.find(h => h.id === selectedVal);
       if (!snap) return;
+
+      const snapVal = WattWatchStorage.validateSnapshot(snap);
+      if (!snapVal.valid) {
+        if (btnPrint) btnPrint.disabled = true;
+        container.innerHTML = `
+          <div style="margin: 2rem; padding: 1.5rem; border: 1px solid #A92639; border-radius: 8px; background: rgba(169, 38, 57, 0.08); color: #172B55;">
+            <h3 style="color: #A92639; margin-top: 0; font-family: var(--font-heading);">Historical Snapshot Corrupted</h3>
+            <p style="margin-bottom: 0; font-size: 0.95rem;">Selected historical record failed integrity verification and cannot be formatted into a report.</p>
+          </div>
+        `;
+        return;
+      }
+      if (btnPrint) btnPrint.disabled = false;
 
       reportData = {
         period: snap.period,

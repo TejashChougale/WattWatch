@@ -166,17 +166,24 @@ const WattWatchAppliances = {
    * Calculates and refreshes the live calculation preview box inside the modal
    */
   updateModalLivePreview() {
-    const power = parseFloat(document.getElementById('modalPowerWatts')?.value) || 0;
-    const qty = parseInt(document.getElementById('modalQuantity')?.value, 10) || 0;
-    const hours = parseFloat(document.getElementById('modalDailyHours')?.value) || 0;
-    const days = parseInt(document.getElementById('modalOperatingDays')?.value, 10) || 0;
+    const rawPower = document.getElementById('modalPowerWatts')?.value;
+    const power = (rawPower !== undefined && rawPower !== null && rawPower.trim() !== '') ? Number(rawPower) : NaN;
+
+    const rawQty = document.getElementById('modalQuantity')?.value;
+    const qty = (rawQty !== undefined && rawQty !== null && rawQty.trim() !== '') ? Number(rawQty) : NaN;
+
+    const rawHours = document.getElementById('modalDailyHours')?.value;
+    const hours = (rawHours !== undefined && rawHours !== null && rawHours.trim() !== '') ? Number(rawHours) : NaN;
+
+    const rawDays = document.getElementById('modalOperatingDays')?.value;
+    const days = (rawDays !== undefined && rawDays !== null && rawDays.trim() !== '') ? Number(rawDays) : NaN;
 
     const settings = WattWatchStorage.getSettings();
     let rate = 8.00;
     if (settings.tariffModel === 'slab') {
       const curAppliances = WattWatchStorage.getAppliances();
       const curSummary = WattWatchCalculations.calculateHouseholdSummary(curAppliances, settings);
-      rate = curSummary.effectiveRatePerKwh;
+      rate = curSummary.isValid ? curSummary.effectiveRatePerKwh : NaN;
     } else {
       const rawRate = Number(settings.electricityRate);
       rate = (settings.electricityRate !== undefined && settings.electricityRate !== null && settings.electricityRate !== '' && !isNaN(rawRate) && rawRate >= 0)
@@ -192,8 +199,8 @@ const WattWatchAppliances = {
     const elMonthly = document.getElementById('previewMonthlyKwh');
     const elCost = document.getElementById('previewMonthlyCost');
 
-    if (elDaily) elDaily.textContent = `${dailyKwh.toFixed(2)} kWh`;
-    if (elMonthly) elMonthly.textContent = `${monthlyKwh.toFixed(2)} kWh`;
+    if (elDaily) elDaily.textContent = WattWatchCalculations.formatKwh(dailyKwh);
+    if (elMonthly) elMonthly.textContent = WattWatchCalculations.formatKwh(monthlyKwh);
     if (elCost) elCost.textContent = WattWatchCalculations.formatCurrency(monthlyCost, settings.currency);
   },
 
@@ -578,11 +585,11 @@ const WattWatchAppliances = {
         </td>
         <td>
           <span class="kwh-val">${WattWatchCalculations.formatKwh(app.monthlyKwh)}</span>
-          <div style="font-size: 0.72rem; color: var(--text-secondary);">${(Number(app.dailyKwh) || 0).toFixed(2)} kWh/day</div>
+          <div style="font-size: 0.72rem; color: var(--text-secondary);">${WattWatchCalculations.isFiniteNumber(app.dailyKwh) ? Number(app.dailyKwh).toFixed(2) : '--'} kWh/day</div>
         </td>
         <td>
           <span class="cost-val">${WattWatchCalculations.formatCurrency(app.monthlyCost)}</span>
-          <div style="font-size: 0.72rem; color: var(--text-secondary);">${(Number(app.sharePercentage) || 0).toFixed(1)}% of bill</div>
+          <div style="font-size: 0.72rem; color: var(--text-secondary);">${WattWatchCalculations.isFiniteNumber(app.sharePercentage) ? Number(app.sharePercentage).toFixed(1) : '0.0'}% of bill</div>
         </td>
         <td>
           <div class="table-actions">

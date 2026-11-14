@@ -7,16 +7,170 @@
 
 const WattWatchCalculations = {
   /**
+   * Centralized Numeric Validation Helpers
+   */
+
+  /**
+   * Validates whether a value is a strictly finite numeric quantity.
+   * Rejects NaN, Infinity, -Infinity, null, undefined, booleans, and empty strings.
+   * @param {*} val
+   * @returns {boolean}
+   */
+  isFiniteNumber(val) {
+    if (val === null || val === undefined || typeof val === 'boolean') return false;
+    if (typeof val === 'string' && val.trim() === '') return false;
+    const num = Number(val);
+    return typeof num === 'number' && Number.isFinite(num);
+  },
+
+  /**
+   * Validates appliance nominal power in Watts (0 to 50,000 W).
+   * Rejects negative numbers, non-finite values, and excessive ratings (> 50,000 W).
+   * Preserves explicit 0 Watts.
+   * @param {*} watts
+   * @param {number|undefined} defaultValue
+   * @returns {number} Validated wattage or defaultValue / NaN
+   */
+  validatePowerWatts(watts, defaultValue = undefined) {
+    if (watts === undefined) return defaultValue !== undefined ? defaultValue : NaN;
+    if (!this.isFiniteNumber(watts)) return NaN;
+    const num = Number(watts);
+    if (num < 0 || num > 50000) return NaN;
+    return num;
+  },
+
+  /**
+   * Validates appliance unit count.
+   * Must be a non-negative whole integer (rejects decimals, negatives, and non-finite values).
+   * By default, inventory appliances require quantity >= 1.
+   * In replacement simulations or math contexts, allowZero can be true.
+   * @param {*} qty
+   * @param {boolean} allowZero
+   * @param {number|undefined} defaultValue
+   * @returns {number} Validated integer quantity or defaultValue / NaN
+   */
+  validateQuantity(qty, allowZero = false, defaultValue = undefined) {
+    if (qty === undefined) return defaultValue !== undefined ? defaultValue : NaN;
+    if (!this.isFiniteNumber(qty)) return NaN;
+    const num = Number(qty);
+    if (!Number.isInteger(num)) return NaN;
+    if (allowZero ? num < 0 : num < 1) return NaN;
+    if (num > 1000) return NaN;
+    return num;
+  },
+
+  /**
+   * Validates daily operating hours (0 to 24 hours).
+   * Rejects negative values, values > 24, and non-finite values without silent clamping.
+   * Preserves explicit 0 hours.
+   * @param {*} hours
+   * @param {number|undefined} defaultValue
+   * @returns {number} Validated daily hours or defaultValue / NaN
+   */
+  validateDailyHours(hours, defaultValue = undefined) {
+    if (hours === undefined) return defaultValue !== undefined ? defaultValue : NaN;
+    if (!this.isFiniteNumber(hours)) return NaN;
+    const num = Number(hours);
+    if (num < 0 || num > 24) return NaN;
+    return num;
+  },
+
+  /**
+   * Validates monthly operating days (integer between 0 and 31).
+   * Rejects negative values, values > 31, non-integers, and non-finite values without silent clamping.
+   * Preserves explicit 0 days (e.g. seasonal appliances).
+   * @param {*} days
+   * @param {boolean} allowZero
+   * @param {number|undefined} defaultValue
+   * @returns {number} Validated operating days or defaultValue / NaN
+   */
+  validateOperatingDays(days, allowZero = true, defaultValue = undefined) {
+    if (days === undefined) return defaultValue !== undefined ? defaultValue : NaN;
+    if (!this.isFiniteNumber(days)) return NaN;
+    const num = Number(days);
+    if (!Number.isInteger(num)) return NaN;
+    if (allowZero ? (num < 0 || num > 31) : (num < 1 || num > 31)) return NaN;
+    return num;
+  },
+
+  /**
+   * Validates electricity price rate per kWh (₹/kWh).
+   * Must be a non-negative finite number.
+   * If rate is genuinely omitted (undefined), applies defaultValue.
+   * If explicitly supplied and invalid, returns NaN.
+   * @param {*} rate
+   * @param {number} defaultValue
+   * @returns {number} Validated tariff rate
+   */
+  validateTariffRate(rate, defaultValue = 8.00) {
+    if (rate === undefined) return defaultValue;
+    if (!this.isFiniteNumber(rate)) return NaN;
+    const num = Number(rate);
+    if (num < 0) return NaN;
+    return num;
+  },
+
+  /**
+   * Validates monthly fixed meter charge in currency.
+   * Must be a non-negative finite number.
+   * If fixed is genuinely omitted (undefined), applies defaultValue (0).
+   * If explicitly supplied and invalid, returns NaN.
+   * @param {*} fixed
+   * @param {number} defaultValue
+   * @returns {number} Validated fixed charge
+   */
+  validateFixedCharge(fixed, defaultValue = 0) {
+    if (fixed === undefined) return defaultValue;
+    if (!this.isFiniteNumber(fixed)) return NaN;
+    const num = Number(fixed);
+    if (num < 0) return NaN;
+    return num;
+  },
+
+  /**
+   * Validates additional tax/duty percentage (0% to 100%).
+   * Must be a finite number between 0 and 100.
+   * If tax is genuinely omitted (undefined), applies defaultValue (0).
+   * If explicitly supplied and invalid, returns NaN.
+   * @param {*} tax
+   * @param {number} defaultValue
+   * @returns {number} Validated tax percentage
+   */
+  validateTaxPercent(tax, defaultValue = 0) {
+    if (tax === undefined) return defaultValue;
+    if (!this.isFiniteNumber(tax)) return NaN;
+    const num = Number(tax);
+    if (num < 0 || num > 100) return NaN;
+    return num;
+  },
+
+  /**
+   * Validates any general non-negative finite numeric quantity (e.g. kWh, costs, budgets).
+   * Rejects negative numbers and non-finite values.
+   * @param {*} val
+   * @param {number|undefined} defaultValue
+   * @returns {number} Validated non-negative number or defaultValue / NaN
+   */
+  validateNonNegative(val, defaultValue = undefined) {
+    if (val === undefined) return defaultValue !== undefined ? defaultValue : NaN;
+    if (!this.isFiniteNumber(val)) return NaN;
+    const num = Number(val);
+    if (num < 0) return NaN;
+    return num;
+  },
+
+  /**
    * Calculates daily energy consumption in kWh
    * @param {number} powerWatts - Nominal wattage (W)
    * @param {number} quantity - Number of units
    * @param {number} dailyHours - Daily active operating hours (0 - 24)
-   * @returns {number} Daily consumption in kWh
+   * @returns {number} Daily consumption in kWh (or NaN if invalid)
    */
-  calculateDailyKwh(powerWatts, quantity = 1, dailyHours = 0) {
-    const p = Math.max(0, Number(powerWatts) || 0);
-    const q = Math.max(1, Number(quantity) || 1);
-    const h = Math.min(24, Math.max(0, Number(dailyHours) || 0));
+  calculateDailyKwh(powerWatts = 0, quantity = 1, dailyHours = 0) {
+    const p = this.validatePowerWatts(powerWatts, 0);
+    const q = this.validateQuantity(quantity, true, 1);
+    const h = this.validateDailyHours(dailyHours, 0);
+    if (isNaN(p) || isNaN(q) || isNaN(h)) return NaN;
     return (p * q * h) / 1000;
   },
 
@@ -25,14 +179,15 @@ const WattWatchCalculations = {
    * @param {number} powerWatts - Nominal wattage (W)
    * @param {number} quantity - Number of units
    * @param {number} dailyHours - Daily active operating hours (0 - 24)
-   * @param {number} operatingDays - Operating days per month (1 - 31)
-   * @returns {number} Monthly consumption in kWh
+   * @param {number} operatingDays - Operating days per month (0 - 31)
+   * @returns {number} Monthly consumption in kWh (or NaN if invalid)
    */
-  calculateMonthlyKwh(powerWatts, quantity = 1, dailyHours = 0, operatingDays = 30) {
-    const p = Math.max(0, Number(powerWatts) || 0);
-    const q = Math.max(1, Number(quantity) || 1);
-    const h = Math.min(24, Math.max(0, Number(dailyHours) || 0));
-    const d = Math.min(31, Math.max(1, Number(operatingDays) || 30));
+  calculateMonthlyKwh(powerWatts = 0, quantity = 1, dailyHours = 0, operatingDays = 30) {
+    const p = this.validatePowerWatts(powerWatts, 0);
+    const q = this.validateQuantity(quantity, true, 1);
+    const h = this.validateDailyHours(dailyHours, 0);
+    const d = this.validateOperatingDays(operatingDays, true, 30);
+    if (isNaN(p) || isNaN(q) || isNaN(h) || isNaN(d)) return NaN;
     return (p * q * h * d) / 1000;
   },
 
@@ -40,12 +195,33 @@ const WattWatchCalculations = {
    * Calculates estimated electricity cost using a flat rate per kWh
    * @param {number} energyKwh - Energy consumed in kWh
    * @param {number} ratePerKwh - Electricity price per unit (₹/kWh)
-   * @returns {number} Cost in currency
+   * @returns {number} Cost in currency (or NaN if invalid)
    */
-  calculateCost(energyKwh, ratePerKwh = 8.00) {
-    const kwh = Math.max(0, Number(energyKwh) || 0);
-    const rate = Math.max(0, Number(ratePerKwh) || 0);
+  calculateCost(energyKwh = 0, ratePerKwh = 8.00) {
+    const kwh = this.validateNonNegative(energyKwh, 0);
+    const rate = this.validateTariffRate(ratePerKwh, 8.00);
+    if (isNaN(kwh) || isNaN(rate)) return NaN;
     return kwh * rate;
+  },
+
+  /**
+   * Helper creating an invalid tariff result object
+   * @private
+   */
+  _createInvalidTariffResult(totalKwh, model = 'flat', error = 'Invalid tariff calculation parameters') {
+    return {
+      isValid: false,
+      error,
+      model,
+      totalKwh: typeof totalKwh === 'number' ? totalKwh : NaN,
+      energyCharges: NaN,
+      fixedCharge: NaN,
+      taxPercent: NaN,
+      taxCharges: NaN,
+      totalCost: NaN,
+      effectiveRatePerKwh: NaN,
+      slabBreakdown: []
+    };
   },
 
   /**
@@ -55,47 +231,68 @@ const WattWatchCalculations = {
    * @param {Object} settings - Full or partial settings object
    * @returns {Object} Comprehensive tariff breakdown
    */
-  calculateAdvancedTariff(totalKwh, settings = {}) {
-    const kwh = Math.max(0, Number(totalKwh) || 0);
-    const model = settings.tariffModel || 'flat';
-    const rawFlat = Number(settings.electricityRate);
-    const flatRate = (settings.electricityRate !== undefined && settings.electricityRate !== null && settings.electricityRate !== '' && !isNaN(rawFlat))
-      ? Math.max(0, rawFlat)
-      : 8.00;
+  calculateAdvancedTariff(totalKwh = 0, settings = {}) {
+    const safeSettings = (settings && typeof settings === 'object' && !Array.isArray(settings)) ? settings : {};
+    const model = safeSettings.tariffModel || 'flat';
 
-    const rawFixed = Number(settings.fixedCharges);
-    const fixedCharge = (settings.fixedCharges !== undefined && settings.fixedCharges !== null && settings.fixedCharges !== '' && !isNaN(rawFixed))
-      ? Math.max(0, rawFixed)
-      : 0;
+    if (!this.isFiniteNumber(totalKwh) || Number(totalKwh) < 0) {
+      return this._createInvalidTariffResult(totalKwh, model, 'Consumption (kWh) must be a non-negative finite number');
+    }
+    const kwh = Number(totalKwh);
 
-    const rawTax = Number(settings.additionalTaxPercent);
-    const taxPercent = (settings.additionalTaxPercent !== undefined && settings.additionalTaxPercent !== null && settings.additionalTaxPercent !== '' && !isNaN(rawTax))
-      ? Math.max(0, rawTax)
-      : 0;
+    // Flat rate validation:
+    // If explicitly supplied, negative, malformed, NaN, or Infinity must invalidate tariff.
+    // Apply default (8.00) only when genuinely omitted (undefined).
+    const flatRate = this.validateTariffRate(safeSettings.electricityRate, 8.00);
+    if (isNaN(flatRate)) {
+      return this._createInvalidTariffResult(totalKwh, model, 'Electricity rate must be a non-negative finite number');
+    }
+
+    // Fixed charges validation:
+    // If explicitly supplied, negative, malformed, NaN, or Infinity must invalidate tariff.
+    // Apply default (0) only when genuinely omitted (undefined).
+    const fixedCharge = this.validateFixedCharge(safeSettings.fixedCharges, 0);
+    if (isNaN(fixedCharge)) {
+      return this._createInvalidTariffResult(totalKwh, model, 'Fixed charges must be a non-negative finite number');
+    }
+
+    // Additional tax percentage validation:
+    // Must be finite and between 0 and 100.
+    // Apply default (0) only when genuinely omitted (undefined).
+    const taxPercent = this.validateTaxPercent(safeSettings.additionalTaxPercent, 0);
+    if (isNaN(taxPercent)) {
+      return this._createInvalidTariffResult(totalKwh, model, 'Additional tax percent must be a finite number between 0 and 100');
+    }
 
     let energyCharges = 0;
     const slabBreakdown = [];
 
-    if (model === 'slab' && Array.isArray(settings.slabConfig) && settings.slabConfig.length > 0) {
+    if (model === 'slab') {
+      // Do not silently fall back to flat tariff when explicitly supplied slab configuration is invalid. Return an explicit invalid result.
+      if (!Array.isArray(safeSettings.slabConfig) || safeSettings.slabConfig.length === 0) {
+        return this._createInvalidTariffResult(totalKwh, model, 'Slab configuration must be a non-empty array');
+      }
+
+      const candidateSlabs = safeSettings.slabConfig;
+      const validConfig = candidateSlabs.every((slab, index) => {
+        if (!slab || typeof slab !== 'object' || Array.isArray(slab)) return false;
+        if (!this.isFiniteNumber(slab.rate) || Number(slab.rate) < 0) return false;
+        if (slab.upTo === null) return index === candidateSlabs.length - 1;
+        if (!this.isFiniteNumber(slab.upTo) || Number(slab.upTo) <= 0) return false;
+        return index === 0 || Number(slab.upTo) > Number(candidateSlabs[index - 1].upTo);
+      });
+
+      if (!validConfig) {
+        return this._createInvalidTariffResult(totalKwh, model, 'Slab configuration contains invalid, negative, or non-progressive bounds/rates');
+      }
+
+      const validSlabs = candidateSlabs.map(slab => ({
+        upTo: slab.upTo === null ? null : Number(slab.upTo),
+        rate: Number(slab.rate)
+      }));
+
       let remainingKwh = kwh;
       let lowerBound = 0;
-
-      // Accept only a strictly increasing slab schedule with one open-ended final tier.
-      const candidateSlabs = settings.slabConfig;
-      const validConfig = candidateSlabs.length > 0
-        && candidateSlabs[candidateSlabs.length - 1]?.upTo === null
-        && candidateSlabs.every((slab, index) => {
-          if (!slab || typeof slab !== 'object' || Array.isArray(slab)) return false;
-          const rate = Number(slab.rate);
-          if (!Number.isFinite(rate) || rate < 0) return false;
-          if (slab.upTo === null) return index === candidateSlabs.length - 1;
-          const limit = Number(slab.upTo);
-          return Number.isFinite(limit) && limit > 0
-            && (index === 0 || limit > Number(candidateSlabs[index - 1].upTo));
-        });
-      const validSlabs = validConfig
-        ? candidateSlabs.map(slab => ({ upTo: slab.upTo === null ? null : Number(slab.upTo), rate: Number(slab.rate) }))
-        : [{ upTo: null, rate: flatRate }];
 
       for (let i = 0; i < validSlabs.length; i++) {
         const slab = validSlabs[i];
@@ -129,13 +326,29 @@ const WattWatchCalculations = {
         });
       }
 
-      // The final validated tier is open-ended, so no excess fallback is needed.
+      // If consumption remains above the highest slab upper bound (capped final slab),
+      // bill excess consumption at the highest slab's rate (preserving M6 capped tariff slab fix)
+      if (remainingKwh > 0 && validSlabs.length > 0) {
+        const lastSlab = validSlabs[validSlabs.length - 1];
+        const lastRate = lastSlab.rate;
+        const costInExcess = remainingKwh * lastRate;
+        energyCharges += costInExcess;
+
+        slabBreakdown.push({
+          tier: validSlabs.length + 1,
+          label: `Excess above ${lastSlab.upTo || lowerBound} kWh`,
+          units: remainingKwh,
+          rate: lastRate,
+          cost: costInExcess
+        });
+        remainingKwh = 0;
+      }
     } else {
       // Standard Flat Rate model
       energyCharges = kwh * flatRate;
       slabBreakdown.push({
         tier: 1,
-        label: `All consumption (Flat rate)`,
+        label: 'All consumption (Flat rate)',
         units: kwh,
         rate: flatRate,
         cost: energyCharges
@@ -148,8 +361,9 @@ const WattWatchCalculations = {
     const effectiveRatePerKwh = kwh > 0 ? totalCost / kwh : flatRate;
 
     return {
+      isValid: true,
       model,
-      totalKwh,
+      totalKwh: kwh,
       energyCharges,
       fixedCharge,
       taxPercent,
@@ -167,10 +381,33 @@ const WattWatchCalculations = {
    * @returns {Object} Budget tracking status
    */
   calculateBudgetStatus(estimatedMonthlyBill, budgetInr) {
-    const bill = Math.max(0, Number(estimatedMonthlyBill) || 0);
-    const budget = Math.max(0, Number(budgetInr) || 0);
+    // 1. Bill validity check: must be a finite number >= 0.
+    // An invalid estimated bill must return status 'invalid', even when budget is zero, null or unset.
+    // Never convert invalid bill values into zero.
+    const isBillValid = this.isFiniteNumber(estimatedMonthlyBill) && Number(estimatedMonthlyBill) >= 0;
+    if (!isBillValid) {
+      const rawBudget = Number(budgetInr);
+      const safeBudget = (this.isFiniteNumber(budgetInr) && rawBudget >= 0) ? rawBudget : NaN;
+      return {
+        hasBudget: false,
+        budget: safeBudget,
+        estimatedBill: NaN,
+        remaining: NaN,
+        utilizationPercent: NaN,
+        status: 'invalid',
+        statusLabel: 'Invalid Bill',
+        warningLevel: null,
+        message: 'Estimated bill amount is invalid, negative, or non-finite.'
+      };
+    }
 
-    if (budget <= 0) {
+    const bill = Number(estimatedMonthlyBill);
+
+    // 2. Budget unset check: undefined, null, '', 0, or '0'
+    const isBudgetUnset = budgetInr === undefined || budgetInr === null || budgetInr === '' ||
+      (this.isFiniteNumber(budgetInr) && Number(budgetInr) === 0);
+
+    if (isBudgetUnset) {
       return {
         hasBudget: false,
         budget: 0,
@@ -184,6 +421,23 @@ const WattWatchCalculations = {
       };
     }
 
+    // 3. Budget invalid check: negative, NaN, Infinity, malformed string, boolean
+    const isBudgetValid = this.isFiniteNumber(budgetInr) && Number(budgetInr) > 0;
+    if (!isBudgetValid) {
+      return {
+        hasBudget: false,
+        budget: NaN,
+        estimatedBill: bill,
+        remaining: NaN,
+        utilizationPercent: NaN,
+        status: 'invalid',
+        statusLabel: 'Invalid Budget',
+        warningLevel: null,
+        message: 'Monthly budget must be a positive number.'
+      };
+    }
+
+    const budget = Number(budgetInr);
     const remaining = budget - bill;
     const utilizationPercent = (bill / budget) * 100;
 
@@ -224,23 +478,48 @@ const WattWatchCalculations = {
 
   /**
    * Month-to-Month Comparison: Calculates differentials between two billing snapshots
-   * Includes robust zero-division safety handling.
+   * Includes robust zero-division safety and numeric integrity verification.
    * @param {Object} snapA - Base/earlier period snapshot
    * @param {Object} snapB - Target/later period snapshot
-   * @returns {Object} Comparative deltas and percentage changes
+   * @returns {Object|null} Comparative deltas and percentage changes
    */
   compareSnapshots(snapA, snapB) {
-    if (!snapA || !snapB) return null;
+    if (!snapA || !snapB || typeof snapA !== 'object' || typeof snapB !== 'object') return null;
 
-    const kwhA = Math.max(0, Number(snapA.totalKwh) || 0);
-    const kwhB = Math.max(0, Number(snapB.totalKwh) || 0);
-    const costA = Math.max(0, Number(snapA.totalCost) || 0);
-    const costB = Math.max(0, Number(snapB.totalCost) || 0);
+    const validA = this.isFiniteNumber(snapA.totalKwh) && Number(snapA.totalKwh) >= 0 &&
+                   this.isFiniteNumber(snapA.totalCost) && Number(snapA.totalCost) >= 0;
+    const validB = this.isFiniteNumber(snapB.totalKwh) && Number(snapB.totalKwh) >= 0 &&
+                   this.isFiniteNumber(snapB.totalCost) && Number(snapB.totalCost) >= 0;
+
+    if (!validA || !validB) {
+      return {
+        isValid: false,
+        periodA: snapA.period || null,
+        periodLabelA: snapA.periodLabel || snapA.period || null,
+        periodB: snapB.period || null,
+        periodLabelB: snapB.periodLabel || snapB.period || null,
+        kwhA: validA ? Number(snapA.totalKwh) : NaN,
+        kwhB: validB ? Number(snapB.totalKwh) : NaN,
+        costA: validA ? Number(snapA.totalCost) : NaN,
+        costB: validB ? Number(snapB.totalCost) : NaN,
+        kwhDiff: NaN,
+        costDiff: NaN,
+        kwhPercentDiff: NaN,
+        costPercentDiff: NaN,
+        kwhIncreased: false,
+        costIncreased: false,
+        isIdentical: false
+      };
+    }
+
+    const kwhA = Number(snapA.totalKwh);
+    const kwhB = Number(snapB.totalKwh);
+    const costA = Number(snapA.totalCost);
+    const costB = Number(snapB.totalCost);
 
     const kwhDiff = kwhB - kwhA;
     const costDiff = costB - costA;
 
-    // Zero-division safety for percentage calculations
     let kwhPercentDiff = 0;
     if (kwhA > 0) {
       kwhPercentDiff = ((kwhB - kwhA) / kwhA) * 100;
@@ -256,6 +535,7 @@ const WattWatchCalculations = {
     }
 
     return {
+      isValid: true,
       periodA: snapA.period,
       periodLabelA: snapA.periodLabel || snapA.period,
       periodB: snapB.period,
@@ -275,6 +555,46 @@ const WattWatchCalculations = {
   },
 
   /**
+   * Helper creating an invalid simulation result object
+   * @private
+   */
+  _createInvalidSimulationResult(baselineAppliance, error = 'Invalid simulation parameters') {
+    return {
+      isValid: false,
+      error,
+      baseline: {
+        name: baselineAppliance?.name || 'Baseline',
+        watts: NaN,
+        hours: NaN,
+        days: NaN,
+        quantity: NaN,
+        monthlyKwh: NaN,
+        monthlyCost: NaN
+      },
+      replacement: {
+        watts: NaN,
+        hours: NaN,
+        days: NaN,
+        quantity: NaN,
+        monthlyKwh: NaN,
+        monthlyCost: NaN
+      },
+      savings: {
+        monthlyKwhSaved: NaN,
+        monthlyCostSaved: NaN,
+        annualKwhSaved: NaN,
+        annualCostSaved: NaN,
+        percentSaved: NaN,
+        isSaving: false,
+        upfrontCost: NaN,
+        paybackMonths: null
+      },
+      tariffMode: 'flat',
+      effectiveRate: NaN
+    };
+  },
+
+  /**
    * Appliance Replacement Simulator: Evaluates energy, bill, and ROI payback
    * between an existing baseline appliance and a prospective alternative.
    * Supports both uniform flat rates and active progressive multi-slab tariffs.
@@ -282,22 +602,41 @@ const WattWatchCalculations = {
    * @param {number} altWatts - Prospective alternative power rating
    * @param {number} altDailyHours - Prospective daily operating hours
    * @param {number} altDays - Operating days per month
-   * @param {number} altQty - Units quantity
+   * @param {number} altQty - Units quantity (0 allowed for intentional removal)
    * @param {number|Object} rateOrSettings - Electricity tariff rate or full settings object
    * @param {number} purchaseCostInr - Optional upfront purchase cost of new appliance
    * @param {number} householdTotalKwh - Optional total household monthly consumption for marginal slab savings
-   * @returns {Object} Comparative metrics & savings
+   * @returns {Object|null} Comparative metrics & savings
    */
   simulateReplacement(baselineAppliance, altWatts, altDailyHours, altDays, altQty, rateOrSettings = 8.00, purchaseCostInr = 0, householdTotalKwh = 0) {
-    const baseW = Number(baselineAppliance.powerWatts) || 0;
-    const baseH = Number(baselineAppliance.dailyHours) || 0;
-    const baseD = Number(baselineAppliance.operatingDays) || 30;
-    const baseQ = Number(baselineAppliance.quantity) || 1;
+    if (!baselineAppliance || typeof baselineAppliance !== 'object') {
+      return null;
+    }
 
-    const newW = Math.max(0, Number(altWatts) || 0);
-    const newH = Math.min(24, Math.max(0, Number(altDailyHours) || 0));
-    const newD = Math.min(31, Math.max(1, Number(altDays) || baseD));
-    const newQ = Math.max(1, Number(altQty) || baseQ);
+    const baseW = this.validatePowerWatts(baselineAppliance.powerWatts, 0);
+    const baseH = this.validateDailyHours(baselineAppliance.dailyHours, 0);
+    const baseD = this.validateOperatingDays(baselineAppliance.operatingDays, true, 30);
+    const baseQ = this.validateQuantity(baselineAppliance.quantity, true, 1);
+
+    const newW = this.validatePowerWatts(altWatts);
+    const newH = this.validateDailyHours(altDailyHours !== undefined ? altDailyHours : baseH);
+    const newD = this.validateOperatingDays(altDays !== undefined ? altDays : baseD, true);
+    const newQ = this.validateQuantity(altQty !== undefined ? altQty : baseQ, true);
+
+    const isBaseValid = !isNaN(baseW) && !isNaN(baseH) && !isNaN(baseD) && !isNaN(baseQ);
+    const isNewValid = !isNaN(newW) && !isNaN(newH) && !isNaN(newD) && !isNaN(newQ);
+
+    let upfrontCost = 0;
+    if (purchaseCostInr !== undefined && purchaseCostInr !== null && purchaseCostInr !== '') {
+      if (!this.isFiniteNumber(purchaseCostInr) || Number(purchaseCostInr) < 0) {
+        return this._createInvalidSimulationResult(baselineAppliance, 'Upfront purchase cost must be a non-negative finite number');
+      }
+      upfrontCost = Number(purchaseCostInr);
+    }
+
+    if (!isBaseValid || !isNewValid) {
+      return this._createInvalidSimulationResult(baselineAppliance, 'Baseline or replacement appliance parameters are invalid');
+    }
 
     const baseMonthlyKwh = this.calculateMonthlyKwh(baseW, baseQ, baseH, baseD);
     const newMonthlyKwh = this.calculateMonthlyKwh(newW, newQ, newH, newD);
@@ -313,34 +652,35 @@ const WattWatchCalculations = {
     if (typeof rateOrSettings === 'object' && rateOrSettings !== null && rateOrSettings.tariffModel === 'slab') {
       tariffMode = 'slab';
       const settings = rateOrSettings;
-      const flatRate = Math.max(0, Number(settings.electricityRate) || 8.00);
 
-      // Evaluate household baseline bill and post-replacement bill to determine exact marginal reduction
-      const curHouseholdKwh = Math.max(baseMonthlyKwh, Number(householdTotalKwh) || 0);
+      const validCurKwh = (this.isFiniteNumber(householdTotalKwh) && Number(householdTotalKwh) >= 0)
+        ? Number(householdTotalKwh)
+        : 0;
+      const curHouseholdKwh = Math.max(baseMonthlyKwh, validCurKwh);
       const baseTariff = this.calculateAdvancedTariff(curHouseholdKwh, settings);
       const postHouseholdKwh = Math.max(0, curHouseholdKwh - monthlyKwhSaved);
       const postTariff = this.calculateAdvancedTariff(postHouseholdKwh, settings);
+
+      if (!baseTariff.isValid || !postTariff.isValid) {
+        return this._createInvalidSimulationResult(baselineAppliance, 'Tariff calculation failed for simulation');
+      }
 
       effectiveRate = baseTariff.effectiveRatePerKwh;
       monthlyCostSaved = baseTariff.totalCost - postTariff.totalCost;
       baseMonthlyCost = baseMonthlyKwh * effectiveRate;
       newMonthlyCost = Math.max(0, baseMonthlyCost - monthlyCostSaved);
     } else {
-      let rawVal = null;
-      if (typeof rateOrSettings === 'object' && rateOrSettings !== null) {
-        rawVal = rateOrSettings.electricityRate;
-      } else {
-        rawVal = rateOrSettings;
+      let rawVal = (typeof rateOrSettings === 'object' && rateOrSettings !== null)
+        ? rateOrSettings.electricityRate
+        : rateOrSettings;
+
+      const rate = this.validateTariffRate(rawVal, 8.00);
+      if (isNaN(rate)) {
+        return this._createInvalidSimulationResult(baselineAppliance, 'Electricity rate is invalid');
       }
-
-      const numVal = Number(rawVal);
-      const rate = (rawVal !== undefined && rawVal !== null && rawVal !== '' && !isNaN(numVal) && numVal >= 0)
-        ? numVal
-        : 8.00;
-
       effectiveRate = rate;
-      baseMonthlyCost = this.calculateCost(baseMonthlyKwh, rate);
-      newMonthlyCost = this.calculateCost(newMonthlyKwh, rate);
+      baseMonthlyCost = this.calculateCost(baseMonthlyKwh, effectiveRate);
+      newMonthlyCost = this.calculateCost(newMonthlyKwh, effectiveRate);
       monthlyCostSaved = baseMonthlyCost - newMonthlyCost;
     }
 
@@ -351,14 +691,13 @@ const WattWatchCalculations = {
       percentSaved = (monthlyKwhSaved / baseMonthlyKwh) * 100;
     }
 
-    // Payback period in months
-    const upfrontCost = Math.max(0, Number(purchaseCostInr) || 0);
     let paybackMonths = null;
     if (upfrontCost > 0 && monthlyCostSaved > 0) {
       paybackMonths = upfrontCost / monthlyCostSaved;
     }
 
     return {
+      isValid: true,
       baseline: {
         name: baselineAppliance.name,
         watts: baseW,
@@ -398,17 +737,45 @@ const WattWatchCalculations = {
    * @returns {Object} Carbon emission analytics
    */
   calculateCarbonFootprint(totalMonthlyKwh, emissionFactor = 0.82) {
-    const kwh = Math.max(0, Number(totalMonthlyKwh) || 0);
-
-    if (emissionFactor === null || emissionFactor === undefined || isNaN(Number(emissionFactor)) || Number(emissionFactor) <= 0) {
+    if (!this.isFiniteNumber(totalMonthlyKwh) || Number(totalMonthlyKwh) < 0) {
       return {
         isAvailable: false,
+        isValid: false,
+        emissionFactor: null,
+        monthlyKgCO2: NaN,
+        annualKgCO2: NaN,
+        annualMetricTons: NaN,
+        treesEquivalent: NaN,
+        message: 'Invalid consumption value provided for carbon estimation.'
+      };
+    }
+
+    const kwh = Number(totalMonthlyKwh);
+
+    if (emissionFactor === null || emissionFactor === undefined || emissionFactor === '' ||
+        (this.isFiniteNumber(emissionFactor) && Number(emissionFactor) === 0)) {
+      return {
+        isAvailable: false,
+        isValid: true,
         emissionFactor: null,
         monthlyKgCO2: 0,
         annualKgCO2: 0,
         annualMetricTons: 0,
         treesEquivalent: 0,
         message: 'Carbon intensity factor is currently disabled or unconfigured in Settings.'
+      };
+    }
+
+    if (!this.isFiniteNumber(emissionFactor) || Number(emissionFactor) < 0) {
+      return {
+        isAvailable: false,
+        isValid: false,
+        emissionFactor: null,
+        monthlyKgCO2: NaN,
+        annualKgCO2: NaN,
+        annualMetricTons: NaN,
+        treesEquivalent: NaN,
+        message: 'Invalid carbon emission factor.'
       };
     }
 
@@ -422,6 +789,7 @@ const WattWatchCalculations = {
 
     return {
       isAvailable: true,
+      isValid: true,
       emissionFactor: factor,
       monthlyKgCO2,
       annualKgCO2,
@@ -435,9 +803,10 @@ const WattWatchCalculations = {
    * Generates enriched metrics for a single appliance
    * @param {Object} appliance
    * @param {number} ratePerKwh
-   * @returns {Object} Appliance enriched with calculated energy & cost values
+   * @returns {Object|null} Appliance enriched with calculated energy & cost values
    */
   enrichAppliance(appliance, ratePerKwh = 8.00) {
+    if (!appliance || typeof appliance !== 'object') return null;
     const dailyKwh = this.calculateDailyKwh(appliance.powerWatts, appliance.quantity, appliance.dailyHours);
     const monthlyKwh = this.calculateMonthlyKwh(appliance.powerWatts, appliance.quantity, appliance.dailyHours, appliance.operatingDays);
     const monthlyCost = this.calculateCost(monthlyKwh, ratePerKwh);
@@ -458,40 +827,143 @@ const WattWatchCalculations = {
    * In slab mode, individual appliance costs and categories are proportionally
    * allocated according to the active tariff's effective rate so all costs
    * sum exactly to the advanced tariff total bill.
+   *
+   * If any appliance has invalid ratings or schedule parameters, or if the tariff
+   * is invalid, the summary returns isValid: false and does not compute misleading partial totals.
    * @param {Array} appliances
    * @param {number|Object} rateOrSettings
    * @returns {Object} Comprehensive summary metrics
    */
   calculateHouseholdSummary(appliances = [], rateOrSettings = 8.00) {
+    const list = Array.isArray(appliances) ? appliances : [];
     let settings = null;
     let rate = 8.00;
     let isSlab = false;
+    let isRateValid = true;
 
     if (typeof rateOrSettings === 'object' && rateOrSettings !== null) {
       settings = rateOrSettings;
-      const rawRate = Number(settings.electricityRate);
-      rate = (settings.electricityRate !== undefined && settings.electricityRate !== null && settings.electricityRate !== '' && !isNaN(rawRate))
-        ? Math.max(0, rawRate)
-        : 8.00;
+      rate = this.validateTariffRate(settings.electricityRate, 8.00);
+      if (isNaN(rate)) {
+        isRateValid = false;
+      }
       isSlab = settings.tariffModel === 'slab';
     } else {
-      const rawRate = Number(rateOrSettings);
-      rate = (rateOrSettings !== undefined && rateOrSettings !== null && rateOrSettings !== '' && !isNaN(rawRate))
-        ? Math.max(0, rawRate)
-        : 8.00;
+      rate = this.validateTariffRate(rateOrSettings, 8.00);
+      if (isNaN(rate)) {
+        isRateValid = false;
+      }
     }
 
-    // First pass: aggregate total consumption
+    // First pass: validate each individual appliance
+    const invalidAppliances = [];
+    const validAppEntries = [];
+
+    list.forEach((app, idx) => {
+      if (!app || typeof app !== 'object' || Array.isArray(app)) {
+        invalidAppliances.push({
+          index: idx,
+          id: null,
+          name: 'Invalid entry',
+          reasons: ['Appliance must be an object']
+        });
+        return;
+      }
+
+      const p = this.validatePowerWatts(app.powerWatts, 0);
+      const q = this.validateQuantity(app.quantity, true, 1);
+      const h = this.validateDailyHours(app.dailyHours, 0);
+      const d = this.validateOperatingDays(app.operatingDays, true, 30);
+
+      const failures = [];
+      if (isNaN(p)) failures.push(`Power rating (${app.powerWatts}) is invalid or out of range (0-50,000 W)`);
+      if (isNaN(q)) failures.push(`Quantity (${app.quantity}) must be a non-negative whole integer`);
+      if (isNaN(h)) failures.push(`Daily hours (${app.dailyHours}) must be between 0 and 24`);
+      if (isNaN(d)) failures.push(`Operating days (${app.operatingDays}) must be an integer between 0 and 31`);
+
+      if (failures.length > 0) {
+        invalidAppliances.push({
+          index: idx,
+          id: app.id || null,
+          name: app.name || `Appliance #${idx + 1}`,
+          reasons: failures
+        });
+      } else {
+        const dailyKwh = (p * q * h) / 1000;
+        const monthlyKwh = (p * q * h * d) / 1000;
+        validAppEntries.push({ app, p, q, h, d, dailyKwh, monthlyKwh });
+      }
+    });
+
+    const hasInvalidAppliances = invalidAppliances.length > 0;
+
+    // If electricity rate was explicitly supplied and invalid:
+    if (!isRateValid) {
+      return {
+        isValid: false,
+        hasInvalidAppliances,
+        invalidAppliances,
+        error: 'Electricity tariff rate is invalid',
+        totalDailyKwh: hasInvalidAppliances ? NaN : validAppEntries.reduce((acc, e) => acc + e.dailyKwh, 0),
+        totalMonthlyKwh: hasInvalidAppliances ? NaN : validAppEntries.reduce((acc, e) => acc + e.monthlyKwh, 0),
+        totalDailyCost: NaN,
+        totalMonthlyCost: NaN,
+        energyCharges: NaN,
+        fixedCharges: NaN,
+        taxCharges: NaN,
+        totalAppliancesCount: list.length,
+        validAppliancesCount: validAppEntries.length,
+        totalUnits: hasInvalidAppliances ? NaN : validAppEntries.reduce((acc, e) => acc + e.q, 0),
+        ratePerKwh: isSlab ? NaN : rate,
+        baseRatePerKwh: rate,
+        effectiveRatePerKwh: NaN,
+        tariffModel: isSlab ? 'slab' : 'flat',
+        advancedTariff: null,
+        highestAppliance: null,
+        categoryBreakdown: {},
+        appliances: list.map(a => this.enrichAppliance(a, NaN))
+      };
+    }
+
+    // If ANY appliance is invalid:
+    // Do not silently skip invalid appliances and return an apparently valid partial total.
+    // Return an explicit validity indicator and identify invalid appliance data safely.
+    if (hasInvalidAppliances) {
+      return {
+        isValid: false,
+        hasInvalidAppliances: true,
+        invalidAppliances,
+        error: `${invalidAppliances.length} appliance(s) in inventory contain invalid ratings or schedule parameters`,
+        totalDailyKwh: NaN,
+        totalMonthlyKwh: NaN,
+        totalDailyCost: NaN,
+        totalMonthlyCost: NaN,
+        energyCharges: NaN,
+        fixedCharges: NaN,
+        taxCharges: NaN,
+        totalAppliancesCount: list.length,
+        validAppliancesCount: validAppEntries.length,
+        totalUnits: NaN,
+        ratePerKwh: isSlab ? NaN : rate,
+        baseRatePerKwh: rate,
+        effectiveRatePerKwh: NaN,
+        tariffModel: isSlab ? 'slab' : 'flat',
+        advancedTariff: null,
+        highestAppliance: null,
+        categoryBreakdown: {},
+        appliances: list.map(a => this.enrichAppliance(a, rate))
+      };
+    }
+
+    // All appliances are valid: compute genuine totals
     let totalDailyKwh = 0;
     let totalMonthlyKwh = 0;
     let totalUnits = 0;
 
-    appliances.forEach(app => {
-      const dailyKwh = this.calculateDailyKwh(app.powerWatts, app.quantity, app.dailyHours);
-      const monthlyKwh = this.calculateMonthlyKwh(app.powerWatts, app.quantity, app.dailyHours, app.operatingDays);
-      totalDailyKwh += dailyKwh;
-      totalMonthlyKwh += monthlyKwh;
-      totalUnits += Number(app.quantity) || 1;
+    validAppEntries.forEach(e => {
+      totalDailyKwh += e.dailyKwh;
+      totalMonthlyKwh += e.monthlyKwh;
+      totalUnits += e.q;
     });
 
     let advancedTariff = null;
@@ -499,9 +971,33 @@ const WattWatchCalculations = {
     let totalMonthlyCost = 0;
 
     if (settings) {
-      // Single consistent calculation source: calculateAdvancedTariff handles both 'slab' and 'flat' models,
-      // ensuring fixed charges and electricity duty/taxes are treated consistently across dashboard and advanced tariff.
       advancedTariff = this.calculateAdvancedTariff(totalMonthlyKwh, settings);
+      if (!advancedTariff.isValid) {
+        return {
+          isValid: false,
+          hasInvalidAppliances: false,
+          invalidAppliances: [],
+          error: advancedTariff.error || 'Tariff calculation failed with provided settings',
+          totalDailyKwh,
+          totalMonthlyKwh,
+          totalDailyCost: NaN,
+          totalMonthlyCost: NaN,
+          energyCharges: NaN,
+          fixedCharges: NaN,
+          taxCharges: NaN,
+          totalAppliancesCount: list.length,
+          validAppliancesCount: validAppEntries.length,
+          totalUnits,
+          ratePerKwh: NaN,
+          baseRatePerKwh: rate,
+          effectiveRatePerKwh: NaN,
+          tariffModel: isSlab ? 'slab' : 'flat',
+          advancedTariff,
+          highestAppliance: null,
+          categoryBreakdown: {},
+          appliances: list.map(a => this.enrichAppliance(a, NaN))
+        };
+      }
       effectiveRate = advancedTariff.effectiveRatePerKwh;
       totalMonthlyCost = advancedTariff.totalCost;
     } else {
@@ -511,11 +1007,11 @@ const WattWatchCalculations = {
 
     // Second pass: enrich appliances with costs using the tariff rate (flat energy rate or slab effective rate)
     const appCostRate = isSlab ? effectiveRate : rate;
-    const enrichedList = appliances.map(app => {
+    const enrichedList = list.map(app => {
       const dailyKwh = this.calculateDailyKwh(app.powerWatts, app.quantity, app.dailyHours);
       const monthlyKwh = this.calculateMonthlyKwh(app.powerWatts, app.quantity, app.dailyHours, app.operatingDays);
-      const monthlyCost = monthlyKwh * appCostRate;
-      const dailyCost = dailyKwh * appCostRate;
+      const monthlyCost = (!isNaN(monthlyKwh) && monthlyKwh >= 0) ? (monthlyKwh * appCostRate) : NaN;
+      const dailyCost = (!isNaN(dailyKwh) && dailyKwh >= 0) ? (dailyKwh * appCostRate) : NaN;
 
       return {
         ...app,
@@ -527,15 +1023,22 @@ const WattWatchCalculations = {
     });
 
     // Compute percentage contribution of each appliance
-    const enrichedWithShares = enrichedList.map(app => ({
-      ...app,
-      sharePercentage: totalMonthlyKwh > 0 ? (app.monthlyKwh / totalMonthlyKwh) * 100 : 0
-    }));
+    const enrichedWithShares = enrichedList.map(app => {
+      const mKwh = app.monthlyKwh;
+      const share = (totalMonthlyKwh > 0 && this.isFiniteNumber(mKwh) && mKwh >= 0)
+        ? (mKwh / totalMonthlyKwh) * 100
+        : 0;
+      return {
+        ...app,
+        sharePercentage: share
+      };
+    });
 
     // Find highest consuming appliance
     let highestAppliance = null;
-    if (enrichedWithShares.length > 0) {
-      highestAppliance = [...enrichedWithShares].sort((a, b) => b.monthlyKwh - a.monthlyKwh)[0];
+    const validMonthlyApps = enrichedWithShares.filter(a => this.isFiniteNumber(a.monthlyKwh) && a.monthlyKwh > 0);
+    if (validMonthlyApps.length > 0) {
+      highestAppliance = [...validMonthlyApps].sort((a, b) => b.monthlyKwh - a.monthlyKwh)[0];
     }
 
     // Category breakdown
@@ -556,9 +1059,16 @@ const WattWatchCalculations = {
       if (!categoryBreakdown[cat]) {
         categoryBreakdown[cat] = { category: cat, kwh: 0, cost: 0, count: 0, percentage: 0 };
       }
-      categoryBreakdown[cat].kwh += app.monthlyKwh;
-      categoryBreakdown[cat].cost += app.monthlyCost;
-      categoryBreakdown[cat].count += Number(app.quantity) || 1;
+      if (this.isFiniteNumber(app.monthlyKwh) && app.monthlyKwh >= 0) {
+        categoryBreakdown[cat].kwh += app.monthlyKwh;
+      }
+      if (this.isFiniteNumber(app.monthlyCost) && app.monthlyCost >= 0) {
+        categoryBreakdown[cat].cost += app.monthlyCost;
+      }
+      const validQty = this.validateQuantity(app.quantity, true, 1);
+      if (!isNaN(validQty) && validQty >= 0) {
+        categoryBreakdown[cat].count += validQty;
+      }
     });
 
     Object.keys(categoryBreakdown).forEach(cat => {
@@ -568,14 +1078,19 @@ const WattWatchCalculations = {
     });
 
     return {
+      isValid: true,
+      hasInvalidAppliances: false,
+      invalidAppliances: [],
+      error: null,
       totalDailyKwh,
       totalMonthlyKwh,
       totalDailyCost: totalDailyKwh * effectiveRate,
       totalMonthlyCost,
-      energyCharges: advancedTariff ? advancedTariff.energyCharges : totalMonthlyCost,
-      fixedCharges: advancedTariff ? advancedTariff.fixedCharge : 0,
-      taxCharges: advancedTariff ? advancedTariff.taxCharges : 0,
-      totalAppliancesCount: appliances.length,
+      energyCharges: advancedTariff && advancedTariff.isValid ? advancedTariff.energyCharges : totalMonthlyCost,
+      fixedCharges: advancedTariff && advancedTariff.isValid ? advancedTariff.fixedCharge : 0,
+      taxCharges: advancedTariff && advancedTariff.isValid ? advancedTariff.taxCharges : 0,
+      totalAppliancesCount: list.length,
+      validAppliancesCount: list.length,
       totalUnits,
       ratePerKwh: isSlab ? effectiveRate : rate,
       baseRatePerKwh: rate,
@@ -590,33 +1105,47 @@ const WattWatchCalculations = {
 
   /**
    * Formatting utility for kilowatt-hours (always 2 decimals)
+   * Formats invalid/non-finite inputs safely as "-- kWh".
    * @param {number} val
-   * @returns {string} e.g. "145.20 kWh"
+   * @returns {string} e.g. "145.20 kWh" or "-- kWh"
    */
   formatKwh(val) {
-    const num = Number(val) || 0;
+    if (!this.isFiniteNumber(val) || Number(val) < 0) {
+      return '-- kWh';
+    }
+    const num = Number(val);
     return `${num.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} kWh`;
   },
 
   /**
    * Formatting utility for Indian Rupee currency (always 2 decimals)
+   * Formats invalid/non-finite inputs safely as "₹--".
    * @param {number} val
    * @param {string} symbol - Defaults to ₹
-   * @returns {string} e.g. "₹1,245.50"
+   * @returns {string} e.g. "₹1,245.50" or "₹--"
    */
   formatCurrency(val, symbol = '₹') {
-    const num = Number(val) || 0;
-    return `${symbol}${num.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    const sym = (typeof symbol === 'string' && symbol.trim()) ? symbol : '₹';
+    if (!this.isFiniteNumber(val) || Number(val) < 0) {
+      return `${sym}--`;
+    }
+    const num = Number(val);
+    return `${sym}${num.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   },
 
   /**
    * Formatting helper for generic numbers
+   * Formats invalid/non-finite inputs safely as "--".
    * @param {number} val
    * @param {number} decimals
    * @returns {string}
    */
   formatNumber(val, decimals = 2) {
-    const num = Number(val) || 0;
-    return num.toLocaleString('en-IN', { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
+    if (!this.isFiniteNumber(val)) {
+      return '--';
+    }
+    const num = Number(val);
+    const dec = (Number.isInteger(decimals) && decimals >= 0 && decimals <= 20) ? decimals : 2;
+    return num.toLocaleString('en-IN', { minimumFractionDigits: dec, maximumFractionDigits: dec });
   }
 };
