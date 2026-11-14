@@ -396,16 +396,6 @@
   border-color: var(--antique-gold);
 }
 
-.metric-card::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 3px;
-  background: linear-gradient(90deg, var(--antique-gold), var(--deep-burgundy));
-  opacity: 0.9;
-}
 
 .metric-card-header {
   display: flex;

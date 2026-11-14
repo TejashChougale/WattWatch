@@ -121,11 +121,19 @@ const WattWatchSimulator = {
       return;
     }
 
-    const altWatts = parseFloat(document.getElementById('simAltWatts')?.value);
-    const altHours = parseFloat(document.getElementById('simAltHours')?.value) || baseApp.dailyHours;
-    const altDays = parseInt(document.getElementById('simAltDays')?.value, 10) || baseApp.operatingDays;
-    const altQty = parseInt(document.getElementById('simAltQty')?.value, 10) || baseApp.quantity;
-    const purchaseCost = parseFloat(document.getElementById('simPurchaseCost')?.value) || 0;
+    const parseSimInput = (val, defaultVal) => {
+      if (val === undefined || val === null || (typeof val === 'string' && val.trim() === '')) {
+        return defaultVal;
+      }
+      const num = Number(val);
+      return Number.isFinite(num) ? num : NaN;
+    };
+
+    const altWatts = parseSimInput(document.getElementById('simAltWatts')?.value, NaN);
+    const altHours = parseSimInput(document.getElementById('simAltHours')?.value, baseApp.dailyHours);
+    const altDays = parseSimInput(document.getElementById('simAltDays')?.value, baseApp.operatingDays);
+    const altQty = parseSimInput(document.getElementById('simAltQty')?.value, baseApp.quantity);
+    const purchaseCost = parseSimInput(document.getElementById('simPurchaseCost')?.value, 0);
 
     if (isNaN(altWatts) || altWatts <= 0) {
       resultBox.innerHTML = `
@@ -154,6 +162,15 @@ const WattWatchSimulator = {
       purchaseCost,
       curSummary.totalMonthlyKwh
     );
+
+    if (!sim || !sim.isValid) {
+      resultBox.innerHTML = `
+        <div style="text-align: center; padding: 2rem; color: var(--text-secondary);">
+          ${WattWatchAppliances.escapeHtml(sim?.error || 'Invalid simulation input parameters. Please verify that daily usage hours are between 0 and 24, operating days are between 0 and 31, quantity is a non-negative integer, and purchase cost is non-negative.')}
+        </div>
+      `;
+      return;
+    }
 
     const isSaving = sim.savings.isSaving;
     const percentStr = `${Math.abs(sim.savings.percentSaved).toFixed(1)}%`;
@@ -272,20 +289,20 @@ const WattWatchSimulator = {
     const taxInput = document.getElementById('calcTaxPercent');
     const slabGroup = document.getElementById('tariffSlabsEditorGroup');
 
-    const rawRate = Number(settings.electricityRate);
-    const flatRate = (settings.electricityRate !== undefined && settings.electricityRate !== null && settings.electricityRate !== '' && !isNaN(rawRate))
-      ? Math.max(0, rawRate)
-      : 8.00;
+    const valRate = (typeof WattWatchCalculations !== 'undefined')
+      ? WattWatchCalculations.validateTariffRate(settings.electricityRate, 8.00)
+      : Number(settings.electricityRate || 8.00);
+    const flatRate = !isNaN(valRate) ? valRate : 8.00;
 
-    const rawFixed = Number(settings.fixedCharges);
-    const fixedCharges = (settings.fixedCharges !== undefined && settings.fixedCharges !== null && settings.fixedCharges !== '' && !isNaN(rawFixed))
-      ? Math.max(0, rawFixed)
-      : 110.00;
+    const valFixed = (typeof WattWatchCalculations !== 'undefined')
+      ? WattWatchCalculations.validateFixedCharge(settings.fixedCharges, 110.00)
+      : Number(settings.fixedCharges || 110.00);
+    const fixedCharges = !isNaN(valFixed) ? valFixed : 110.00;
 
-    const rawTax = Number(settings.additionalTaxPercent);
-    const taxPercent = (settings.additionalTaxPercent !== undefined && settings.additionalTaxPercent !== null && settings.additionalTaxPercent !== '' && !isNaN(rawTax))
-      ? Math.max(0, rawTax)
-      : 5.0;
+    const valTax = (typeof WattWatchCalculations !== 'undefined')
+      ? WattWatchCalculations.validateTaxPercent(settings.additionalTaxPercent, 5.0)
+      : Number(settings.additionalTaxPercent || 5.0);
+    const taxPercent = !isNaN(valTax) ? valTax : 5.0;
 
     if (modelSelect) modelSelect.value = settings.tariffModel || 'flat';
     if (flatInput) flatInput.value = flatRate.toFixed(2);
@@ -396,14 +413,15 @@ const WattWatchSimulator = {
    * Executes advanced tariff computation and displays detailed bill breakdown
    */
   runTariffCalculation() {
-    const testKwh = parseFloat(document.getElementById('calcTestKwhInput')?.value) || 0;
+    const rawTestKwh = document.getElementById('calcTestKwhInput')?.value;
+    const testKwh = (rawTestKwh !== undefined && rawTestKwh !== null && rawTestKwh.trim() !== '') ? Number(rawTestKwh) : 0;
     const model = document.getElementById('calcTariffModelSelect')?.value || 'flat';
-    const rawFlat = parseFloat(document.getElementById('calcFlatRateInput')?.value);
-    const flatRate = (!isNaN(rawFlat) && rawFlat >= 0) ? rawFlat : 8.00;
-    const rawFixed = parseFloat(document.getElementById('calcFixedCharges')?.value);
-    const fixedCharges = (!isNaN(rawFixed) && rawFixed >= 0) ? rawFixed : 0;
-    const rawTax = parseFloat(document.getElementById('calcTaxPercent')?.value);
-    const taxPercent = (!isNaN(rawTax) && rawTax >= 0) ? rawTax : 0;
+    const rawFlat = document.getElementById('calcFlatRateInput')?.value;
+    const flatRate = (rawFlat !== undefined && rawFlat !== null && rawFlat.trim() !== '') ? Number(rawFlat) : 8.00;
+    const rawFixed = document.getElementById('calcFixedCharges')?.value;
+    const fixedCharges = (rawFixed !== undefined && rawFixed !== null && rawFixed.trim() !== '') ? Number(rawFixed) : 0;
+    const rawTax = document.getElementById('calcTaxPercent')?.value;
+    const taxPercent = (rawTax !== undefined && rawTax !== null && rawTax.trim() !== '') ? Number(rawTax) : 0;
     const slabs = this.readCurrentSlabsFromUI();
 
     const mockSettings = {
@@ -418,6 +436,15 @@ const WattWatchSimulator = {
 
     const breakdownBox = document.getElementById('tariffCalculationBreakdown');
     if (!breakdownBox) return;
+
+    if (!result || !result.isValid) {
+      breakdownBox.innerHTML = `
+        <div style="text-align: center; padding: 2rem; color: var(--text-secondary);">
+          Unable to compute tariff breakdown. ${WattWatchAppliances.escapeHtml(result?.error || 'Please verify that electricity rate, fixed charges, tax percentage (0-100%), and slab boundaries are valid positive numbers.')}
+        </div>
+      `;
+      return;
+    }
 
     let slabRowsHtml = '';
     result.slabBreakdown.forEach(s => {
@@ -473,13 +500,39 @@ const WattWatchSimulator = {
    */
   applyTariffToSettings() {
     const model = document.getElementById('calcTariffModelSelect')?.value || 'flat';
-    const rawFlat = parseFloat(document.getElementById('calcFlatRateInput')?.value);
-    const flatRate = (!isNaN(rawFlat) && rawFlat >= 0) ? rawFlat : 8.00;
-    const rawFixed = parseFloat(document.getElementById('calcFixedCharges')?.value);
-    const fixedCharges = (!isNaN(rawFixed) && rawFixed >= 0) ? rawFixed : 0;
-    const rawTax = parseFloat(document.getElementById('calcTaxPercent')?.value);
-    const taxPercent = (!isNaN(rawTax) && rawTax >= 0) ? rawTax : 0;
+    const rawFlat = document.getElementById('calcFlatRateInput')?.value;
+    const rawFixed = document.getElementById('calcFixedCharges')?.value;
+    const rawTax = document.getElementById('calcTaxPercent')?.value;
+
+    const flatRate = (typeof WattWatchCalculations !== 'undefined')
+      ? WattWatchCalculations.validateTariffRate(rawFlat, NaN)
+      : Number(rawFlat);
+    const fixedCharges = (typeof WattWatchCalculations !== 'undefined')
+      ? WattWatchCalculations.validateFixedCharge(rawFixed, NaN)
+      : Number(rawFixed);
+    const taxPercent = (typeof WattWatchCalculations !== 'undefined')
+      ? WattWatchCalculations.validateTaxPercent(rawTax, NaN)
+      : Number(rawTax);
+
+    if (isNaN(flatRate) || isNaN(fixedCharges) || isNaN(taxPercent)) {
+      WattWatchApp.showToast('Cannot apply settings: please enter valid non-negative numbers (tax must be 0-100%).', 'error', 'Invalid Tariff');
+      return;
+    }
+
     const slabs = this.readCurrentSlabsFromUI();
+    if (model === 'slab' && typeof WattWatchCalculations !== 'undefined') {
+      const testTariff = WattWatchCalculations.calculateAdvancedTariff(100, {
+        tariffModel: 'slab',
+        electricityRate: flatRate,
+        fixedCharges,
+        additionalTaxPercent: taxPercent,
+        slabConfig: slabs
+      });
+      if (!testTariff.isValid) {
+        WattWatchApp.showToast('Cannot apply settings: slab configuration is invalid. Verify progressive thresholds and non-negative rates.', 'error', 'Invalid Slabs');
+        return;
+      }
+    }
 
     WattWatchStorage.saveSettings({
       tariffModel: model,

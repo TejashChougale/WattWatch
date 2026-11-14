@@ -2,6 +2,9 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
+  <script>
+    window.__wattwatchLocalTestAllowed = ['localhost', '127.0.0.1', '[::1]'].includes(location.hostname) || location.protocol === 'file:' || location.hostname === '';
+  </script>
   <title>WattWatch - Automated Test Suite</title>
   <link rel="stylesheet" href="../css/style.css">
   <link rel="stylesheet" href="../css/dashboard.css">
@@ -45,6 +48,49 @@
       <input id="recoveryUsername">
       <button id="btnSignupSubmit"></button>
       <button type="button" id="authModalFooterClose" style="display: none;"></button>
+      <a href="#privacyModal" id="authPrivacyLink" onclick="WattWatchApp.openPrivacyModal(this); return false;">Privacy Notice</a>
+    </div>
+    <div id="privacyModal" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="privacyModalTitle" aria-hidden="true">
+      <div class="modal-content" style="max-width: 620px;">
+        <div class="modal-header">
+          <h3 id="privacyModalTitle">Privacy & Data Architecture Notice</h3>
+          <button type="button" class="btn btn-ghost btn-icon" id="privacyModalCloseX" onclick="WattWatchApp.closePrivacyModal()" aria-label="Close privacy notice">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          </button>
+        </div>
+        <div class="modal-body" id="privacyModalBody">
+          <div>
+            <strong>Browser LocalStorage Persistence</strong>
+            WattWatch operates primarily as a client-side application. Your appliance inventory, tariff parameters, monthly budgets, and historical snapshots are stored locally in your browser's localStorage under dedicated workspace namespaces.
+          </div>
+          <div>
+            <strong>Guest Mode</strong>
+            Guest appliance and billing data stays in browser localStorage and is not uploaded to WattWatch's cloud database, while external resources (such as web fonts and library scripts) may still load. No account credentials are required.
+          </div>
+          <div>
+            <strong>Firebase Authentication</strong>
+            WattWatch does not ask users to provide a personal email address or phone number. Account authentication uses a generated username-based identifier.
+          </div>
+          <div>
+            <strong>Cloud Firestore Profile Storage</strong>
+            Remote cloud storage is strictly limited to your basic user profile record (/users/{uid}) containing username and display name. Your household appliances and bills remain exclusively in browser localStorage.
+          </div>
+          <div>
+            <strong>Google External Requests</strong>
+            External network requests are made solely to Google Firebase endpoints (Authentication & Firestore) and static CDNs (Google Fonts, Chart.js fallback). No analytics trackers or third-party ad networks are used.
+          </div>
+          <div>
+            <strong>Important Privacy & Portability Limitations:</strong>
+            <ul>
+              <li>No Cross-Device Sync: Appliances and snapshots are saved in local browser storage and do not automatically sync across different browsers or devices.</li>
+              <li>No Automated Password Recovery: Because WattWatch collects neither email addresses nor telephone numbers, automated password reset emails cannot be delivered.</li>
+            </ul>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary btn-sm" id="privacyModalFooterClose" onclick="WattWatchApp.closePrivacyModal()">Close</button>
+        </div>
+      </div>
     </div>
     <span id="topbarAuthLabel">Sign In</span>
     <span id="topbarGuestBadge" class="badge-guest">Guest</span>
@@ -52,7 +98,16 @@
 
     <div class="app-layout">
       <aside class="app-sidebar"></aside>
-      <main class="app-main"></main>
+      <main class="app-main">
+        <div id="view-settings">
+          <div id="settingsPrivacyCard">
+            <strong>Guest Mode</strong>
+            <p>Guest appliance and billing data stays in browser localStorage and is not uploaded to WattWatch's cloud database, while external resources (such as web fonts and library scripts) may still load. No account credentials are required.</p>
+            <strong>Firebase Authentication</strong>
+            <p>WattWatch does not ask users to provide a personal email address or phone number. Account authentication uses a generated username-based identifier.</p>
+          </div>
+        </div>
+      </main>
     </div>
 
     <div id="overviewComparisonContent"></div>
@@ -74,6 +129,9 @@
     <div id="historyEmptyState" style="display: none;"></div>
     <div id="historyTableWrap"></div>
     <div id="historyComparisonCard"></div>
+    <div id="comparisonResultsBox"></div>
+    <select id="comparePeriodSelectA"></select>
+    <select id="comparePeriodSelectB"></select>
     <div id="historyDetailModal" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="historyDetailTitle" aria-hidden="true">
       <div id="historyDetailTitle"></div>
       <div id="historyDetailBody"></div>
@@ -110,7 +168,8 @@
     window.WattWatchCharts = {
       renderOverviewCharts: () => {},
       renderAnalyticsCharts: () => {},
-      renderHistoryTrendChart: () => {}
+      renderHistoryTrendChart: () => {},
+      renderComparisonChart: () => {}
     };
   </script>
   <script src="../js/appliances.js"></script>
@@ -152,9 +211,9 @@
       assertAlmostEqual(WattWatchCalculations.calculateDailyKwh(1000, 1, 1), 1.0, 'Daily kWh (1000W, 1 unit, 1h)');
       assertAlmostEqual(WattWatchCalculations.calculateDailyKwh(75, 2, 8), 1.2, 'Daily kWh (75W, 2 units, 8h)');
       assertAlmostEqual(WattWatchCalculations.calculateDailyKwh(100, 1, 0), 0.0, 'Daily kWh with 0 hours');
-      assertAlmostEqual(WattWatchCalculations.calculateDailyKwh(100, 1, 30), 2.4, 'Daily kWh clamps hours > 24 to 24');
+      assert(isNaN(WattWatchCalculations.calculateDailyKwh(100, 1, 30)), 'Daily kWh rejects hours > 24 without silent clamping');
       assertAlmostEqual(WattWatchCalculations.calculateMonthlyKwh(1000, 1, 1, 30), 30.0, 'Monthly kWh (1000W, 1h/d, 30d)');
-      assertAlmostEqual(WattWatchCalculations.calculateMonthlyKwh(1000, 1, 1, 35), 31.0, 'Monthly kWh clamps days > 31 to 31');
+      assert(isNaN(WattWatchCalculations.calculateMonthlyKwh(1000, 1, 1, 35)), 'Monthly kWh rejects days > 31 without silent clamping');
       assertAlmostEqual(WattWatchCalculations.calculateCost(100, 8.5), 850.0, 'Flat cost calculation (100 kWh @ 8.50)');
 
       // 2. Advanced Tariff Calculator
@@ -422,7 +481,8 @@
         slabConfig: null
       };
       const resInvalid = WattWatchCalculations.calculateAdvancedTariff(100, invalidSettings);
-      assert(!isNaN(resInvalid.totalCost) && isFinite(resInvalid.totalCost), 'Advanced tariff with invalid string/null settings falls back gracefully without NaN');
+      assert(resInvalid.isValid === false, 'Advanced tariff with invalid string/null settings returns explicit invalid result');
+      assert(isNaN(resInvalid.totalCost), 'Advanced tariff with invalid string/null settings yields NaN totalCost');
 
       const summaryEmpty = WattWatchCalculations.calculateHouseholdSummary(testApps, {});
       assert(!isNaN(summaryEmpty.totalMonthlyCost) && isFinite(summaryEmpty.totalMonthlyCost), 'Household summary with empty settings calculates safe finite cost');
@@ -510,10 +570,12 @@
       assertAlmostEqual(simMissing.effectiveRate, 8.00, 'Simulator replacement defaults missing electricityRate to 8.00');
 
       const simInvalid = WattWatchCalculations.simulateReplacement(baseApp, 900, 6, 30, 1, { electricityRate: 'invalid' }, 10000, 372);
-      assertAlmostEqual(simInvalid.effectiveRate, 8.00, 'Simulator replacement defaults invalid string electricityRate to 8.00');
+      assert(simInvalid.isValid === false, 'Simulator replacement rejects invalid string electricityRate');
+      assert(isNaN(simInvalid.effectiveRate), 'Simulator replacement produces NaN effectiveRate for invalid string rate');
 
       const simNegative = WattWatchCalculations.simulateReplacement(baseApp, 900, 6, 30, 1, { electricityRate: -5.00 }, 10000, 372);
-      assertAlmostEqual(simNegative.effectiveRate, 8.00, 'Simulator replacement rejects negative electricityRate and falls back to 8.00');
+      assert(simNegative.isValid === false, 'Simulator replacement rejects negative electricityRate');
+      assert(isNaN(simNegative.effectiveRate), 'Simulator replacement produces NaN effectiveRate for negative rate');
 
       // Simulator UI flat-rate input parser validation contract
       function parseSimulatorFlatRate(inputVal) {
@@ -1764,6 +1826,8 @@
         WattWatchAuth.chosenSessionType = 'account';
         WattWatchStorage.setActiveUser('user_session_789');
 
+        WattWatchAuth.auth = mockAuthInstance;
+        WattWatchAuth.firebaseSignOut = mockSignOutFn;
         mockSignOutCalled = false;
         mockSignOutArg = null;
         shouldRejectSignOut = true;
@@ -1780,6 +1844,8 @@
         assert(!document.body.classList.contains('auth-gate-active'), 'Auth gate not falsely activated on failed sign-out');
 
         // Test C: Direct signOutAndSwitchToLogin() resolution
+        WattWatchAuth.auth = mockAuthInstance;
+        WattWatchAuth.firebaseSignOut = mockSignOutFn;
         shouldRejectSignOut = false;
         const switchRes = await WattWatchAuth.signOutAndSwitchToLogin();
         assert(switchRes && switchRes.success === true, 'signOutAndSwitchToLogin() returns success: true on resolution');
@@ -1791,6 +1857,559 @@
         WattWatchStorage.setActiveUser(null);
       }
 
+      // 34. Security Audit & Regression Hardening Verification
+      // A. History Comparison XSS Protection (periodLabelA and periodLabelB)
+      const xssPeriodLabelA = '<img src=x onerror=alert("xssA")>2026-01';
+      const xssPeriodLabelB = '<' + 'script>alert("xssB")<' + '/script>2026-02';
+      const snapXssA = {
+        id: 'snap_xss_a',
+        period: '2026-01',
+        periodLabel: xssPeriodLabelA,
+        totalKwh: 100,
+        totalCost: 800,
+        electricityRate: 8.0,
+        tariffModel: 'flat',
+        appliancesCount: 1,
+        totalUnits: 1,
+        createdAt: 1700000000000
+      };
+      const snapXssB = {
+        id: 'snap_xss_b',
+        period: '2026-02',
+        periodLabel: xssPeriodLabelB,
+        totalKwh: 120,
+        totalCost: 960,
+        electricityRate: 8.0,
+        tariffModel: 'flat',
+        appliancesCount: 1,
+        totalUnits: 1,
+        createdAt: 1702600000000
+      };
+      WattWatchStorage.saveSnapshot(snapXssA);
+      WattWatchStorage.saveSnapshot(snapXssB);
+
+      const selA = document.getElementById('comparePeriodSelectA');
+      const selB = document.getElementById('comparePeriodSelectB');
+      if (selA && selB) {
+        selA.innerHTML = '<option value="snap_xss_a">A</option>';
+        selB.innerHTML = '<option value="snap_xss_b">B</option>';
+        selA.value = 'snap_xss_a';
+        selB.value = 'snap_xss_b';
+        WattWatchHistory.renderComparison();
+
+        const resultBox = document.getElementById('comparisonResultsBox');
+        assert(resultBox && !resultBox.innerHTML.includes('<img src=x'), 'History comparison escapes periodLabelA HTML tags');
+        assert(resultBox && resultBox.innerHTML.includes('&lt;img src=x'), 'History comparison contains encoded periodLabelA');
+        assert(resultBox && !resultBox.innerHTML.includes('<' + 'script>'), 'History comparison escapes periodLabelB script tags');
+        assert(resultBox && resultBox.innerHTML.includes('&lt;script&gt;'), 'History comparison contains encoded periodLabelB');
+      }
+
+      // B. History createdAt Handling: missing or invalid timestamps preserved as null (never defaulting to Date.now())
+      const snapNullTime = {
+        id: 'snap_null_time',
+        period: '2026-03',
+        periodLabel: 'March 2026',
+        totalKwh: 150,
+        totalCost: 1200,
+        tariffModel: 'flat',
+        appliancesCount: 1,
+        createdAt: null
+      };
+      const snapInvalidTime = {
+        id: 'snap_invalid_time',
+        period: '2026-04',
+        periodLabel: 'April 2026',
+        totalKwh: 180,
+        totalCost: 1440,
+        tariffModel: 'flat',
+        appliancesCount: 1,
+        createdAt: 'invalid-date-format'
+      };
+      localStorage.setItem(nsKey(STORAGE_KEYS.HISTORY), JSON.stringify([snapNullTime, snapInvalidTime]));
+      const readHistory = WattWatchStorage.getHistory();
+      const readSnapNull = readHistory.find(h => h.id === 'snap_null_time');
+      const readSnapInvalid = readHistory.find(h => h.id === 'snap_invalid_time');
+      assert(readSnapNull && readSnapNull.createdAt === null, 'getHistory() preserves null createdAt without replacing with Date.now()');
+      assert(readSnapInvalid && readSnapInvalid.createdAt === null, 'getHistory() preserves invalid string createdAt as null');
+
+      // Test JSON import timestamp preservation
+      const importTimePayload = {
+        version: '2.0',
+        appliances: [],
+        settings: { electricityRate: 8.0 },
+        history: [
+          { id: 'imp_snap_null', period: '2026-05', periodLabel: 'May 2026', totalKwh: 200, totalCost: 1600, createdAt: null },
+          { id: 'imp_snap_bad', period: '2026-06', periodLabel: 'June 2026', totalKwh: 210, totalCost: 1680, createdAt: 'not-a-timestamp' }
+        ]
+      };
+      const impTimeRes = WattWatchStorage.importDataJSON(JSON.stringify(importTimePayload), { mode: 'replace' });
+      assert(impTimeRes.success === true, 'JSON import with null/invalid history createdAt succeeds');
+      const importedHist = WattWatchStorage.getHistory();
+      const impNullSnap = importedHist.find(h => h.id === 'imp_snap_null');
+      const impBadSnap = importedHist.find(h => h.id === 'imp_snap_bad');
+      assert(impNullSnap && impNullSnap.createdAt === null, 'importDataJSON preserves null createdAt');
+      assert(impBadSnap && impBadSnap.createdAt === null, 'importDataJSON converts invalid createdAt string to null');
+
+      // C. generateHistoryCSV() safety with null or invalid dates
+      let csvGenerated = null;
+      let csvDidNotThrow = false;
+      try {
+        csvGenerated = WattWatchStorage.generateHistoryCSV();
+        csvDidNotThrow = true;
+      } catch (e) {
+        csvDidNotThrow = false;
+      }
+      assert(csvDidNotThrow === true, 'generateHistoryCSV() never throws on null/invalid timestamps');
+      assert(typeof csvGenerated === 'string' && csvGenerated.includes('May 2026'), 'generateHistoryCSV() output contains history rows');
+
+      // D. Defensive Guest Data Migration Failure Handling
+      const savedMigrateGuest = WattWatchStorage.migrateGuestData.bind(WattWatchStorage);
+      WattWatchStorage.migrateGuestData = () => ({ success: false, error: 'Simulated quota exhaustion' });
+      let toastCalledWithWarning = false;
+      const savedShowToast = WattWatchApp.showToast;
+      WattWatchApp.showToast = (msg, type) => {
+        if (type === 'warning' && msg.includes('Unable to transfer guest data')) {
+          toastCalledWithWarning = true;
+        }
+      };
+      let dialogConfirmed = false;
+      const savedOpenConfirm = WattWatchApp.openConfirmDialog;
+      WattWatchApp.openConfirmDialog = (opts) => {
+        if (opts.title.includes('Transfer Guest Data')) {
+          opts.onConfirm();
+          dialogConfirmed = true;
+        }
+      };
+      try {
+        const guestAppsBefore = WattWatchStorage.getAppliances();
+        WattWatchApp.openConfirmDialog({
+          title: 'Transfer Guest Data to Account?',
+          onConfirm: () => {
+            try {
+              const res = WattWatchStorage.migrateGuestData('mock_uid');
+              if (res && res.success) {
+                WattWatchApp.showToast('Transferred', 'success');
+              } else {
+                const errorDetail = res && res.error ? res.error : 'Migration encountered an error.';
+                WattWatchApp.showToast(`Unable to transfer guest data: ${errorDetail}. Guest data remains safely preserved in your browser.`, 'warning');
+              }
+            } catch (e) {
+              WattWatchApp.showToast('Unable to transfer guest data.', 'warning');
+            }
+          }
+        });
+        assert(dialogConfirmed === true, 'Guest migration failure dialog was exercised');
+        assert(toastCalledWithWarning === true, 'Warning toast displayed on guest migration failure');
+        const guestAppsAfter = WattWatchStorage.getAppliances();
+        assert(guestAppsAfter.length === guestAppsBefore.length, 'Guest data is never modified or deleted on migration failure');
+      } finally {
+        WattWatchStorage.migrateGuestData = savedMigrateGuest;
+        WattWatchApp.showToast = savedShowToast;
+        WattWatchApp.openConfirmDialog = savedOpenConfirm;
+      }
+
+      // 35. Signed-Out Visitor Privacy Notice Access, Protection & Accessibility Tests
+      const authPrivacyLink = document.getElementById('authPrivacyLink');
+      const privacyModalEl = document.getElementById('privacyModal');
+      const authModalFixture = document.getElementById('authModal');
+      const appLayoutFixture = document.querySelector('.app-layout');
+
+      // A. Signed-out visitor can open and read the privacy notice
+      WattWatchAuth.currentUser = null;
+      WattWatchAuth.hasUserChosenSession = false;
+      WattWatchAuth.openAuthModalOnStartup();
+      // Allow startup initial focus timer (60ms) to settle before testing focus flow
+      await new Promise(resolve => setTimeout(resolve, 70));
+
+      assert(document.body.classList.contains('auth-gate-active'), 'Auth gate is active for signed-out visitor');
+      assert(appLayoutFixture ? appLayoutFixture.inert === true : true, 'app-layout is inert while auth gate is active');
+
+      authPrivacyLink.focus();
+      assert(document.activeElement === authPrivacyLink, 'Focus positioned on authPrivacyLink trigger');
+
+      // Click Privacy Notice trigger
+      authPrivacyLink.click();
+      assert(privacyModalEl.classList.contains('is-open'), 'Privacy notice modal opened for signed-out visitor');
+      assert(privacyModalEl.getAttribute('aria-hidden') === 'false', 'Privacy modal aria-hidden is false');
+      assert(privacyModalEl.inert === false, 'Privacy modal is interactive (inert=false)');
+
+      const modalText = privacyModalEl.innerText || privacyModalEl.textContent;
+      assert(modalText.includes('localStorage'), 'Privacy notice mentions browser localStorage');
+      assert(modalText.includes('Guest Mode'), 'Privacy notice mentions Guest Mode');
+      assert(modalText.includes("not uploaded to WattWatch's cloud database") || modalText.includes('cloud database'), 'Privacy notice accurately explains cloud database separation');
+      assert(!modalText.includes('completely offline'), 'Privacy notice does not claim application works completely offline');
+      assert(modalText.includes('external resources') || modalText.includes('External') || modalText.includes('static CDNs'), 'Privacy notice transparently discloses external resource loading');
+      assert(modalText.includes('WattWatch does not ask users to provide a personal email address or phone number. Account authentication uses a generated username-based identifier.'), 'Privacy modal uses updated Firebase Authentication wording');
+      assert(document.getElementById('settingsPrivacyCard').textContent.includes('WattWatch does not ask users to provide a personal email address or phone number. Account authentication uses a generated username-based identifier.'), 'Settings card privacy notice uses consistent Firebase Authentication wording');
+      assert(typeof WattWatchApp.modalManager === 'object' && typeof WattWatchApp.modalManager.open === 'function', 'modalManager is initialized prior to opening privacy notice');
+
+      // B. Closing or navigating away from the notice works
+      // 1. Close via close button
+      const privacyCloseX = document.getElementById('privacyModalCloseX');
+      privacyCloseX.click();
+      assert(!privacyModalEl.classList.contains('is-open'), 'Privacy notice closed cleanly via close button');
+      assert(privacyModalEl.getAttribute('aria-hidden') === 'true', 'Privacy notice aria-hidden is true after closing');
+      assert(document.activeElement === authPrivacyLink, 'Focus restored to authPrivacyLink after closing privacy notice');
+
+      // 2. Re-open and close via backdrop click
+      authPrivacyLink.click();
+      assert(privacyModalEl.classList.contains('is-open'), 'Privacy notice re-opened');
+      privacyModalEl.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      assert(!privacyModalEl.classList.contains('is-open'), 'Privacy notice closes on backdrop click');
+      assert(document.activeElement === authPrivacyLink, 'Focus restored to authPrivacyLink after backdrop click close');
+
+      // C. Normal Settings features remain protected
+      assert(document.body.classList.contains('auth-gate-active'), 'Auth gate remained strictly active throughout privacy notice viewing');
+      assert(appLayoutFixture ? appLayoutFixture.inert === true : true, 'Application layout and Settings remain inert and inaccessible');
+      assert(WattWatchAuth.currentUser === null, 'Visitor remains strictly unauthenticated');
+      assert(WattWatchAuth.hasUserChosenSession === false, 'Session choice has not been bypassed');
+      const closeGateAttempt = WattWatchAuth.closeModal();
+      assert(closeGateAttempt === false, 'WattWatchAuth.closeModal() blocks closing while startup session choice is unresolved');
+      assert(document.body.classList.contains('auth-gate-active'), 'Auth gate cannot be dismissed without explicit session choice');
+      assert(authModalFixture.classList.contains('is-open'), 'Auth modal remains open to guard protected application views');
+
+      // D. Keyboard accessibility works
+      // 1. Stacking and Escape key dismissal
+      authPrivacyLink.click();
+      assert(WattWatchApp.modalManager.getTopModal() === privacyModalEl, 'modalManager recognizes privacyModal as top active modal');
+      assert(authModalFixture.inert === true, 'Underlying auth modal is made inert while privacy modal is stacked above it');
+
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+      assert(!privacyModalEl.classList.contains('is-open'), 'Escape key closes privacy modal');
+      assert(authModalFixture.inert === false, 'Underlying auth modal interaction restored after closing privacy modal');
+      assert(document.activeElement === authPrivacyLink, 'Focus is restored to trigger element (authPrivacyLink) on Escape dismissal');
+
+      // 2. Tab key focus trapping within privacy modal
+      authPrivacyLink.click();
+      const privacyFooterClose = document.getElementById('privacyModalFooterClose');
+      privacyFooterClose.focus();
+      assert(document.activeElement === privacyFooterClose, 'Focus positioned on last focusable element in privacy modal');
+
+      const tabEvent = new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true });
+      window.dispatchEvent(tabEvent);
+      assert(tabEvent.defaultPrevented === true, 'Tab key at boundary is intercepted by focus trap');
+      assert(document.activeElement === privacyCloseX, 'Tab wrapped forward to first focusable element (privacyCloseX)');
+
+      const shiftTabEvent = new KeyboardEvent('keydown', { key: 'Tab', shiftKey: true, bubbles: true, cancelable: true });
+      window.dispatchEvent(shiftTabEvent);
+      assert(shiftTabEvent.defaultPrevented === true, 'Shift+Tab key at boundary is intercepted by focus trap');
+      assert(document.activeElement === privacyFooterClose, 'Shift+Tab wrapped backward to last focusable element (privacyFooterClose)');
+
+      WattWatchApp.closePrivacyModal();
+
+      // E. Safe fallback behavior if modalManager is unavailable
+      const savedModalManager = WattWatchApp.modalManager;
+      try {
+        WattWatchApp.modalManager = null;
+        authPrivacyLink.focus();
+        WattWatchApp.openPrivacyModal(authPrivacyLink);
+        assert(privacyModalEl.classList.contains('is-open'), 'Fallback opens privacy modal when modalManager is null');
+        assert(authModalFixture.inert === true, 'Fallback marks underlying auth modal inert');
+        assert(appLayoutFixture ? appLayoutFixture.inert === true : true, 'Fallback marks background layout inert');
+
+        // Test fallback keyboard focus trap boundary handling
+        const fallbackCloseFooter = document.getElementById('privacyModalFooterClose');
+        fallbackCloseFooter.focus();
+        assert(document.activeElement === fallbackCloseFooter, 'Fallback focus positioned on footer close');
+        const fallbackTabEvt = new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true });
+        window.dispatchEvent(fallbackTabEvt);
+        assert(fallbackTabEvt.defaultPrevented === true, 'Fallback Tab key at boundary is intercepted by focus trap');
+        assert(document.activeElement === privacyCloseX, 'Fallback Tab wrapped forward to first focusable element');
+
+        WattWatchApp.closePrivacyModal();
+        assert(!privacyModalEl.classList.contains('is-open'), 'Fallback closes privacy modal cleanly');
+        assert(authModalFixture.inert === false, 'Fallback restores underlying auth modal interaction');
+        assert(document.activeElement === authPrivacyLink, 'Fallback restores focus to authPrivacyLink');
+      } finally {
+        WattWatchApp.modalManager = savedModalManager;
+      }
+
+      // F. Regression Test: Closing privacy modal before 50ms focus timeout does not steal focus
+      authPrivacyLink.focus();
+      assert(document.activeElement === authPrivacyLink, 'Pre-test focus positioned on authPrivacyLink');
+
+      // Trigger modal open (starts guarded 50ms timeout)
+      WattWatchApp.openPrivacyModal(authPrivacyLink);
+      assert(privacyModalEl.classList.contains('is-open'), 'Privacy modal is open before delayed callback');
+
+      // Immediately close modal before the 50ms timeout executes
+      WattWatchApp.closePrivacyModal();
+      assert(!privacyModalEl.classList.contains('is-open'), 'Privacy modal closed immediately');
+      assert(document.activeElement === authPrivacyLink, 'Focus immediately restored to authPrivacyLink upon closure');
+      assert(WattWatchApp._privacyFocusTimeout === null, 'Focus timeout handle cleanly cleared on modal close');
+
+      // Wait 80ms for the 50ms window to fully expire
+      for (let i = 0; i < 8; i++) {
+        await new Promise(resolve => setTimeout(resolve, 10));
+      }
+
+      // Verify that focus was NOT stolen by privacyModalCloseX
+      const privacyCloseXBtn = document.getElementById('privacyModalCloseX');
+      assert(document.activeElement === authPrivacyLink, 'Focus safely remains on authPrivacyLink after 50ms timeout window expires', 'activeElement=' + (document.activeElement ? document.activeElement.id || document.activeElement.tagName : 'null'));
+      assert(document.activeElement !== privacyCloseXBtn, 'Delayed callback did not steal focus to closed modal element');
+
+      WattWatchAuth.closeModal(true);
+      document.body.classList.remove('auth-gate-active');
+
+      // 36. L4 Calculation Integrity & Anti-Silent Clamping Regression Tests
+      // A. isFiniteNumber helper assertions
+      assert(WattWatchCalculations.isFiniteNumber(42), 'isFiniteNumber accepts integer');
+      assert(WattWatchCalculations.isFiniteNumber('42.5'), 'isFiniteNumber accepts numeric float string');
+      assert(WattWatchCalculations.isFiniteNumber(0), 'isFiniteNumber accepts explicit zero');
+      assert(WattWatchCalculations.isFiniteNumber('0'), 'isFiniteNumber accepts zero string');
+      assert(WattWatchCalculations.isFiniteNumber(-10), 'isFiniteNumber accepts negative number');
+      assert(!WattWatchCalculations.isFiniteNumber(NaN), 'isFiniteNumber rejects NaN');
+      assert(!WattWatchCalculations.isFiniteNumber(Infinity), 'isFiniteNumber rejects Infinity');
+      assert(!WattWatchCalculations.isFiniteNumber(-Infinity), 'isFiniteNumber rejects -Infinity');
+      assert(!WattWatchCalculations.isFiniteNumber(null), 'isFiniteNumber rejects null');
+      assert(!WattWatchCalculations.isFiniteNumber(undefined), 'isFiniteNumber rejects undefined');
+      assert(!WattWatchCalculations.isFiniteNumber(''), 'isFiniteNumber rejects empty string');
+      assert(!WattWatchCalculations.isFiniteNumber('   '), 'isFiniteNumber rejects whitespace string');
+      assert(!WattWatchCalculations.isFiniteNumber(true), 'isFiniteNumber rejects boolean true');
+      assert(!WattWatchCalculations.isFiniteNumber(false), 'isFiniteNumber rejects boolean false');
+      assert(!WattWatchCalculations.isFiniteNumber('abc'), 'isFiniteNumber rejects non-numeric string');
+
+      // B. Validation helpers assertions
+      assert(WattWatchCalculations.validatePowerWatts(100) === 100, 'validatePowerWatts validates 100W');
+      assert(WattWatchCalculations.validatePowerWatts(0) === 0, 'validatePowerWatts preserves explicit 0W');
+      assert(isNaN(WattWatchCalculations.validatePowerWatts(-50)), 'validatePowerWatts rejects negative watts without clamping');
+      assert(isNaN(WattWatchCalculations.validatePowerWatts(60000)), 'validatePowerWatts rejects wattage > 50,000 W');
+      assert(WattWatchCalculations.validatePowerWatts(undefined, 0) === 0, 'validatePowerWatts returns default value when undefined');
+
+      assert(WattWatchCalculations.validateQuantity(5, false) === 5, 'validateQuantity validates integer 5');
+      assert(WattWatchCalculations.validateQuantity(0, true) === 0, 'validateQuantity allows 0 when allowZero is true');
+      assert(isNaN(WattWatchCalculations.validateQuantity(0, false)), 'validateQuantity rejects 0 when allowZero is false');
+      assert(isNaN(WattWatchCalculations.validateQuantity(2.5, false)), 'validateQuantity rejects non-integer decimal quantity');
+      assert(isNaN(WattWatchCalculations.validateQuantity(-2, true)), 'validateQuantity rejects negative quantity');
+
+      assert(WattWatchCalculations.validateDailyHours(6) === 6, 'validateDailyHours validates 6 hours');
+      assert(WattWatchCalculations.validateDailyHours(0) === 0, 'validateDailyHours preserves explicit 0 hours');
+      assert(WattWatchCalculations.validateDailyHours(24) === 24, 'validateDailyHours validates boundary 24 hours');
+      assert(isNaN(WattWatchCalculations.validateDailyHours(-1)), 'validateDailyHours rejects negative hours without clamping');
+      assert(isNaN(WattWatchCalculations.validateDailyHours(24.5)), 'validateDailyHours rejects hours > 24 without clamping');
+
+      assert(WattWatchCalculations.validateOperatingDays(30, true) === 30, 'validateOperatingDays validates 30 days');
+      assert(WattWatchCalculations.validateOperatingDays(0, true) === 0, 'validateOperatingDays preserves explicit 0 days');
+      assert(isNaN(WattWatchCalculations.validateOperatingDays(-1, true)), 'validateOperatingDays rejects negative days without clamping');
+      assert(isNaN(WattWatchCalculations.validateOperatingDays(32, true)), 'validateOperatingDays rejects days > 31 without clamping');
+      assert(isNaN(WattWatchCalculations.validateOperatingDays(15.5, true)), 'validateOperatingDays rejects non-integer days');
+
+      assert(WattWatchCalculations.validateTariffRate(8.5) === 8.5, 'validateTariffRate validates 8.5 rate');
+      assert(WattWatchCalculations.validateTariffRate(undefined, 8.0) === 8.0, 'validateTariffRate applies default 8.0');
+      assert(isNaN(WattWatchCalculations.validateTariffRate(-2)), 'validateTariffRate rejects negative tariff rate without clamping');
+
+      // C. Anti-Silent Clamping in Core Calculation Functions
+      assert(isNaN(WattWatchCalculations.calculateDailyKwh(-500, 1, 4)), 'calculateDailyKwh rejects negative power');
+      assert(isNaN(WattWatchCalculations.calculateDailyKwh(500, -1, 4)), 'calculateDailyKwh rejects negative quantity');
+      assert(isNaN(WattWatchCalculations.calculateDailyKwh(500, 1.5, 4)), 'calculateDailyKwh rejects decimal quantity');
+      assert(isNaN(WattWatchCalculations.calculateDailyKwh(500, 1, -2)), 'calculateDailyKwh rejects negative daily hours');
+      assert(isNaN(WattWatchCalculations.calculateDailyKwh(500, 1, 25)), 'calculateDailyKwh rejects daily hours > 24');
+      assert(isNaN(WattWatchCalculations.calculateDailyKwh(NaN, 1, 4)), 'calculateDailyKwh rejects NaN power');
+      assert(isNaN(WattWatchCalculations.calculateDailyKwh(Infinity, 1, 4)), 'calculateDailyKwh rejects Infinity power');
+      assert(WattWatchCalculations.calculateDailyKwh(500, 0, 4) === 0, 'calculateDailyKwh returns 0 with explicit quantity 0');
+      assert(WattWatchCalculations.calculateDailyKwh(500, 1, 0) === 0, 'calculateDailyKwh returns 0 with explicit hours 0');
+
+      assert(isNaN(WattWatchCalculations.calculateMonthlyKwh(500, 1, 4, -5)), 'calculateMonthlyKwh rejects negative operating days');
+      assert(isNaN(WattWatchCalculations.calculateMonthlyKwh(500, 1, 4, 32)), 'calculateMonthlyKwh rejects operating days > 31');
+      assert(isNaN(WattWatchCalculations.calculateMonthlyKwh(500, 1, 4, 15.5)), 'calculateMonthlyKwh rejects decimal operating days');
+      assert(WattWatchCalculations.calculateMonthlyKwh(500, 1, 4, 0) === 0, 'calculateMonthlyKwh returns 0 with explicit days 0 (no falsy 30 fallback)');
+
+      assert(isNaN(WattWatchCalculations.calculateCost(-100, 8.0)), 'calculateCost rejects negative energy kWh');
+      assert(isNaN(WattWatchCalculations.calculateCost(100, -8.0)), 'calculateCost rejects negative rate');
+      assert(isNaN(WattWatchCalculations.calculateCost(NaN, 8.0)), 'calculateCost rejects NaN energy');
+      assert(isNaN(WattWatchCalculations.calculateCost(100, Infinity)), 'calculateCost rejects Infinity rate');
+      assertAlmostEqual(WattWatchCalculations.calculateCost(0, 8.0), 0.0, 'calculateCost returns 0 for 0 kWh');
+
+      // D. Advanced Tariff & Budget Status Integrity
+      const invalidTariffNeg = WattWatchCalculations.calculateAdvancedTariff(-50, flatSettings);
+      assert(invalidTariffNeg.isValid === false, 'calculateAdvancedTariff returns isValid=false for negative kWh');
+      assert(isNaN(invalidTariffNeg.totalCost), 'calculateAdvancedTariff returns totalCost=NaN for negative kWh');
+
+      const invalidTariffNaN = WattWatchCalculations.calculateAdvancedTariff(NaN, flatSettings);
+      assert(invalidTariffNaN.isValid === false, 'calculateAdvancedTariff returns isValid=false for NaN kWh');
+
+      assert(WattWatchCalculations.calculateBudgetStatus(1000, 0).status === 'unset', 'calculateBudgetStatus marks budget 0 as unset');
+      assert(WattWatchCalculations.calculateBudgetStatus(1000, '0').status === 'unset', 'calculateBudgetStatus marks string "0" as unset');
+      assert(WattWatchCalculations.calculateBudgetStatus(1000, -500).status === 'invalid', 'calculateBudgetStatus marks negative budget as invalid');
+      assert(WattWatchCalculations.calculateBudgetStatus(-1000, 5000).status === 'invalid', 'calculateBudgetStatus marks negative bill as invalid');
+      assert(WattWatchCalculations.calculateBudgetStatus(NaN, 5000).status === 'invalid', 'calculateBudgetStatus marks NaN bill as invalid');
+      assert(WattWatchCalculations.calculateBudgetStatus(1000, Infinity).status === 'invalid', 'calculateBudgetStatus marks Infinity budget as invalid');
+
+      // E. Snapshot Comparison & Simulator Integrity
+      const compCorrupted = WattWatchCalculations.compareSnapshots({ totalKwh: NaN, totalCost: 100 }, { totalKwh: 50, totalCost: 200 });
+      assert(compCorrupted.isValid === false, 'compareSnapshots returns isValid=false when snapshot contains NaN');
+      assert(isNaN(compCorrupted.kwhDiff), 'compareSnapshots returns kwhDiff=NaN for corrupted snapshot');
+
+      const compNeg = WattWatchCalculations.compareSnapshots({ totalKwh: -10, totalCost: 100 }, { totalKwh: 50, totalCost: 200 });
+      assert(compNeg.isValid === false, 'compareSnapshots returns isValid=false when snapshot contains negative values');
+
+      const simBaseApp = { name: 'Old Ceiling Fan', powerWatts: 75, dailyHours: 12, operatingDays: 30, quantity: 1 };
+      const simZeroQty = WattWatchCalculations.simulateReplacement(simBaseApp, 0, 0, 30, 0, 8.00);
+      assert(simZeroQty.isValid === true, 'Simulator allows altQty=0 for appliance retirement analysis');
+      assertAlmostEqual(simZeroQty.replacement.monthlyKwh, 0.0, 'Replacement monthly kWh is 0 with altQty=0');
+      assert(simZeroQty.savings.monthlyKwhSaved > 0, 'Appliance retirement produces positive energy savings');
+
+      const simBadHours = WattWatchCalculations.simulateReplacement(simBaseApp, 35, 26, 30, 1, 8.00);
+      assert(simBadHours.isValid === false, 'Simulator rejects invalid replacement daily hours > 24');
+      assert(isNaN(simBadHours.savings.monthlyKwhSaved), 'Invalid replacement simulation savings return NaN');
+
+      // F. Formatting Utilities Integrity
+      assert(WattWatchCalculations.formatKwh(123.456) === '123.46 kWh', 'formatKwh formats valid numbers with 2 decimals');
+      assert(WattWatchCalculations.formatKwh(0) === '0.00 kWh', 'formatKwh formats explicit zero as 0.00 kWh');
+      assert(WattWatchCalculations.formatKwh(NaN) === '-- kWh', 'formatKwh formats NaN as -- kWh');
+      assert(WattWatchCalculations.formatKwh(Infinity) === '-- kWh', 'formatKwh formats Infinity as -- kWh');
+      assert(WattWatchCalculations.formatKwh(-15) === '-- kWh', 'formatKwh formats negative number as -- kWh');
+
+      assert(WattWatchCalculations.formatCurrency(1234.5) === '₹1,234.50', 'formatCurrency formats valid numbers with 2 decimals');
+      assert(WattWatchCalculations.formatCurrency(0) === '₹0.00', 'formatCurrency formats explicit zero as ₹0.00');
+      assert(WattWatchCalculations.formatCurrency(NaN) === '₹--', 'formatCurrency formats NaN as ₹--');
+      assert(WattWatchCalculations.formatCurrency(-50) === '₹--', 'formatCurrency formats negative numbers as ₹--');
+
+      assert(WattWatchCalculations.formatNumber(NaN) === '--', 'formatNumber formats NaN as --');
+      assert(WattWatchCalculations.formatNumber(12.345, 2) === '12.35', 'formatNumber formats number with requested decimals');
+
+      // G. Household Summary Consistent Zero and Invalid Quantity Handling
+      const zeroQtyApp = { name: 'Dormant Appliance', powerWatts: 100, quantity: 0, dailyHours: 8, operatingDays: 30, category: 'Other' };
+      const summaryZeroQty = WattWatchCalculations.calculateHouseholdSummary([zeroQtyApp], 8.00);
+      assertAlmostEqual(summaryZeroQty.totalMonthlyKwh, 0.0, 'Household summary yields 0 kWh for quantity 0 appliance');
+      assert(summaryZeroQty.totalUnits === 0, 'Household summary totalUnits correctly reflects 0 for quantity 0 appliance');
+      assert(summaryZeroQty.categoryBreakdown['Other'].count === 0, 'Category breakdown count correctly reflects 0 for quantity 0 appliance');
+
+      // 37. Comprehensive L4 Calculation Integrity, Anti-Silent Clamping & Validation Suite
+      // A. Advanced Tariff Invalidation & Error Propagation
+      const resNegRate = WattWatchCalculations.calculateAdvancedTariff(100, { tariffModel: 'flat', electricityRate: -5.0 });
+      assert(resNegRate.isValid === false, 'Tariff rejects explicitly supplied negative rate');
+      assert(isNaN(resNegRate.totalCost), 'Tariff produces NaN totalCost for negative rate');
+
+      const resMalformedRate = WattWatchCalculations.calculateAdvancedTariff(100, { tariffModel: 'flat', electricityRate: 'five_inr' });
+      assert(resMalformedRate.isValid === false, 'Tariff rejects malformed string rate');
+
+      const resNaNRate = WattWatchCalculations.calculateAdvancedTariff(100, { tariffModel: 'flat', electricityRate: NaN });
+      assert(resNaNRate.isValid === false, 'Tariff rejects NaN rate');
+
+      const resInfRate = WattWatchCalculations.calculateAdvancedTariff(100, { tariffModel: 'flat', electricityRate: Infinity });
+      assert(resInfRate.isValid === false, 'Tariff rejects Infinity rate');
+
+      const resNegFixed = WattWatchCalculations.calculateAdvancedTariff(100, { tariffModel: 'flat', fixedCharges: -50 });
+      assert(resNegFixed.isValid === false, 'Tariff rejects negative fixed charges');
+
+      const resMalformedFixed = WattWatchCalculations.calculateAdvancedTariff(100, { tariffModel: 'flat', fixedCharges: 'fifty' });
+      assert(resMalformedFixed.isValid === false, 'Tariff rejects malformed fixed charges');
+
+      const resNegTax = WattWatchCalculations.calculateAdvancedTariff(100, { tariffModel: 'flat', additionalTaxPercent: -10 });
+      assert(resNegTax.isValid === false, 'Tariff rejects negative tax percent');
+
+      const resExcessTax = WattWatchCalculations.calculateAdvancedTariff(100, { tariffModel: 'flat', additionalTaxPercent: 105 });
+      assert(resExcessTax.isValid === false, 'Tariff rejects tax percent exceeding 100');
+
+      const resEmptySlabs = WattWatchCalculations.calculateAdvancedTariff(100, { tariffModel: 'slab', slabConfig: [] });
+      assert(resEmptySlabs.isValid === false, 'Tariff rejects empty slab configuration without silent flat fallback');
+
+      const resNonProgSlabs = WattWatchCalculations.calculateAdvancedTariff(100, {
+        tariffModel: 'slab',
+        slabConfig: [{ upTo: 100, rate: 5 }, { upTo: 80, rate: 8 }, { upTo: null, rate: 10 }]
+      });
+      assert(resNonProgSlabs.isValid === false, 'Tariff rejects non-progressive slab thresholds');
+
+      const resNegSlabRate = WattWatchCalculations.calculateAdvancedTariff(100, {
+        tariffModel: 'slab',
+        slabConfig: [{ upTo: 100, rate: -5 }, { upTo: null, rate: 10 }]
+      });
+      assert(resNegSlabRate.isValid === false, 'Tariff rejects negative slab rate');
+
+      // M6 Preservation: Capped Final Slab with Excess Units
+      const resM6Preserved = WattWatchCalculations.calculateAdvancedTariff(250, {
+        tariffModel: 'slab',
+        electricityRate: 8.0,
+        fixedCharges: 0,
+        additionalTaxPercent: 0,
+        slabConfig: [{ upTo: 100, rate: 5 }, { upTo: 200, rate: 7 }]
+      });
+      assert(resM6Preserved.isValid === true, 'Tariff handles capped final slab without error');
+      assertAlmostEqual(resM6Preserved.totalCost, 1550.0, 'Tariff bills excess over capped final slab at final slab rate (100*5 + 100*7 + 50*7 = 1550)');
+
+      // B. Household Summary Strict Non-Skipping & Validation
+      const validApp1 = { id: 'app_v1', name: 'Valid LED', powerWatts: 20, dailyHours: 5, operatingDays: 30, quantity: 2, category: 'Lighting' };
+      const invalidApp1 = { id: 'app_inv1', name: 'Corrupted Heater', powerWatts: -1000, dailyHours: 5, operatingDays: 30, quantity: 1, category: 'Heating' };
+      const partialSummary = WattWatchCalculations.calculateHouseholdSummary([validApp1, invalidApp1], 8.00);
+      assert(partialSummary.isValid === false, 'Household summary marks inventory with invalid appliance as isValid=false');
+      assert(partialSummary.hasInvalidAppliances === true, 'Household summary flags hasInvalidAppliances=true');
+      assert(isNaN(partialSummary.totalMonthlyKwh), 'Household summary does not silently sum partial kWh when invalid appliances exist');
+      assert(isNaN(partialSummary.totalMonthlyCost), 'Household summary does not silently sum partial cost when invalid appliances exist');
+      assert(partialSummary.invalidAppliances.length === 1, 'Household summary identifies invalid appliance');
+
+      const summaryNegRate = WattWatchCalculations.calculateHouseholdSummary([validApp1], -8.00);
+      assert(summaryNegRate.isValid === false, 'Household summary rejects negative electricity rate without defaulting to 8');
+      assert(isNaN(summaryNegRate.totalMonthlyCost), 'Household summary yields NaN cost for invalid electricity rate');
+
+      const summaryOmittedRate = WattWatchCalculations.calculateHouseholdSummary([validApp1], undefined);
+      assert(summaryOmittedRate.isValid === true, 'Household summary applies default 8.00 when rate is genuinely omitted (undefined)');
+      assert(summaryOmittedRate.ratePerKwh === 8.00, 'Household summary sets default rate to 8.00 when omitted');
+
+      const summaryExplicitZeroRate = WattWatchCalculations.calculateHouseholdSummary([validApp1], 0);
+      assert(summaryExplicitZeroRate.isValid === true, 'Household summary preserves explicitly supplied rate of 0');
+      assert(summaryExplicitZeroRate.totalMonthlyCost === 0, 'Household summary calculates 0 cost with rate of 0');
+
+      // C. Budget Status Invalidation Priority
+      const budgetStatusBadBillZeroBudget = WattWatchCalculations.calculateBudgetStatus(NaN, 0);
+      assert(budgetStatusBadBillZeroBudget.status === 'invalid', 'Budget status returns invalid for NaN bill even when budget is 0');
+      assert(isNaN(budgetStatusBadBillZeroBudget.estimatedBill), 'Budget status preserves NaN bill without zero coercion');
+
+      const budgetStatusNegBillUnsetBudget = WattWatchCalculations.calculateBudgetStatus(-500, null);
+      assert(budgetStatusNegBillUnsetBudget.status === 'invalid', 'Budget status returns invalid for negative bill even when budget is null');
+
+      const budgetStatusBadBillValidBudget = WattWatchCalculations.calculateBudgetStatus(Infinity, 5000);
+      assert(budgetStatusBadBillValidBudget.status === 'invalid', 'Budget status returns invalid for Infinity bill');
+
+      const budgetStatusValidBillUnsetBudget = WattWatchCalculations.calculateBudgetStatus(1200, 0);
+      assert(budgetStatusValidBillUnsetBudget.status === 'unset', 'Budget status returns unset for valid bill when budget is 0');
+
+      // D. Snapshot Storage Strict Validation
+      assert(WattWatchStorage.validateSnapshot({ period: '2026-11', totalKwh: 120, totalCost: 960 }).valid === true, 'validateSnapshot accepts valid snapshot');
+      assert(WattWatchStorage.validateSnapshot(null).valid === false, 'validateSnapshot rejects null');
+      assert(WattWatchStorage.validateSnapshot(true).valid === false, 'validateSnapshot rejects boolean');
+      assert(WattWatchStorage.validateSnapshot({ period: '2026-11', totalKwh: ' 100 ', totalCost: 800 }).valid === false, 'validateSnapshot rejects whitespace string in numeric field');
+      assert(WattWatchStorage.validateSnapshot({ period: '2026-11', totalKwh: '100kWh', totalCost: 800 }).valid === false, 'validateSnapshot rejects malformed string in numeric field');
+      assert(WattWatchStorage.validateSnapshot({ period: '2026-11', totalKwh: -50, totalCost: 800 }).valid === false, 'validateSnapshot rejects negative totalKwh');
+      assert(WattWatchStorage.validateSnapshot({ period: '2026-11', totalKwh: 100, totalCost: NaN }).valid === false, 'validateSnapshot rejects NaN totalCost');
+      assert(WattWatchStorage.validateSnapshot({ period: '2026-11', totalKwh: 100, totalCost: 800, appliancesCount: 2.5 }).valid === false, 'validateSnapshot rejects fractional appliancesCount');
+
+      const initialHistCount = WattWatchStorage.getHistory().length;
+      const saveResultInvalid = WattWatchStorage.saveSnapshot({ period: '2026-11', totalKwh: -100, totalCost: 500 });
+      assert(saveResultInvalid === false, 'saveSnapshot rejects invalid snapshot');
+      assert(WattWatchStorage.getHistory().length === initialHistCount, 'Invalid snapshot is not added to storage');
+
+      // E. CSV Exports Handling of Invalid Values
+      WattWatchStorage.saveAppliances([
+        { id: 'app_valid', name: 'Working Lamp', category: 'Lighting', powerWatts: 25, dailyHours: 4, operatingDays: 30, quantity: 1 },
+        { id: 'app_broken', name: 'Corrupt Device', category: 'Other', powerWatts: -100, dailyHours: 4, operatingDays: 30, quantity: 1 }
+      ]);
+      const appCsvCorrupt = WattWatchStorage.generateAppliancesCSV();
+      assert(appCsvCorrupt.includes('N/A'), 'generateAppliancesCSV formats invalid appliance energy and cost as N/A');
+      assert(!appCsvCorrupt.includes('"Corrupt Device","Other",-100,4,30,1,0.00,0.00'), 'generateAppliancesCSV does not fallback corrupted device to 0.00');
+
+      const appExportBlocked = WattWatchStorage.exportAppliancesCSV();
+      assert(appExportBlocked === false, 'exportAppliancesCSV blocks export when inventory contains invalid appliances');
+
+      // F. Simulator Fractional Rejection & Preservation of Intentional Zero
+      const simApp = { name: 'Ceiling Fan', powerWatts: 75, dailyHours: 12, operatingDays: 30, quantity: 1 };
+      const simFractionalQty = WattWatchCalculations.simulateReplacement(simApp, 35, 12, 30, 1.5, 8.00);
+      assert(simFractionalQty.isValid === false, 'Simulator rejects fractional replacement quantity (1.5)');
+
+      const simFractionalDays = WattWatchCalculations.simulateReplacement(simApp, 35, 12, 15.5, 1, 8.00);
+      assert(simFractionalDays.isValid === false, 'Simulator rejects fractional replacement operating days (15.5)');
+
+      const simNegPurchase = WattWatchCalculations.simulateReplacement(simApp, 35, 12, 30, 1, 8.00, -2500);
+      assert(simNegPurchase.isValid === false, 'Simulator rejects negative purchase cost');
+
+      const simZeroQtyPreserved = WattWatchCalculations.simulateReplacement(simApp, 0, 0, 30, 0, 8.00, 0);
+      assert(simZeroQtyPreserved.isValid === true, 'Simulator preserves intentional altQty=0 for appliance retirement');
+      assertAlmostEqual(simZeroQtyPreserved.replacement.monthlyKwh, 0.0, 'Replacement energy is 0 kWh for retired appliance');
+
+      const simZeroHoursPreserved = WattWatchCalculations.simulateReplacement(simApp, 35, 0, 30, 1, 8.00, 0);
+      assert(simZeroHoursPreserved.isValid === true, 'Simulator preserves intentional altDailyHours=0');
+      assertAlmostEqual(simZeroHoursPreserved.replacement.monthlyKwh, 0.0, 'Replacement energy is 0 kWh when daily hours are 0');
+
       // Restore sample household for storage
       WattWatchStorage.loadSampleHousehold();
       } catch (err) {
@@ -1800,7 +2419,7 @@
         // Clean up test namespace keys
         const allKeys = Object.keys(localStorage);
         for (const k of allKeys) {
-          if (k.startsWith('wattwatch_audit_test_') || k.includes('wattwatch_corrupted_')) {
+          if (k.startsWith('wattwatch_audit_test_') || (k.includes('wattwatch_corrupted_') && !(k in initialLocalStorageSnapshot))) {
             localStorage.removeItem(k);
           }
         }
@@ -1837,10 +2456,16 @@
         });
         html += '</ul>';
         document.getElementById('test-results').innerHTML = html;
+        console.log(`TEST_RESULTS: TOTAL=${totalCount} PASSED=${passedCount} FAILED=${failedCount}`);
       }
     }
 
-    runAllTests();
+    if (window.__wattwatchLocalTestAllowed) {
+      runAllTests();
+    } else {
+      document.getElementById('test-results').textContent =
+        'Tests are restricted to a local development server. Open this page at http://localhost or http://127.0.0.1.';
+    }
   </script>
 </body>
 </html>

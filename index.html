@@ -9,7 +9,7 @@
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://www.gstatic.com https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; img-src 'self' data: https: blob:; font-src 'self'; connect-src 'self' https://*.googleapis.com https://*.firebaseio.com https://*.firebaseapp.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://firestore.googleapis.com https://www.gstatic.com https://cdn.jsdelivr.net; frame-src 'self'; object-src 'none'; base-uri 'self';">
 
   <!-- Meta description and branding -->
-  <meta name="description" content="WattWatch is an advanced electricity management and analytics platform. Monitor consumption, track electricity budgets, compare historical billing periods, simulate appliance replacements, test slab tariffs, and estimate carbon emissions.">
+  <meta name="description" content="WattWatch is an electricity management and analytics platform. Monitor consumption, track electricity budgets, compare historical billing periods, simulate appliance replacements, test slab tariffs, and estimate carbon emissions.">
   <link rel="icon" type="image/svg+xml" href="assets/logo.svg">
 
   <!-- Core Stylesheets -->
@@ -35,7 +35,7 @@
           <img src="assets/logo.svg" alt="WattWatch Logo" class="brand-logo-svg">
           <div class="brand-text">
             <span class="brand-name">WATT<span>WATCH</span></span>
-            <span class="brand-subtitle">Energy Intelligence</span>
+            <span class="brand-subtitle">Electricity Management</span>
           </div>
         </a>
       </div>
@@ -417,14 +417,8 @@
           <!-- Quick Actions Bar -->
           <div class="quick-actions-bar">
             <span class="quick-actions-label">Quick Actions:</span>
-            <button type="button" class="btn btn-secondary btn-sm" onclick="WattWatchAppliances.openModal()">
-              + Add Appliance
-            </button>
             <button type="button" class="btn btn-secondary btn-sm" id="btnOverviewSaveSnapshot">
               Save Bill Snapshot
-            </button>
-            <button type="button" class="btn btn-secondary btn-sm" onclick="WattWatchReport.openReportModal()">
-              Generate PDF Report
             </button>
             <button type="button" class="btn btn-secondary btn-sm" onclick="WattWatchApp.navigateTo('history')">
               Bill History
@@ -797,7 +791,7 @@
             <div class="card-header">
               <div>
                 <h3 class="card-title">Carbon Footprint Estimator</h3>
-                <p class="card-subtitle">Quantified greenhouse gas emissions ($\text{kg CO}_2\text{e}$) derived from your electrical load profile</p>
+                <p class="card-subtitle">Quantified greenhouse gas emissions (kg CO₂e) derived from your electrical load profile</p>
               </div>
               <span class="badge badge-cooling">Environmental Analytics</span>
             </div>
@@ -833,7 +827,7 @@
                 <line x1="12" y1="16" x2="12.01" y2="16"/>
               </svg>
               <div>
-                <strong>Carbon Estimation Formula & Assumptions:</strong> $\text{Emissions (kg CO}_2\text{e)} = \text{Monthly kWh} \times \text{Grid Emission Factor}$. Standard factor reflects Central Electricity Authority (CEA) India baseline ($0.82\text{ kg CO}_2/\text{kWh}$). Can be modified or disabled in Settings.
+                <strong>Carbon Estimation Formula & Assumptions:</strong> Emissions (kg CO₂e) = Monthly kWh × Grid Emission Factor. The standard factor reflects the Central Electricity Authority (CEA) India baseline (0.82 kg CO₂/kWh). You can modify or disable it in Settings.
               </div>
             </div>
           </div>
@@ -1068,7 +1062,7 @@
               <circle cx="12" cy="12" r="4"/>
             </svg>
             <h3 class="empty-state-title">No Recommendations Available</h3>
-            <p class="empty-state-desc">Add appliances to your inventory so our rule-based energy intelligence engine can analyze your load profiles and recommend specific optimizations.</p>
+            <p class="empty-state-desc">Add appliances to your inventory so our appliance analysis system can analyze your load profiles and recommend specific optimizations.</p>
             <button type="button" class="btn btn-primary" onclick="WattWatchAppliances.openModal()">
               + Add Appliance
             </button>
@@ -1319,6 +1313,60 @@
                 </svg>
                 <span>Transfer Guest Data into Account</span>
               </button>
+            </div>
+
+            <!-- Settings Card 7: Privacy, Data Storage & Architecture Notice -->
+            <div class="card settings-card" id="settingsPrivacyCard">
+              <div class="card-header">
+                <div>
+                  <h3 class="card-title">Privacy & Data Architecture Notice</h3>
+                  <p class="card-subtitle">Transparent disclosure of data storage, privacy practices, and external services</p>
+                </div>
+                <span class="badge badge-gold">Privacy First</span>
+              </div>
+
+              <div class="privacy-notice-content" style="font-size: 0.85rem; line-height: 1.55; color: var(--text-secondary); display: flex; flex-direction: column; gap: 0.9rem;">
+                <div style="background: var(--bg-surface-elevated, rgba(15, 23, 42, 0.03)); border: 1px solid var(--border-card); border-radius: var(--radius-md); padding: 0.85rem;">
+                  <strong style="color: var(--text-primary); display: block; margin-bottom: 0.25rem;">Browser LocalStorage Persistence</strong>
+                  WattWatch operates primarily as a client-side application. Your appliance inventory, tariff parameters, monthly budgets, and historical snapshots are stored locally in your browser's <code style="font-size: 0.8rem; background: var(--border-card); padding: 0.1rem 0.35rem; border-radius: 3px;">localStorage</code> under dedicated workspace namespaces.
+                </div>
+
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 0.85rem;">
+                  <div style="border-left: 3px solid var(--royal-blue); padding-left: 0.75rem;">
+                    <strong style="color: var(--text-primary); display: block;">Guest Mode</strong>
+                    Guest appliance and billing data stays in browser localStorage and is not uploaded to WattWatch's cloud database, while external resources (such as web fonts and library scripts) may still load. No account credentials are required.
+                  </div>
+                  <div style="border-left: 3px solid var(--antique-gold); padding-left: 0.75rem;">
+                    <strong style="color: var(--text-primary); display: block;">Firebase Authentication</strong>
+                    WattWatch does not ask users to provide a personal email address or phone number. Account authentication uses a generated username-based identifier.
+                  </div>
+                  <div style="border-left: 3px solid var(--deep-burgundy); padding-left: 0.75rem;">
+                    <strong style="color: var(--text-primary); display: block;">Cloud Firestore Profile Storage</strong>
+                    Remote cloud storage is strictly limited to your basic user profile record (<code style="font-size: 0.78rem;">/users/{uid}</code>) containing username, display name, the guest-data import consent flag, and account creation/update timestamps. Your household appliances and bills remain exclusively in browser localStorage.
+                  </div>
+                  <div style="border-left: 3px solid #687386; padding-left: 0.75rem;">
+                    <strong style="color: var(--text-primary); display: block;">Google External Requests</strong>
+                    External network requests are made solely to Google Firebase endpoints (Authentication & Firestore) and static CDNs (Google Fonts, Chart.js fallback). No analytics trackers or third-party ad networks are used.
+                  </div>
+                </div>
+
+                <div style="background: rgba(185, 154, 98, 0.1); border: 1px solid rgba(185, 154, 98, 0.3); border-radius: var(--radius-md); padding: 0.85rem; color: var(--text-primary);">
+                  <div style="display: flex; gap: 0.5rem; align-items: flex-start;">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color: var(--text-gold); flex-shrink: 0; margin-top: 0.1rem;">
+                      <circle cx="12" cy="12" r="10"/>
+                      <line x1="12" y1="8" x2="12" y2="12"/>
+                      <line x1="12" y1="16" x2="12.01" y2="16"/>
+                    </svg>
+                    <div>
+                      <strong>Important Privacy & Portability Limitations:</strong>
+                      <ul style="margin: 0.35rem 0 0 1.15rem; padding: 0; font-size: 0.825rem; line-height: 1.45;">
+                        <li><strong>No Cross-Device Sync:</strong> Appliances and snapshots are saved in local browser storage and do not automatically sync across different browsers or devices. Use the <em>JSON Backup & Portability</em> card to export and transfer data.</li>
+                        <li><strong>No Automated Password Recovery:</strong> Because WattWatch collects neither email addresses nor telephone numbers, automated password reset emails cannot be delivered. Please safeguard your password or rely on local JSON backups.</li>
+                      </ul>
+                    </div>
+                  </div>
+                </div>
+              </div>
             </div>
 
           </div>
@@ -1712,7 +1760,7 @@
               <span class="badge badge-user">Authenticated Account</span>
             </div>
             <p style="font-size: 0.78rem; color: var(--text-secondary); margin-top: 1rem; line-height: 1.45;">
-              Your appliance inventory, settings, and billing comparisons are saved under your private account.
+              Your appliance inventory, settings, and billing comparisons are stored locally in this browser.
             </p>
           </div>
 
@@ -1764,9 +1812,78 @@
       <div class="modal-footer" style="justify-content: space-between; align-items: center;">
         <span style="font-size: 0.775rem; color: var(--text-secondary); display: flex; align-items: center; gap: 0.35rem;">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
-          Username-only secure access
+          Username-only secure access · <a href="#privacyModal" id="authPrivacyLink" onclick="WattWatchApp.openPrivacyModal(this); return false;" style="color: var(--royal-blue); text-decoration: underline; cursor: pointer;">Privacy Notice</a>
         </span>
         <button type="button" class="btn btn-secondary btn-sm" id="authModalFooterClose" onclick="WattWatchAuth.closeModal()">
+          Close
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==========================================
+       MODAL: PRIVACY & DATA ARCHITECTURE NOTICE
+       ========================================== -->
+  <div class="modal-backdrop" id="privacyModal" role="dialog" aria-modal="true" aria-labelledby="privacyModalTitle" aria-hidden="true">
+    <div class="modal-content" style="max-width: 620px;">
+      <div class="modal-header">
+        <div style="display: flex; align-items: center; gap: 0.5rem;">
+          <h3 class="modal-title" id="privacyModalTitle" style="font-size: 1.15rem;">Privacy & Data Architecture Notice</h3>
+          <span class="badge badge-gold">Privacy First</span>
+        </div>
+        <button type="button" class="btn btn-ghost btn-icon" id="privacyModalCloseX" onclick="WattWatchApp.closePrivacyModal()" aria-label="Close privacy notice">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="18" y1="6" x2="6" y2="18"/>
+            <line x1="6" y1="6" x2="18" y2="18"/>
+          </svg>
+        </button>
+      </div>
+
+      <div class="modal-body" style="font-size: 0.85rem; line-height: 1.55; color: var(--text-secondary); display: flex; flex-direction: column; gap: 0.9rem; max-height: 70vh; overflow-y: auto;">
+        <div style="background: var(--bg-surface-elevated, rgba(15, 23, 42, 0.03)); border: 1px solid var(--border-card); border-radius: var(--radius-md); padding: 0.85rem;">
+          <strong style="color: var(--text-primary); display: block; margin-bottom: 0.25rem;">Browser LocalStorage Persistence</strong>
+          WattWatch operates primarily as a client-side application. Your appliance inventory, tariff parameters, monthly budgets, and historical snapshots are stored locally in your browser's <code style="font-size: 0.8rem; background: var(--border-card); padding: 0.1rem 0.35rem; border-radius: 3px;">localStorage</code> under dedicated workspace namespaces.
+        </div>
+
+        <div style="display: grid; grid-template-columns: 1fr; gap: 0.85rem;">
+          <div style="border-left: 3px solid var(--royal-blue); padding-left: 0.75rem;">
+            <strong style="color: var(--text-primary); display: block;">Guest Mode</strong>
+            Guest appliance and billing data stays in browser localStorage and is not uploaded to WattWatch's cloud database, while external resources (such as web fonts and library scripts) may still load. No account credentials are required.
+          </div>
+          <div style="border-left: 3px solid var(--antique-gold); padding-left: 0.75rem;">
+            <strong style="color: var(--text-primary); display: block;">Firebase Authentication</strong>
+            WattWatch does not ask users to provide a personal email address or phone number. Account authentication uses a generated username-based identifier.
+          </div>
+          <div style="border-left: 3px solid var(--deep-burgundy); padding-left: 0.75rem;">
+            <strong style="color: var(--text-primary); display: block;">Cloud Firestore Profile Storage</strong>
+            Remote cloud storage is strictly limited to your basic user profile record (<code style="font-size: 0.78rem;">/users/{uid}</code>) containing username, display name, the guest-data import consent flag, and account creation/update timestamps. Your household appliances and bills remain exclusively in browser localStorage.
+          </div>
+          <div style="border-left: 3px solid #687386; padding-left: 0.75rem;">
+            <strong style="color: var(--text-primary); display: block;">Google External Requests</strong>
+            External network requests are made solely to Google Firebase endpoints (Authentication & Firestore) and static CDNs (Google Fonts, Chart.js fallback). No analytics trackers or third-party ad networks are used.
+          </div>
+        </div>
+
+        <div style="background: rgba(185, 154, 98, 0.1); border: 1px solid rgba(185, 154, 98, 0.3); border-radius: var(--radius-md); padding: 0.85rem; color: var(--text-primary);">
+          <div style="display: flex; gap: 0.5rem; align-items: flex-start;">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color: var(--text-gold); flex-shrink: 0; margin-top: 0.1rem;">
+              <circle cx="12" cy="12" r="10"/>
+              <line x1="12" y1="8" x2="12" y2="12"/>
+              <line x1="12" y1="16" x2="12.01" y2="16"/>
+            </svg>
+            <div>
+              <strong>Important Privacy & Portability Limitations:</strong>
+              <ul style="margin: 0.35rem 0 0 1.15rem; padding: 0; font-size: 0.825rem; line-height: 1.45;">
+                <li><strong>No Cross-Device Sync:</strong> Appliances and snapshots are saved in local browser storage and do not automatically sync across different browsers or devices. Use the <em>JSON Backup & Portability</em> card to export and transfer data.</li>
+                <li><strong>No Automated Password Recovery:</strong> Because WattWatch collects neither email addresses nor telephone numbers, automated password reset emails cannot be delivered. Please safeguard your password or rely on local JSON backups.</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary btn-sm" id="privacyModalFooterClose" onclick="WattWatchApp.closePrivacyModal()">
           Close
         </button>
       </div>
