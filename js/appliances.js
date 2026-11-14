@@ -254,8 +254,8 @@ const WattWatchAppliances = {
     if (isNaN(rawQty) || !Number.isInteger(rawQty) || rawQty < 1) {
       this.showFieldError('modalQuantity', 'Quantity must be a positive whole integer of at least 1 unit');
       isValid = false;
-    } else if (rawQty > 1000) {
-      this.showFieldError('modalQuantity', 'Quantity cannot exceed 1,000 units');
+    } else if (rawQty > 100) {
+      this.showFieldError('modalQuantity', 'Quantity cannot exceed 100 units');
       isValid = false;
     }
 
