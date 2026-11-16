@@ -283,8 +283,20 @@
   .tariff-config-grid,
   .form-grid-2col,
   .modal-form-row,
-  .guide-steps-grid {
+  .guide-steps-grid,
+  .insights-grid {
     grid-template-columns: 1fr;
+  }
+
+  .appliance-load-row-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .appliance-load-figures {
+    width: 100%;
+    justify-content: space-between;
+    text-align: left;
   }
 
   #view-analytics .metrics-grid-3col {

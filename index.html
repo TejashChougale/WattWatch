@@ -428,6 +428,42 @@
             </button>
           </div>
 
+          <!-- Energy Insights: Segmented Timescale (Daily / Weekly / Monthly) -->
+          <div class="card" id="overviewInsightsCard" style="margin-bottom: 2rem;">
+            <div class="card-header" style="flex-wrap: wrap; gap: 0.75rem;">
+              <div>
+                <h3 class="card-title">Timescale Energy Insights</h3>
+                <p class="card-subtitle">Projected household consumption, expenditure pacing, and conservation potential across timeframes</p>
+              </div>
+              <div class="insights-segmented-tabs" role="tablist" aria-label="Select insight timeframe">
+                <button type="button" class="insights-tab active" data-timeframe="daily" role="tab" aria-selected="true" id="tabDailyInsights" aria-controls="overviewInsightsContent">Daily</button>
+                <button type="button" class="insights-tab" data-timeframe="weekly" role="tab" aria-selected="false" id="tabWeeklyInsights" aria-controls="overviewInsightsContent">Weekly</button>
+                <button type="button" class="insights-tab" data-timeframe="monthly" role="tab" aria-selected="false" id="tabMonthlyInsights" aria-controls="overviewInsightsContent">Monthly</button>
+              </div>
+            </div>
+
+            <div id="overviewInsightsContent">
+              <!-- Dynamically rendered via WattWatchApp.renderOverviewInsights() -->
+            </div>
+          </div>
+
+          <!-- Appliance Load Distribution Widget -->
+          <div class="card" id="overviewApplianceComparisonCard" style="margin-bottom: 2rem;">
+            <div class="card-header" style="flex-wrap: wrap; gap: 0.75rem;">
+              <div>
+                <h3 class="card-title">Appliance Load Distribution</h3>
+                <p class="card-subtitle">Comparative energy contribution and monthly billing impact across tracked devices</p>
+              </div>
+              <button type="button" class="btn btn-secondary btn-sm" onclick="WattWatchApp.navigateTo('appliances')">
+                Manage Inventory
+              </button>
+            </div>
+
+            <div id="overviewApplianceComparisonContent">
+              <!-- Dynamically rendered via WattWatchApp.renderOverviewApplianceComparison() -->
+            </div>
+          </div>
+
           <!-- Month-over-Month Energy Consumption Comparison Card -->
           <div class="card" id="overviewMonthComparisonCard" style="margin-bottom: 2rem;">
             <div class="card-header">
@@ -498,9 +534,11 @@
                 <option value="consumption_desc">Consumption (Highest first)</option>
                 <option value="consumption_asc">Consumption (Lowest first)</option>
                 <option value="cost_desc">Estimated Cost (Highest first)</option>
+                <option value="cost_asc">Estimated Cost (Lowest first)</option>
                 <option value="power_desc">Power Rating (Watts)</option>
                 <option value="hours_desc">Daily Usage Hours</option>
                 <option value="name_asc">Name (A to Z)</option>
+                <option value="name_desc">Name (Z to A)</option>
               </select>
               
               <button type="button" class="btn btn-secondary" onclick="WattWatchAppliances.openModal()">
@@ -517,15 +555,18 @@
             </div>
           </div>
 
-          <!-- Category Filter Pills -->
-          <div class="filter-pills-row" id="categoryFilters" role="tablist" aria-label="Filter appliances by category">
-            <button type="button" class="filter-pill active" data-category="All">All Categories</button>
-            <button type="button" class="filter-pill" data-category="Cooling">Cooling</button>
-            <button type="button" class="filter-pill" data-category="Lighting">Lighting</button>
-            <button type="button" class="filter-pill" data-category="Kitchen">Kitchen</button>
-            <button type="button" class="filter-pill" data-category="Entertainment">Entertainment</button>
-            <button type="button" class="filter-pill" data-category="Computing">Computing</button>
-            <button type="button" class="filter-pill" data-category="Other">Other</button>
+          <!-- Category Filter Pills & Count Indicator -->
+          <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.75rem; margin-bottom: 1.25rem;">
+            <div class="filter-pills-row" id="categoryFilters" role="tablist" aria-label="Filter appliances by category" style="margin-bottom: 0;">
+              <button type="button" class="filter-pill active" data-category="All">All Categories</button>
+              <button type="button" class="filter-pill" data-category="Cooling">Cooling</button>
+              <button type="button" class="filter-pill" data-category="Lighting">Lighting</button>
+              <button type="button" class="filter-pill" data-category="Kitchen">Kitchen</button>
+              <button type="button" class="filter-pill" data-category="Entertainment">Entertainment</button>
+              <button type="button" class="filter-pill" data-category="Computing">Computing</button>
+              <button type="button" class="filter-pill" data-category="Other">Other</button>
+            </div>
+            <span id="applianceFilterCount" class="badge badge-outline" style="font-size: 0.78rem; font-weight: 600; padding: 0.35rem 0.75rem; border: 1px solid var(--border-card);">Showing 0 appliances</span>
           </div>
 
           <!-- Appliances Table -->

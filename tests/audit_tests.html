@@ -112,6 +112,12 @@
 
     <div id="overviewComparisonContent"></div>
     <span id="overviewComparisonBadge"></span>
+    <div id="overviewInsightsContent"></div>
+    <div id="overviewApplianceComparisonContent"></div>
+    <span id="applianceFilterCount"></span>
+    <select id="reportPeriodSelect"><option value="current">Current</option></select>
+    <div id="reportPreviewArea"></div>
+    <button id="btnExecutePrintReport"></button>
 
     <table>
       <tbody id="historyTableBody"></tbody>
@@ -2409,6 +2415,70 @@
       const simZeroHoursPreserved = WattWatchCalculations.simulateReplacement(simApp, 35, 0, 30, 1, 8.00, 0);
       assert(simZeroHoursPreserved.isValid === true, 'Simulator preserves intentional altDailyHours=0');
       assertAlmostEqual(simZeroHoursPreserved.replacement.monthlyKwh, 0.0, 'Replacement energy is 0 kWh when daily hours are 0');
+
+      // 38. Energy Intelligence Upgrades (Timescale Insights, Enhanced Sorting, Load Distribution, Reports)
+      // A. Enhanced Appliance Sorting (cost_asc, name_desc)
+      const sortTestApps = [
+        { id: 'app_b', name: 'Beta Refrigerator', category: 'Kitchen', powerWatts: 250, dailyHours: 24, operatingDays: 30, quantity: 1 },
+        { id: 'app_a', name: 'Alpha Geyser', category: 'Other', powerWatts: 2000, dailyHours: 2, operatingDays: 30, quantity: 1 },
+        { id: 'app_c', name: 'Gamma Fan', category: 'Cooling', powerWatts: 75, dailyHours: 8, operatingDays: 30, quantity: 1 }
+      ];
+
+      WattWatchAppliances.sortBy = 'cost_asc';
+      const sortedByCostAsc = WattWatchAppliances.getFilteredAndSortedAppliances(sortTestApps, 8.00);
+      assert(sortedByCostAsc[0].name === 'Gamma Fan', 'getFilteredAndSortedAppliances sorts lowest cost first with cost_asc');
+      assert(sortedByCostAsc[sortedByCostAsc.length - 1].monthlyCost >= sortedByCostAsc[0].monthlyCost, 'cost_asc order is monotonically non-decreasing');
+
+      WattWatchAppliances.sortBy = 'name_desc';
+      const sortedByNameDesc = WattWatchAppliances.getFilteredAndSortedAppliances(sortTestApps, 8.00);
+      assert(sortedByNameDesc[0].name === 'Gamma Fan', 'getFilteredAndSortedAppliances sorts Z to A with name_desc (first is Gamma)');
+      assert(sortedByNameDesc[sortedByNameDesc.length - 1].name === 'Alpha Geyser', 'name_desc order ends with Alpha');
+
+      // B. Timescale Energy Insights (Daily, Weekly, Monthly)
+      WattWatchStorage.saveAppliances(sortTestApps);
+      const testSummary = WattWatchCalculations.calculateHouseholdSummary(sortTestApps, 8.00);
+      const testTariff = WattWatchCalculations.calculateAdvancedTariff(testSummary.totalMonthlyKwh, { tariffModel: 'flat', electricityRate: 8.00, fixedCharges: 100, additionalTaxPercent: 5 });
+
+      WattWatchApp.setInsightsTimeframe('daily');
+      assert(WattWatchApp.currentInsightsTimeframe === 'daily', 'setInsightsTimeframe switches to daily timeframe');
+      assert(document.getElementById('overviewInsightsContent').innerHTML.includes('Daily Baseline Consumption'), 'Daily insights renders baseline label');
+
+      WattWatchApp.setInsightsTimeframe('weekly');
+      assert(WattWatchApp.currentInsightsTimeframe === 'weekly', 'setInsightsTimeframe switches to weekly timeframe');
+      assert(document.getElementById('overviewInsightsContent').innerHTML.includes('Projected 7-Day Energy'), 'Weekly insights renders 7-day energy label');
+
+      WattWatchApp.setInsightsTimeframe('monthly');
+      assert(WattWatchApp.currentInsightsTimeframe === 'monthly', 'setInsightsTimeframe switches to monthly timeframe');
+      assert(document.getElementById('overviewInsightsContent').innerHTML.includes('30-Day Monthly Forecast'), 'Monthly insights renders 30-day forecast label');
+
+      WattWatchApp.setInsightsTimeframe('unsupported');
+      assert(WattWatchApp.currentInsightsTimeframe === 'monthly', 'setInsightsTimeframe rejects unsupported timeframe string');
+
+      // C. Appliance Load Distribution Ranking
+      WattWatchApp.renderOverviewApplianceComparison(testSummary, { currency: 'INR' });
+      const compContent = document.getElementById('overviewApplianceComparisonContent').innerHTML;
+      assert(compContent.includes('Beta Refrigerator'), 'Appliance load comparison lists top consuming appliance');
+      assert(compContent.includes('#1'), 'Appliance load comparison marks top appliance with #1 badge');
+      assert(compContent.includes('load-bar-fill'), 'Appliance load comparison includes visual load fill bars');
+
+      // D. Enhanced Recommendations Heuristics (Refrigeration & Kitchen thermal)
+      const recsEnhanced = WattWatchRecommendations.generateRecommendations(sortTestApps, 8.00);
+      const refrigTip = recsEnhanced.tips.find(t => t.id.startsWith('tip_refrig_'));
+      assert(refrigTip !== undefined, 'Recommendations engine identifies continuous refrigeration thermal opportunity');
+      assert(refrigTip && refrigTip.savedCostMonthly > 0, 'Refrigeration tip computes positive monthly cost savings');
+
+      const kitchenHeaterApp = [{ id: 'app_oven', name: 'Convection Oven', category: 'Kitchen', powerWatts: 2000, dailyHours: 2, operatingDays: 30, quantity: 1 }];
+      const recsKitchen = WattWatchRecommendations.generateRecommendations(kitchenHeaterApp, 8.00);
+      const kitchenTip = recsKitchen.tips.find(t => t.id.startsWith('tip_kitchen_'));
+      assert(kitchenTip !== undefined, 'Recommendations engine identifies heavy kitchen thermal appliance (>=1200W)');
+      assert(kitchenTip && kitchenTip.savedCostMonthly > 0, 'Kitchen thermal tip computes positive monthly cost savings');
+
+      // E. Executive Report Preview Enhancements
+      WattWatchReport.updateReportPreview();
+      const reportHtml = document.getElementById('reportPreviewArea').innerHTML;
+      assert(reportHtml.includes('Tariff Structure &amp; Billing Calculation'), 'Report preview renders Tariff Structure breakdown');
+      assert(reportHtml.includes('Category Energy Distribution Matrix'), 'Report preview renders Category Distribution matrix');
+      assert(reportHtml.includes('Total Tracked Appliances'), 'Report preview includes total summary footer in itemization table');
 
       // Restore sample household for storage
       WattWatchStorage.loadSampleHousehold();

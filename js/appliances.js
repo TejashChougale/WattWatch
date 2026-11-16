@@ -504,6 +504,9 @@ const WattWatchAppliances = {
       case 'cost_desc':
         list.sort((a, b) => b.monthlyCost - a.monthlyCost);
         break;
+      case 'cost_asc':
+        list.sort((a, b) => a.monthlyCost - b.monthlyCost);
+        break;
       case 'power_desc':
         list.sort((a, b) => b.powerWatts - a.powerWatts);
         break;
@@ -512,6 +515,9 @@ const WattWatchAppliances = {
         break;
       case 'name_asc':
         list.sort((a, b) => a.name.localeCompare(b.name));
+        break;
+      case 'name_desc':
+        list.sort((a, b) => b.name.localeCompare(a.name));
         break;
       default:
         list.sort((a, b) => b.monthlyKwh - a.monthlyKwh);
@@ -527,12 +533,21 @@ const WattWatchAppliances = {
     const tbody = document.getElementById('applianceTableBody');
     const emptyState = document.getElementById('appliancesEmptyState');
     const tableWrap = document.getElementById('appliancesTableWrap');
+    const countEl = document.getElementById('applianceFilterCount');
     if (!tbody) return;
 
     const rawAppliances = WattWatchStorage.getAppliances();
     const settings = WattWatchStorage.getSettings();
 
     const filteredList = this.getFilteredAndSortedAppliances(rawAppliances, settings);
+
+    if (countEl) {
+      if (rawAppliances.length === 0) {
+        countEl.textContent = 'Showing 0 appliances';
+      } else {
+        countEl.textContent = `Showing ${filteredList.length} of ${rawAppliances.length} appliance${rawAppliances.length === 1 ? '' : 's'}`;
+      }
+    }
 
     if (rawAppliances.length === 0) {
       if (tableWrap) tableWrap.style.display = 'none';
@@ -565,11 +580,15 @@ const WattWatchAppliances = {
       const tr = document.createElement('tr');
       const safeCat = this.escapeHtml(app.category || 'Other');
       const badgeClass = `badge-${encodeURIComponent(String(app.category || 'other').toLowerCase().replace(/[^a-z0-9]/g, ''))}`;
+      const isHighLoad = (Number(app.sharePercentage) || 0) >= 20;
 
       tr.innerHTML = `
         <td>
           <div class="appliance-name-cell">
-            <span class="appliance-main-name">${this.escapeHtml(app.name)}</span>
+            <span class="appliance-main-name">
+              ${this.escapeHtml(app.name)}
+              ${isHighLoad ? '<span class="badge badge-burgundy" style="margin-left: 0.35rem; font-size: 0.65rem;">High Load</span>' : ''}
+            </span>
             <span class="appliance-sub-qty">Qty: ${Number(app.quantity) || 1} unit${(Number(app.quantity) || 1) > 1 ? 's' : ''}</span>
           </div>
         </td>

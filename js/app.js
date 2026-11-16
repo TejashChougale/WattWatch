@@ -36,6 +36,7 @@ const WattWatchApp = {
     if (!this._eventsBound) {
       this._eventsBound = true;
       this.bindNavigation();
+      this.bindOverviewControls();
       this.bindSettings();
       this.bindModalKeyboards();
       this.bindFirstTimeGuide();
@@ -154,6 +155,19 @@ const WattWatchApp = {
         const appliances = WattWatchStorage.getAppliances();
         const summary = WattWatchCalculations.calculateHouseholdSummary(appliances, settings);
         WattWatchCharts.renderAnalyticsTimelineChart(summary, this.analyticsTimeframe);
+      });
+    });
+  },
+
+  /**
+   * Binds timescale segmented controls on the Overview dashboard
+   */
+  bindOverviewControls() {
+    const tabs = document.querySelectorAll('.insights-tab');
+    tabs.forEach(tab => {
+      tab.addEventListener('click', (e) => {
+        const tf = e.currentTarget.getAttribute('data-timeframe');
+        if (tf) this.setInsightsTimeframe(tf);
       });
     });
   },
@@ -377,6 +391,10 @@ const WattWatchApp = {
 
     // Budget Tracker Widget
     this.renderBudgetTracker(effectiveBill, settings.budgetInr);
+
+    // Timescale Energy Insights & Appliance Load Comparison
+    this.renderOverviewInsights(summary, effectiveBill, settings, advancedTariff);
+    this.renderOverviewApplianceComparison(summary, settings);
   },
 
   /**
@@ -474,6 +492,258 @@ const WattWatchApp = {
       this.budgetWarnedSession[75] = true;
       this.showToast(b.message, 'info', 'Budget Notice (≥75%)');
     }
+  },
+
+  currentInsightsTimeframe: 'daily',
+
+  /**
+   * Switches the active timescale perspective for Overview insights (Daily, Weekly, Monthly)
+   * @param {string} timeframe - 'daily' | 'weekly' | 'monthly'
+   */
+  setInsightsTimeframe(timeframe) {
+    if (!['daily', 'weekly', 'monthly'].includes(timeframe)) return;
+    this.currentInsightsTimeframe = timeframe;
+
+    const tabs = document.querySelectorAll('.insights-tab');
+    tabs.forEach(tab => {
+      const isActive = tab.getAttribute('data-timeframe') === timeframe;
+      tab.classList.toggle('active', isActive);
+      tab.setAttribute('aria-selected', isActive ? 'true' : 'false');
+    });
+
+    const appliances = WattWatchStorage.getAppliances();
+    const settings = WattWatchStorage.getSettings();
+    const summary = WattWatchCalculations.calculateHouseholdSummary(appliances, settings);
+    const tariff = summary.advancedTariff || WattWatchCalculations.calculateAdvancedTariff(summary.totalMonthlyKwh, settings);
+    const effectiveBill = (summary.isValid && tariff.isValid) ? tariff.totalCost : NaN;
+
+    this.renderOverviewInsights(summary, effectiveBill, settings, tariff);
+  },
+
+  /**
+   * Renders the Segmented Timescale Energy Insights card on Overview
+   */
+  renderOverviewInsights(summary, effectiveBill, settings, advancedTariff) {
+    const container = document.getElementById('overviewInsightsContent');
+    if (!container) return;
+
+    if (!summary || !summary.isValid || isNaN(effectiveBill) || summary.appliances.length === 0) {
+      container.innerHTML = `
+        <div style="padding: 1.5rem; text-align: center; color: var(--text-secondary); font-size: 0.875rem;">
+          Add active electrical appliances to your household inventory to generate time-scale consumption, budget pacing, and expenditure insights.
+        </div>
+      `;
+      return;
+    }
+
+    const timeframe = this.currentInsightsTimeframe || 'daily';
+    const currency = settings.currency || 'INR';
+    const totalDailyKwh = summary.totalDailyKwh;
+    const totalMonthlyKwh = summary.totalMonthlyKwh;
+    const dailyCost = effectiveBill / 30;
+    const weeklyKwh = totalDailyKwh * 7;
+    const weeklyCost = dailyCost * 7;
+    const topApp = summary.highestAppliance;
+
+    let kpi1 = {}, kpi2 = {}, kpi3 = {}, tipBanner = '';
+
+    if (timeframe === 'daily') {
+      kpi1 = {
+        label: 'Daily Baseline Consumption',
+        val: WattWatchCalculations.formatKwh(totalDailyKwh),
+        sub: 'Calculated over active run cycles'
+      };
+      kpi2 = {
+        label: 'Estimated Daily Cost',
+        val: WattWatchCalculations.formatCurrency(dailyCost, currency),
+        sub: `Effective rate: ~₹${summary.effectiveRatePerKwh.toFixed(2)}/kWh`
+      };
+      kpi3 = {
+        label: 'Peak Load Driver',
+        val: topApp ? WattWatchAppliances.escapeHtml(topApp.name) : 'None',
+        sub: topApp ? `${Number(topApp.powerWatts) || 0}W · ${Number(topApp.dailyHours) || 0}h/day (${Number(topApp.sharePercentage || 0).toFixed(1)}% load)` : 'No active load'
+      };
+
+      tipBanner = topApp && topApp.sharePercentage >= 20
+        ? `<div class="insights-tip-banner tip-caution">
+            <svg class="insights-tip-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+              <line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
+            </svg>
+            <div class="insights-tip-text">
+              <strong>High Daily Concentration:</strong> <strong>${WattWatchAppliances.escapeHtml(topApp.name)}</strong> accounts for ${Number(topApp.sharePercentage).toFixed(1)}% of your daily electricity. Trimming operating duration by 30-45 minutes could reduce daily billing run-rate significantly.
+            </div>
+          </div>`
+        : `<div class="insights-tip-banner">
+            <svg class="insights-tip-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/>
+            </svg>
+            <div class="insights-tip-text">
+              <strong>Balanced Daily Distribution:</strong> Your household energy demand is well-distributed across active appliances with steady daily baseload of ${WattWatchCalculations.formatKwh(totalDailyKwh)}.
+            </div>
+          </div>`;
+    } else if (timeframe === 'weekly') {
+      const weeklyBudget = settings.budgetInr ? (settings.budgetInr / 4.3) : 0;
+      const weeklyBudgetStatus = weeklyBudget > 0 ? (weeklyCost <= weeklyBudget ? 'Pacing Within Budget' : 'Pacing Over Budget') : 'No Budget Configured';
+
+      kpi1 = {
+        label: 'Projected 7-Day Energy',
+        val: WattWatchCalculations.formatKwh(weeklyKwh),
+        sub: '7 continuous operating cycles'
+      };
+      kpi2 = {
+        label: 'Projected 7-Day Outlay',
+        val: WattWatchCalculations.formatCurrency(weeklyCost, currency),
+        sub: `~${WattWatchCalculations.formatCurrency(dailyCost, currency)} per day average`
+      };
+      kpi3 = {
+        label: 'Weekly Budget Target',
+        val: weeklyBudget > 0 ? WattWatchCalculations.formatCurrency(weeklyBudget, currency) : 'Unset',
+        sub: weeklyBudgetStatus
+      };
+
+      tipBanner = `<div class="insights-tip-banner">
+        <svg class="insights-tip-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
+        </svg>
+        <div class="insights-tip-text">
+          <strong>Weekly Projection:</strong> At your current operating pace, weekly household electricity consumption projects to ${WattWatchCalculations.formatKwh(weeklyKwh)} costing approximately ${WattWatchCalculations.formatCurrency(weeklyCost, currency)}.
+        </div>
+      </div>`;
+    } else { // monthly
+      const annualCost = effectiveBill * 12;
+      const annualKwh = totalMonthlyKwh * 12;
+
+      kpi1 = {
+        label: '30-Day Monthly Forecast',
+        val: WattWatchCalculations.formatKwh(totalMonthlyKwh),
+        sub: `${summary.totalAppliancesCount} appliances (${summary.totalUnits} units)`
+      };
+      kpi2 = {
+        label: 'Projected Monthly Bill',
+        val: WattWatchCalculations.formatCurrency(effectiveBill, currency),
+        sub: `Effective rate: ₹${summary.effectiveRatePerKwh.toFixed(2)}/kWh`
+      };
+      kpi3 = {
+        label: 'Annualized Run-Rate',
+        val: WattWatchCalculations.formatCurrency(annualCost, currency),
+        sub: `Projected ~${WattWatchCalculations.formatKwh(annualKwh)} per year`
+      };
+
+      const recs = WattWatchRecommendations.generateRecommendations(summary.appliances, summary.ratePerKwh);
+      tipBanner = recs.tips.length > 0
+        ? `<div class="insights-tip-banner">
+            <svg class="insights-tip-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
+            </svg>
+            <div class="insights-tip-text">
+              <strong>Monthly Conservation Opportunity:</strong> Implementing top recommendations can unlock up to <strong>${WattWatchCalculations.formatCurrency(recs.totalPotentialSavingsCost, currency)}/month</strong> in savings (${WattWatchCalculations.formatKwh(recs.totalPotentialSavingsKwh)}).
+            </div>
+          </div>`
+        : `<div class="insights-tip-banner">
+            <svg class="insights-tip-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/>
+            </svg>
+            <div class="insights-tip-text">
+              <strong>Optimal Household Baseline:</strong> Current appliance runtimes and ratings reflect efficient operational parameters.
+            </div>
+          </div>`;
+    }
+
+    container.innerHTML = `
+      <div class="insights-grid">
+        <div class="insights-kpi-card">
+          <span class="insights-kpi-label">${WattWatchAppliances.escapeHtml(kpi1.label)}</span>
+          <span class="insights-kpi-val">${WattWatchAppliances.escapeHtml(kpi1.val)}</span>
+          <span class="insights-kpi-sub">${WattWatchAppliances.escapeHtml(kpi1.sub)}</span>
+        </div>
+        <div class="insights-kpi-card">
+          <span class="insights-kpi-label">${WattWatchAppliances.escapeHtml(kpi2.label)}</span>
+          <span class="insights-kpi-val" style="color: var(--deep-burgundy);">${WattWatchAppliances.escapeHtml(kpi2.val)}</span>
+          <span class="insights-kpi-sub">${WattWatchAppliances.escapeHtml(kpi2.sub)}</span>
+        </div>
+        <div class="insights-kpi-card">
+          <span class="insights-kpi-label">${WattWatchAppliances.escapeHtml(kpi3.label)}</span>
+          <span class="insights-kpi-val" style="font-size: 1.25rem; font-weight: 600;">${kpi3.val}</span>
+          <span class="insights-kpi-sub">${WattWatchAppliances.escapeHtml(kpi3.sub)}</span>
+        </div>
+      </div>
+      ${tipBanner}
+    `;
+  },
+
+  /**
+   * Renders the Appliance Load Distribution (appliance-wise comparison) widget on Overview
+   */
+  renderOverviewApplianceComparison(summary, settings) {
+    const container = document.getElementById('overviewApplianceComparisonContent');
+    if (!container) return;
+
+    if (!summary || !summary.isValid || summary.appliances.length === 0) {
+      container.innerHTML = `
+        <div style="padding: 1.5rem; text-align: center; color: var(--text-secondary); font-size: 0.875rem;">
+          No appliances in active inventory. Add devices to visualize comparative energy contribution.
+        </div>
+      `;
+      return;
+    }
+
+    const currency = settings.currency || 'INR';
+    const sorted = [...summary.appliances].sort((a, b) => (b.monthlyKwh || 0) - (a.monthlyKwh || 0));
+    const topItems = sorted.slice(0, 5);
+
+    let rowsHtml = '';
+    topItems.forEach((app, idx) => {
+      const share = Number(app.sharePercentage) || 0;
+      const isHighLoad = share >= 20;
+      const safeName = WattWatchAppliances.escapeHtml(app.name);
+      const safeCat = WattWatchAppliances.escapeHtml(app.category || 'Other');
+      const badgeClass = `badge-${encodeURIComponent(String(app.category || 'other').toLowerCase().replace(/[^a-z0-9]/g, ''))}`;
+
+      rowsHtml += `
+        <div class="appliance-load-row">
+          <div class="appliance-load-row-header">
+            <div class="appliance-load-identity">
+              <span class="appliance-rank-badge">#${idx + 1}</span>
+              <div>
+                <span class="appliance-load-name">${safeName}</span>
+                <span class="badge ${badgeClass}" style="margin-left: 0.4rem; font-size: 0.65rem;">${safeCat}</span>
+                ${isHighLoad ? '<span class="badge badge-burgundy" style="margin-left: 0.25rem; font-size: 0.65rem;">High Load</span>' : ''}
+                <div class="appliance-load-meta">${Number(app.powerWatts) || 0}W · ${Number(app.quantity) || 1} unit${(Number(app.quantity) || 1) > 1 ? 's' : ''} · ${Number(app.dailyHours) || 0}h/day</div>
+              </div>
+            </div>
+            <div class="appliance-load-figures">
+              <div>
+                <div class="appliance-load-kwh">${WattWatchCalculations.formatKwh(app.monthlyKwh)}</div>
+                <div style="font-size: 0.72rem; color: var(--text-secondary);">${share.toFixed(1)}% of total load</div>
+              </div>
+              <div>
+                <div class="appliance-load-cost">${WattWatchCalculations.formatCurrency(app.monthlyCost, currency)}</div>
+                <div style="font-size: 0.72rem; color: var(--text-secondary);">per month</div>
+              </div>
+            </div>
+          </div>
+          <div class="load-bar-track" aria-label="${safeName} represents ${share.toFixed(1)}% of total energy consumption">
+            <div class="load-bar-fill ${isHighLoad ? 'fill-high' : ''}" style="width: ${Math.min(100, Math.max(3, share))}%;"></div>
+          </div>
+        </div>
+      `;
+    });
+
+    const moreCount = sorted.length - topItems.length;
+    const footerHtml = moreCount > 0
+      ? `<div style="text-align: center; margin-top: 1rem; padding-top: 0.75rem; border-top: 1px solid var(--border-subtle); font-size: 0.8rem; color: var(--text-secondary);">
+          Showing top 5 energy consumers. <strong>+${moreCount} more appliance${moreCount > 1 ? 's' : ''}</strong> tracked in your inventory.
+          <a href="#appliances" onclick="WattWatchApp.navigateTo('appliances'); return false;" style="color: var(--royal-blue); font-weight: 600; margin-left: 0.5rem; text-decoration: underline;">View All in Inventory</a>
+        </div>`
+      : '';
+
+    container.innerHTML = `
+      <div class="appliance-comparison-list">
+        ${rowsHtml}
+      </div>
+      ${footerHtml}
+    `;
   },
 
   /**
@@ -610,6 +880,11 @@ const WattWatchApp = {
             <div style="font-size: 0.72rem; color: var(--text-secondary); text-transform: uppercase;">Est. Annual Savings</div>
             <div style="font-family: var(--font-serif); font-size: 1rem; font-weight: 600; color: var(--text-gold);">${WattWatchCalculations.formatCurrency(tip.annualSavingsCost)}</div>
           </div>
+        </div>
+        <div style="margin-top: 0.85rem; padding-top: 0.65rem; border-top: 1px solid var(--border-subtle);">
+          <button type="button" class="btn btn-secondary btn-sm" style="width: 100%;" onclick="WattWatchAppliances.simulateAppliance('${WattWatchAppliances.escapeHtml(tip.applianceId)}')">
+            Simulate Efficiency Upgrade
+          </button>
         </div>
       `;
       container.appendChild(card);
