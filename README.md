@@ -337,3 +337,11 @@ WattWatch requires no build steps, compilers, or server processes:
 This project is licensed under the MIT License — see the [LICENSE](LICENSE) file for details.
 
 *WattWatch — Precision Energy Intelligence.*
+
+---
+
+## Development Status
+
+WattWatch is maintained as a vanilla HTML, CSS and JavaScript project.
+Development and testing are carried out on separate feature branches
+to keep the main branch stable.

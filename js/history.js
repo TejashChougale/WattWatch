@@ -125,15 +125,18 @@ const WattWatchHistory = {
     const summary = WattWatchCalculations.calculateHouseholdSummary(appliances, settings);
     const tariffDetails = summary.advancedTariff || WattWatchCalculations.calculateAdvancedTariff(summary.totalMonthlyKwh, settings);
 
+    if (!summary.isValid || !tariffDetails.isValid || !WattWatchCalculations.isFiniteNumber(summary.totalMonthlyKwh) || !WattWatchCalculations.isFiniteNumber(summary.totalMonthlyCost)) {
+      WattWatchApp.showToast('Cannot save snapshot: current calculation contains invalid numeric values or settings.', 'error', 'Invalid Calculations');
+      return;
+    }
+
     // Deep-clone appliances snapshot so subsequent edits to appliances never alter past records
     const frozenAppliances = JSON.parse(JSON.stringify(summary.appliances));
 
     const isSlab = settings.tariffModel === 'slab';
-    const rawFlat = Number(settings.electricityRate);
-    const flatRate = (settings.electricityRate !== undefined && settings.electricityRate !== null && settings.electricityRate !== '' && !isNaN(rawFlat) && rawFlat >= 0)
-      ? rawFlat
-      : 8.00;
-    const effectiveRate = isSlab ? tariffDetails.effectiveRatePerKwh : flatRate;
+    const effectiveRate = tariffDetails.effectiveRatePerKwh;
+    const rateCheck = WattWatchCalculations.validateTariffRate(settings.electricityRate, 8.00);
+    const flatRate = !isNaN(rateCheck) ? rateCheck : 8.00;
 
     const snapshot = {
       id: `snap_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`,
@@ -152,7 +155,11 @@ const WattWatchHistory = {
       createdAt: Date.now()
     };
 
-    WattWatchStorage.saveSnapshot(snapshot);
+    const saved = WattWatchStorage.saveSnapshot(snapshot);
+    if (!saved) {
+      WattWatchApp.showToast('Failed to save snapshot: record failed strict validation.', 'error', 'Validation Error');
+      return;
+    }
     WattWatchApp.showToast(`Snapshot for ${periodLabel} saved successfully`, 'success', 'Snapshot Saved');
     WattWatchApp.refreshAll();
   },
@@ -188,11 +195,21 @@ const WattWatchHistory = {
 
     history.forEach(record => {
       const tr = document.createElement('tr');
-      const dateStr = new Date(record.createdAt).toLocaleDateString('en-IN', {
-        day: '2-digit',
-        month: 'short',
-        year: 'numeric'
-      });
+      let dateStr = 'Unknown date';
+      if (record.createdAt !== null && record.createdAt !== undefined) {
+        try {
+          const d = new Date(record.createdAt);
+          if (!isNaN(d.getTime())) {
+            dateStr = d.toLocaleDateString('en-IN', {
+              day: '2-digit',
+              month: 'short',
+              year: 'numeric'
+            });
+          }
+        } catch (_) {
+          dateStr = 'Unknown date';
+        }
+      }
 
       const isSlab = record.tariffModel === 'slab';
       const rawEff = record.effectiveRate ?? record.tariffBreakdown?.effectiveRatePerKwh ?? record.electricityRate;
@@ -357,7 +374,10 @@ const WattWatchHistory = {
     }
 
     const comp = WattWatchCalculations.compareSnapshots(snapA, snapB);
-    if (!comp) return;
+    if (!comp || !comp.isValid) {
+      resultBox.innerHTML = `<div style="text-align: center; color: var(--text-secondary); padding: 1.5rem;">One or both selected billing periods contain invalid calculation data.</div>`;
+      return;
+    }
 
     const isCostInc = comp.costDiff > 0;
     const isKwhInc = comp.kwhDiff > 0;
@@ -369,13 +389,13 @@ const WattWatchHistory = {
     resultBox.innerHTML = `
       <div class="metrics-grid" style="grid-template-columns: repeat(4, 1fr); margin-bottom: 1.5rem;">
         <div class="metric-card">
-          <span class="metric-title">${comp.periodLabelA} (Baseline)</span>
+          <span class="metric-title">${this.escapeHtml(comp.periodLabelA)} (Baseline)</span>
           <div class="metric-value">${WattWatchCalculations.formatCurrency(comp.costA)}</div>
           <div class="metric-subtext">${comp.kwhA.toFixed(2)} kWh · ₹${Number(snapA.effectiveRate ?? snapA.tariffBreakdown?.effectiveRatePerKwh ?? snapA.electricityRate ?? 0).toFixed(2)}/u${snapA.tariffModel === 'slab' ? ' (eff.)' : ''}</div>
         </div>
 
         <div class="metric-card">
-          <span class="metric-title">${comp.periodLabelB} (Target)</span>
+          <span class="metric-title">${this.escapeHtml(comp.periodLabelB)} (Target)</span>
           <div class="metric-value">${WattWatchCalculations.formatCurrency(comp.costB)}</div>
           <div class="metric-subtext">${comp.kwhB.toFixed(2)} kWh · ₹${Number(snapB.effectiveRate ?? snapB.tariffBreakdown?.effectiveRatePerKwh ?? snapB.electricityRate ?? 0).toFixed(2)}/u${snapB.tariffModel === 'slab' ? ' (eff.)' : ''}</div>
         </div>
@@ -405,7 +425,9 @@ const WattWatchHistory = {
     `;
 
     // Render comparison chart
-    WattWatchCharts.renderComparisonChart(comp);
+    if (typeof WattWatchCharts !== 'undefined' && typeof WattWatchCharts.renderComparisonChart === 'function') {
+      WattWatchCharts.renderComparisonChart(comp);
+    }
   },
 
   /**

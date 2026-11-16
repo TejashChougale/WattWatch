@@ -195,8 +195,8 @@ const WattWatchStorage = {
     if (typeof app.quantity === 'boolean' || isNaN(numQty) || !Number.isFinite(numQty) || !Number.isInteger(numQty) || numQty < 1) {
       return { valid: false, error: 'Quantity must be a positive whole integer of at least 1 unit' };
     }
-    if (numQty > 1000) {
-      return { valid: false, error: 'Quantity cannot exceed 1,000 units' };
+    if (numQty > 100) {
+      return { valid: false, error: 'Quantity cannot exceed 100 units' };
     }
 
     // Daily hours: strictly finite number >= 0 and <= 24
@@ -476,7 +476,8 @@ const WattWatchStorage = {
       // 4. Merge history by period (YYYY-MM), strictly preserving existing account snapshots
       const mergedHistory = [...userHistory];
       for (const gSnap of guestHistory) {
-        if (!gSnap || typeof gSnap !== 'object' || !this.validatePeriod(gSnap.period)) {
+        const valSnap = this.validateSnapshot(gSnap);
+        if (!valSnap.valid) {
           skippedHistoryCount++;
           continue;
         }
@@ -610,12 +611,39 @@ const WattWatchStorage = {
         throw new Error('Stored appliances payload is not an array');
       }
       const validated = [];
+      const invalidRecords = [];
       for (const item of parsed) {
         const v = this.validateAppliance(item);
         if (v.valid) {
           validated.push(v.sanitized);
         } else {
+          invalidRecords.push(item);
           console.warn('[WattWatch Storage] Skipping invalid stored appliance record:', v.error, item);
+        }
+      }
+
+      // Preserve the complete original payload before any later save can replace it.
+      this._appliancePreservationBlocked = false;
+      if (invalidRecords.length > 0) {
+        // Avoid creating duplicate backups every time the dashboard refreshes.
+        const alreadyPreserved = this.invalidApplianceBackup
+          && this.invalidApplianceBackup.key === key
+          && this.invalidApplianceBackup.sourceData === data;
+        if (!alreadyPreserved) {
+          const backupKey = `wattwatch_invalid_appliances_${Date.now()}_${key}`;
+          try {
+            localStorage.setItem(backupKey, data);
+            this.invalidApplianceBackup = {
+              key,
+              backupKey,
+              count: invalidRecords.length,
+              timestamp: Date.now(),
+              sourceData: data
+            };
+          } catch (backupError) {
+            this._appliancePreservationBlocked = true;
+            console.error('[WattWatch Storage] Could not preserve invalid appliance records; writes are blocked to prevent data loss.', backupError);
+          }
         }
       }
       return validated;
@@ -643,6 +671,10 @@ const WattWatchStorage = {
     try {
       if (!Array.isArray(appliances)) {
         throw new Error('Appliances must be an array');
+      }
+      if (this._appliancePreservationBlocked) {
+        console.error('[WattWatch Storage] Refusing to overwrite appliance data because invalid records could not be backed up.');
+        return false;
       }
       localStorage.setItem(this._getKey('APPLIANCES'), JSON.stringify(appliances));
       return true;
@@ -746,13 +778,14 @@ const WattWatchStorage = {
       };
 
       for (const snap of parsed) {
-        if (snap && this.validatePeriod(snap.period)) {
+        const v = this.validateSnapshot(snap);
+        if (v.valid) {
           const sanitizedSnapApps = Array.isArray(snap.appliancesSnapshot)
-            ? snap.appliancesSnapshot.map(a => this.validateAppliance(a)).filter(v => v.valid).map(v => v.sanitized)
+            ? snap.appliancesSnapshot.map(a => this.validateAppliance(a)).filter(item => item.valid).map(item => item.sanitized)
             : [];
 
-          let createdAt = Date.now();
-          if (typeof snap.createdAt === 'number' && snap.createdAt > 0) {
+          let createdAt = null;
+          if (typeof snap.createdAt === 'number' && !isNaN(snap.createdAt) && snap.createdAt > 0) {
             createdAt = snap.createdAt;
           } else if (typeof snap.createdAt === 'string' && snap.createdAt.trim()) {
             const parsedTime = new Date(snap.createdAt).getTime();
@@ -769,19 +802,21 @@ const WattWatchStorage = {
             id: (typeof snap.id === 'string' && /^[a-zA-Z0-9_\-]+$/.test(snap.id)) ? snap.id : `snap_${Date.now()}`,
             period: snap.period.trim(),
             periodLabel: typeof snap.periodLabel === 'string' ? snap.periodLabel.trim() : snap.period.trim(),
-            totalKwh: Math.max(0, Number(snap.totalKwh) || 0),
-            totalCost: Math.max(0, Number(snap.totalCost) || 0),
+            totalKwh: Number(snap.totalKwh),
+            totalCost: Number(snap.totalCost),
             electricityRate: electRate,
             flatRate: flatRate,
             effectiveRate: effectiveRate,
             tariffModel: (snap.tariffModel === 'slab' || snap.tariffModel === 'flat') ? snap.tariffModel : 'flat',
             tariffBreakdown: snap.tariffBreakdown && typeof snap.tariffBreakdown === 'object' ? snap.tariffBreakdown : null,
-            appliancesCount: Math.max(0, Number(snap.appliancesCount) || sanitizedSnapApps.length),
-            totalUnits: Math.max(0, Number(snap.totalUnits) || sanitizedSnapApps.reduce((acc, a) => acc + (a.quantity || 1), 0)),
+            appliancesCount: snap.appliancesCount !== undefined ? Number(snap.appliancesCount) : sanitizedSnapApps.length,
+            totalUnits: snap.totalUnits !== undefined ? Number(snap.totalUnits) : sanitizedSnapApps.reduce((acc, a) => acc + (a.quantity || 1), 0),
             appliancesSnapshot: sanitizedSnapApps,
             createdAt: createdAt,
             notes: typeof snap.notes === 'string' ? snap.notes : ''
           });
+        } else {
+          console.warn('[WattWatch Storage] Skipping invalid stored snapshot record:', v.error, snap);
         }
       }
       return validated;
@@ -817,11 +852,90 @@ const WattWatchStorage = {
   },
 
   /**
+   * Validates a historical snapshot object.
+   * Strictly verifies required numeric fields (totalKwh, totalCost, etc.).
+   * Rejects null, undefined, empty strings, whitespace, booleans, NaN, Infinity,
+   * negative values and malformed numeric strings.
+   * @param {*} snapshot
+   * @returns {{ valid: boolean, error?: string }}
+   */
+  validateSnapshot(snapshot) {
+    if (!snapshot || typeof snapshot !== 'object' || Array.isArray(snapshot)) {
+      return { valid: false, error: 'Snapshot must be a valid object' };
+    }
+
+    if (typeof snapshot.period !== 'string' || !this.validatePeriod(snapshot.period)) {
+      return { valid: false, error: 'Snapshot period is required and must follow YYYY-MM format' };
+    }
+
+    const isStrictFiniteNonNegative = (val) => {
+      if (val === null || val === undefined || typeof val === 'boolean') return false;
+      if (typeof val === 'number') {
+        return !Number.isNaN(val) && Number.isFinite(val) && val >= 0;
+      }
+      if (typeof val === 'string') {
+        if (val.trim() === '' || /\s/.test(val)) return false;
+        if (!/^\d+(\.\d+)?$/.test(val)) return false;
+        const num = Number(val);
+        return Number.isFinite(num) && num >= 0;
+      }
+      return false;
+    };
+
+    const isStrictFiniteInteger = (val) => {
+      if (!isStrictFiniteNonNegative(val)) return false;
+      if (typeof val === 'string' && val.includes('.')) return false;
+      return Number.isInteger(Number(val));
+    };
+
+    // Required numeric fields
+    if (!isStrictFiniteNonNegative(snapshot.totalKwh)) {
+      return { valid: false, error: 'Snapshot totalKwh must be a non-negative finite number' };
+    }
+    if (!isStrictFiniteNonNegative(snapshot.totalCost)) {
+      return { valid: false, error: 'Snapshot totalCost must be a non-negative finite number' };
+    }
+
+    // Optional numeric fields if present
+    if (snapshot.effectiveRate !== undefined && !isStrictFiniteNonNegative(snapshot.effectiveRate)) {
+      return { valid: false, error: 'Snapshot effectiveRate must be a non-negative finite number' };
+    }
+    if (snapshot.electricityRate !== undefined && !isStrictFiniteNonNegative(snapshot.electricityRate)) {
+      return { valid: false, error: 'Snapshot electricityRate must be a non-negative finite number' };
+    }
+    if (snapshot.flatRate !== undefined && !isStrictFiniteNonNegative(snapshot.flatRate)) {
+      return { valid: false, error: 'Snapshot flatRate must be a non-negative finite number' };
+    }
+    if (snapshot.appliancesCount !== undefined && !isStrictFiniteInteger(snapshot.appliancesCount)) {
+      return { valid: false, error: 'Snapshot appliancesCount must be a non-negative whole integer' };
+    }
+    if (snapshot.totalUnits !== undefined && !isStrictFiniteInteger(snapshot.totalUnits)) {
+      return { valid: false, error: 'Snapshot totalUnits must be a non-negative whole integer' };
+    }
+    if (snapshot.energyCharges !== undefined && !isStrictFiniteNonNegative(snapshot.energyCharges)) {
+      return { valid: false, error: 'Snapshot energyCharges must be a non-negative finite number' };
+    }
+    if (snapshot.fixedCharges !== undefined && !isStrictFiniteNonNegative(snapshot.fixedCharges)) {
+      return { valid: false, error: 'Snapshot fixedCharges must be a non-negative finite number' };
+    }
+    if (snapshot.taxCharges !== undefined && !isStrictFiniteNonNegative(snapshot.taxCharges)) {
+      return { valid: false, error: 'Snapshot taxCharges must be a non-negative finite number' };
+    }
+
+    return { valid: true };
+  },
+
+  /**
    * Adds or updates a monthly snapshot
    * @param {Object} snapshot
    * @returns {boolean}
    */
   saveSnapshot(snapshot) {
+    const val = this.validateSnapshot(snapshot);
+    if (!val.valid) {
+      console.warn('[WattWatch Storage] Refusing to persist invalid snapshot:', val.error, snapshot);
+      return false;
+    }
     const history = this.getHistory();
     const index = history.findIndex(h => h.period === snapshot.period);
     if (index !== -1) {
@@ -953,43 +1067,47 @@ const WattWatchStorage = {
 
       if (Array.isArray(parsed.history)) {
         for (const snap of parsed.history) {
-          if (snap && this.validatePeriod(snap.period) && !isNaN(Number(snap.totalKwh))) {
-            const sanitizedSnapApps = Array.isArray(snap.appliancesSnapshot)
-              ? snap.appliancesSnapshot.map(a => this.validateAppliance(a)).filter(v => v.valid).map(v => v.sanitized)
-              : [];
-
-            let createdAt = Date.now();
-            if (typeof snap.createdAt === 'number' && snap.createdAt > 0) {
-              createdAt = snap.createdAt;
-            } else if (typeof snap.createdAt === 'string' && snap.createdAt.trim()) {
-              const parsedTime = new Date(snap.createdAt).getTime();
-              if (!isNaN(parsedTime) && parsedTime > 0) {
-                createdAt = parsedTime;
-              }
-            }
-
-            const electRate = parseRate(snap.electricityRate, 8.00);
-            const flatRate = parseRate(snap.flatRate, electRate);
-            const effectiveRate = parseRate(snap.effectiveRate, electRate);
-
-            validHistory.push({
-              id: (typeof snap.id === 'string' && /^[a-zA-Z0-9_\-]+$/.test(snap.id)) ? snap.id : `snap_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`,
-              period: snap.period.trim(),
-              periodLabel: typeof snap.periodLabel === 'string' ? snap.periodLabel.trim() : snap.period.trim(),
-              totalKwh: Math.max(0, Number(snap.totalKwh) || 0),
-              totalCost: Math.max(0, Number(snap.totalCost) || 0),
-              electricityRate: electRate,
-              flatRate: flatRate,
-              effectiveRate: effectiveRate,
-              tariffModel: (snap.tariffModel === 'slab' || snap.tariffModel === 'flat') ? snap.tariffModel : 'flat',
-              tariffBreakdown: snap.tariffBreakdown && typeof snap.tariffBreakdown === 'object' ? snap.tariffBreakdown : null,
-              appliancesCount: Math.max(0, Number(snap.appliancesCount) || sanitizedSnapApps.length),
-              totalUnits: Math.max(0, Number(snap.totalUnits) || sanitizedSnapApps.reduce((acc, a) => acc + (a.quantity || 1), 0)),
-              appliancesSnapshot: sanitizedSnapApps,
-              createdAt: createdAt,
-              notes: typeof snap.notes === 'string' ? snap.notes : ''
-            });
+          const valSnap = this.validateSnapshot(snap);
+          if (!valSnap.valid) {
+            skippedHistCount++;
+            continue;
           }
+
+          const sanitizedSnapApps = Array.isArray(snap.appliancesSnapshot)
+            ? snap.appliancesSnapshot.map(a => this.validateAppliance(a)).filter(v => v.valid).map(v => v.sanitized)
+            : [];
+
+          let createdAt = null;
+          if (typeof snap.createdAt === 'number' && !isNaN(snap.createdAt) && snap.createdAt > 0) {
+            createdAt = snap.createdAt;
+          } else if (typeof snap.createdAt === 'string' && snap.createdAt.trim()) {
+            const parsedTime = new Date(snap.createdAt).getTime();
+            if (!isNaN(parsedTime) && parsedTime > 0) {
+              createdAt = parsedTime;
+            }
+          }
+
+          const electRate = parseRate(snap.electricityRate, 8.00);
+          const flatRate = parseRate(snap.flatRate, electRate);
+          const effectiveRate = parseRate(snap.effectiveRate, electRate);
+
+          validHistory.push({
+            id: (typeof snap.id === 'string' && /^[a-zA-Z0-9_\-]+$/.test(snap.id)) ? snap.id : `snap_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`,
+            period: snap.period.trim(),
+            periodLabel: typeof snap.periodLabel === 'string' ? snap.periodLabel.trim() : snap.period.trim(),
+            totalKwh: Number(snap.totalKwh),
+            totalCost: Number(snap.totalCost),
+            electricityRate: electRate,
+            flatRate: flatRate,
+            effectiveRate: effectiveRate,
+            tariffModel: (snap.tariffModel === 'slab' || snap.tariffModel === 'flat') ? snap.tariffModel : 'flat',
+            tariffBreakdown: snap.tariffBreakdown && typeof snap.tariffBreakdown === 'object' ? snap.tariffBreakdown : null,
+            appliancesCount: Math.max(0, Number(snap.appliancesCount) || sanitizedSnapApps.length),
+            totalUnits: Math.max(0, Number(snap.totalUnits) || sanitizedSnapApps.reduce((acc, a) => acc + (a.quantity || 1), 0)),
+            appliancesSnapshot: sanitizedSnapApps,
+            createdAt: createdAt,
+            notes: typeof snap.notes === 'string' ? snap.notes : ''
+          });
         }
       }
 
@@ -1079,7 +1197,22 @@ const WattWatchStorage = {
         if (parsed.settings.tariffModel === 'slab' || parsed.settings.tariffModel === 'flat') {
           newSettings.tariffModel = parsed.settings.tariffModel;
         }
-        if (Array.isArray(parsed.settings.slabConfig)) newSettings.slabConfig = parsed.settings.slabConfig;
+        if (Array.isArray(parsed.settings.slabConfig)) {
+          const candidate = parsed.settings.slabConfig;
+          const validSlabs = candidate.length > 0 && candidate.every((item, index) => {
+            if (!item || typeof item !== 'object' || Array.isArray(item)) return false;
+            const rate = Number(item.rate);
+            if (!Number.isFinite(rate) || rate < 0) return false;
+            if (item.upTo === null) return index === candidate.length - 1;
+            const limit = Number(item.upTo);
+            if (!Number.isFinite(limit) || limit <= 0) return false;
+            return index === 0 || limit > Number(candidate[index - 1].upTo);
+          }) && candidate[candidate.length - 1].upTo === null;
+          if (validSlabs) newSettings.slabConfig = candidate.map(item => ({
+            upTo: item.upTo === null ? null : Number(item.upTo),
+            rate: Number(item.rate)
+          }));
+        }
         if (!isNaN(Number(parsed.settings.fixedCharges))) newSettings.fixedCharges = Number(parsed.settings.fixedCharges);
         if (!isNaN(Number(parsed.settings.additionalTaxPercent))) newSettings.additionalTaxPercent = Number(parsed.settings.additionalTaxPercent);
         if (parsed.settings.carbonEmissionFactor === null || !isNaN(Number(parsed.settings.carbonEmissionFactor))) {
@@ -1286,7 +1419,15 @@ const WattWatchStorage = {
    * @returns {string}
    */
   generateAppliancesCSV() {
-    const appliances = this.getAppliances();
+    let appliances = [];
+    const key = this._getKey('APPLIANCES');
+    try {
+      const raw = localStorage.getItem(key);
+      const parsed = raw ? JSON.parse(raw) : null;
+      appliances = Array.isArray(parsed) ? parsed : this.getAppliances();
+    } catch (_) {
+      appliances = this.getAppliances();
+    }
     const settings = this.getSettings();
     const summary = (typeof WattWatchCalculations !== 'undefined' && WattWatchCalculations.calculateHouseholdSummary)
       ? WattWatchCalculations.calculateHouseholdSummary(appliances, settings)
@@ -1299,20 +1440,46 @@ const WattWatchStorage = {
 
     const rows = appliances.map(app => {
       const calcApp = summary && summary.appliances ? summary.appliances.find(a => a.id === app.id) : null;
-      const monthlyKwh = calcApp
-        ? calcApp.monthlyKwh.toFixed(2)
-        : ((Number(app.powerWatts || 0) * Number(app.dailyHours || 0) * Number(app.operatingDays || 0) * Number(app.quantity || 1)) / 1000).toFixed(2);
-      const monthlyCost = calcApp
-        ? calcApp.monthlyCost.toFixed(2)
-        : (Number(monthlyKwh) * Number(settings.electricityRate || 8)).toFixed(2);
+      let monthlyKwh = 'N/A';
+      let monthlyCost = 'N/A';
+
+      if (calcApp) {
+        if (Number.isFinite(calcApp.monthlyKwh) && calcApp.monthlyKwh >= 0) {
+          monthlyKwh = calcApp.monthlyKwh.toFixed(2);
+        }
+        if (Number.isFinite(calcApp.monthlyCost) && calcApp.monthlyCost >= 0) {
+          monthlyCost = calcApp.monthlyCost.toFixed(2);
+        }
+      } else {
+        const pWatts = Number(app.powerWatts);
+        const dHours = Number(app.dailyHours);
+        const oDays = Number(app.operatingDays);
+        const qty = Number(app.quantity);
+        if (Number.isFinite(pWatts) && pWatts >= 0 &&
+            Number.isFinite(dHours) && dHours >= 0 && dHours <= 24 &&
+            Number.isFinite(oDays) && oDays >= 0 && oDays <= 31 && Number.isInteger(oDays) &&
+            Number.isFinite(qty) && qty >= 1 && Number.isInteger(qty)) {
+          const rawKwh = (pWatts * dHours * oDays * qty) / 1000;
+          monthlyKwh = rawKwh.toFixed(2);
+          const rate = Number(settings.electricityRate);
+          if (Number.isFinite(rate) && rate >= 0) {
+            monthlyCost = (rawKwh * rate).toFixed(2);
+          }
+        }
+      }
+
+      const pWattsSafe = (Number.isFinite(Number(app.powerWatts)) && Number(app.powerWatts) >= 0) ? Number(app.powerWatts) : 'N/A';
+      const dHoursSafe = (Number.isFinite(Number(app.dailyHours)) && Number(app.dailyHours) >= 0 && Number(app.dailyHours) <= 24) ? Number(app.dailyHours) : 'N/A';
+      const oDaysSafe = (Number.isFinite(Number(app.operatingDays)) && Number(app.operatingDays) >= 0 && Number(app.operatingDays) <= 31 && Number.isInteger(Number(app.operatingDays))) ? Number(app.operatingDays) : 'N/A';
+      const qtySafe = (Number.isFinite(Number(app.quantity)) && Number(app.quantity) >= 0 && Number.isInteger(Number(app.quantity))) ? Number(app.quantity) : 'N/A';
 
       return [
         this.escapeCsvField(app.name || ''),
         this.escapeCsvField(app.category || 'Other'),
-        Number(app.powerWatts || 0),
-        Number(app.dailyHours || 0),
-        Number(app.operatingDays || 0),
-        Number(app.quantity || 1),
+        pWattsSafe,
+        dHoursSafe,
+        oDaysSafe,
+        qtySafe,
         monthlyKwh,
         monthlyCost
       ].join(',');
@@ -1327,6 +1494,33 @@ const WattWatchStorage = {
    */
   exportAppliancesCSV() {
     try {
+      const key = this._getKey('APPLIANCES');
+      const raw = localStorage.getItem(key);
+      if (raw) {
+        try {
+          const parsed = JSON.parse(raw);
+          if (Array.isArray(parsed)) {
+            const hasInvalid = parsed.some(app => !this.validateAppliance(app).valid);
+            if (hasInvalid) {
+              if (typeof WattWatchApp !== 'undefined' && WattWatchApp.showToast) {
+                WattWatchApp.showToast('Cannot export CSV: inventory contains invalid appliance records.', 'error', 'Export Error');
+              }
+              return false;
+            }
+          }
+        } catch (_) {}
+      }
+      const appliances = this.getAppliances();
+      const settings = this.getSettings();
+      if (typeof WattWatchCalculations !== 'undefined') {
+        const summary = WattWatchCalculations.calculateHouseholdSummary(appliances, settings);
+        if (!summary.isValid) {
+          if (typeof WattWatchApp !== 'undefined' && WattWatchApp.showToast) {
+            WattWatchApp.showToast('Cannot export CSV: inventory contains invalid appliance records or invalid rate.', 'error', 'Export Error');
+          }
+          return false;
+        }
+      }
       const csvContent = '\uFEFF' + this.generateAppliancesCSV();
       const dateStr = new Date().toISOString().split('T')[0];
       this.downloadFile(csvContent, `wattwatch-appliances-${dateStr}.csv`, 'text/csv;charset=utf-8;');
@@ -1343,7 +1537,15 @@ const WattWatchStorage = {
    * @returns {string}
    */
   generateHistoryCSV() {
-    const history = this.getHistory();
+    let history = [];
+    const key = this._getKey('HISTORY');
+    try {
+      const raw = localStorage.getItem(key);
+      const parsed = raw ? JSON.parse(raw) : null;
+      history = Array.isArray(parsed) ? parsed : this.getHistory();
+    } catch (_) {
+      history = this.getHistory();
+    }
     const headers = ['Period', 'Period Label', 'Total Energy kWh', 'Estimated Bill INR', 'Tariff Model', 'Effective Rate INR per kWh', 'Appliances Count', 'Recorded Date'];
     if (!Array.isArray(history) || history.length === 0) {
       return headers.join(',');
@@ -1354,21 +1556,34 @@ const WattWatchStorage = {
       if (!rec) continue;
       try {
         let recordedDate = '';
-        if (rec.createdAt) {
-          const d = new Date(rec.createdAt);
-          if (!isNaN(d.getTime())) {
-            recordedDate = d.toISOString().split('T')[0];
+        if (rec.createdAt !== null && rec.createdAt !== undefined) {
+          try {
+            const d = new Date(rec.createdAt);
+            if (!isNaN(d.getTime())) {
+              recordedDate = d.toISOString().split('T')[0];
+            }
+          } catch (_) {
+            recordedDate = '';
           }
         }
-        const effRate = Number(rec.effectiveRate ?? rec.tariffBreakdown?.effectiveRatePerKwh ?? rec.electricityRate ?? 0).toFixed(2);
+        const effRateVal = Number(rec.effectiveRate ?? rec.tariffBreakdown?.effectiveRatePerKwh ?? rec.electricityRate);
+        const effRate = (Number.isFinite(effRateVal) && effRateVal >= 0) ? effRateVal.toFixed(2) : 'N/A';
+        const kwhVal = Number(rec.totalKwh);
+        const costVal = Number(rec.totalCost);
+        const safeKwh = (Number.isFinite(kwhVal) && kwhVal >= 0) ? kwhVal.toFixed(2) : 'N/A';
+        const safeCost = (Number.isFinite(costVal) && costVal >= 0) ? costVal.toFixed(2) : 'N/A';
+        const appCount = (rec.appliancesCount !== undefined && Number.isInteger(Number(rec.appliancesCount)) && Number(rec.appliancesCount) >= 0)
+          ? Number(rec.appliancesCount)
+          : (Array.isArray(rec.appliancesSnapshot) ? rec.appliancesSnapshot.length : 'N/A');
+
         rows.push([
           this.escapeCsvField(rec.period || ''),
           this.escapeCsvField(rec.periodLabel || rec.period || ''),
-          Number(rec.totalKwh || 0).toFixed(2),
-          Number(rec.totalCost || 0).toFixed(2),
+          safeKwh,
+          safeCost,
           this.escapeCsvField(rec.tariffModel || 'flat'),
           effRate,
-          rec.appliancesCount || (rec.appliancesSnapshot ? rec.appliancesSnapshot.length : 0),
+          appCount,
           this.escapeCsvField(recordedDate)
         ].join(','));
       } catch (err) {
@@ -1385,6 +1600,30 @@ const WattWatchStorage = {
    */
   exportHistoryCSV() {
     try {
+      const key = this._getKey('HISTORY');
+      const raw = localStorage.getItem(key);
+      if (raw) {
+        try {
+          const parsed = JSON.parse(raw);
+          if (Array.isArray(parsed)) {
+            const hasCorrupted = parsed.some(rec => !this.validateSnapshot(rec).valid);
+            if (hasCorrupted) {
+              if (typeof WattWatchApp !== 'undefined' && WattWatchApp.showToast) {
+                WattWatchApp.showToast('Cannot export CSV: history contains invalid snapshot records.', 'error', 'Export Error');
+              }
+              return false;
+            }
+          }
+        } catch (_) {}
+      }
+      const history = this.getHistory();
+      const hasCorrupted = history.some(rec => !this.validateSnapshot(rec).valid);
+      if (hasCorrupted) {
+        if (typeof WattWatchApp !== 'undefined' && WattWatchApp.showToast) {
+          WattWatchApp.showToast('Cannot export CSV: history contains invalid snapshot records.', 'error', 'Export Error');
+        }
+        return false;
+      }
       const csvContent = '\uFEFF' + this.generateHistoryCSV();
       const dateStr = new Date().toISOString().split('T')[0];
       this.downloadFile(csvContent, `wattwatch-history-${dateStr}.csv`, 'text/csv;charset=utf-8;');

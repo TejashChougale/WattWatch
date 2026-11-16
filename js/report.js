@@ -98,12 +98,26 @@ const WattWatchReport = {
 
     const selectedVal = select.value;
     const settings = WattWatchStorage.getSettings();
+    const btnPrint = document.getElementById('btnExecutePrintReport');
     let reportData = null;
+    let summary = null;
 
     if (selectedVal === 'current') {
       const appliances = WattWatchStorage.getAppliances();
-      const summary = WattWatchCalculations.calculateHouseholdSummary(appliances, settings);
+      summary = WattWatchCalculations.calculateHouseholdSummary(appliances, settings);
       const tariff = summary.advancedTariff || WattWatchCalculations.calculateAdvancedTariff(summary.totalMonthlyKwh, settings);
+
+      if (!summary.isValid || !tariff.isValid) {
+        if (btnPrint) btnPrint.disabled = true;
+        container.innerHTML = `
+          <div style="margin: 2rem; padding: 1.5rem; border: 1px solid #A92639; border-radius: 8px; background: rgba(169, 38, 57, 0.08); color: #172B55;">
+            <h3 style="color: #A92639; margin-top: 0; font-family: var(--font-heading);">Report Generation Unavailable</h3>
+            <p style="margin-bottom: 0; font-size: 0.95rem;">Current household inventory contains invalid numeric entries or invalid tariff configuration. Please correct invalid appliance parameters or tariff settings to generate an official energy audit report.</p>
+          </div>
+        `;
+        return;
+      }
+      if (btnPrint) btnPrint.disabled = false;
 
       const now = new Date();
       const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
@@ -128,6 +142,19 @@ const WattWatchReport = {
       const snap = history.find(h => h.id === selectedVal);
       if (!snap) return;
 
+      const snapVal = WattWatchStorage.validateSnapshot(snap);
+      if (!snapVal.valid) {
+        if (btnPrint) btnPrint.disabled = true;
+        container.innerHTML = `
+          <div style="margin: 2rem; padding: 1.5rem; border: 1px solid #A92639; border-radius: 8px; background: rgba(169, 38, 57, 0.08); color: #172B55;">
+            <h3 style="color: #A92639; margin-top: 0; font-family: var(--font-heading);">Historical Snapshot Corrupted</h3>
+            <p style="margin-bottom: 0; font-size: 0.95rem;">Selected historical record failed integrity verification and cannot be formatted into a report.</p>
+          </div>
+        `;
+        return;
+      }
+      if (btnPrint) btnPrint.disabled = false;
+
       reportData = {
         period: snap.period,
         periodLabel: snap.periodLabel || snap.period,
@@ -142,6 +169,7 @@ const WattWatchReport = {
         totalUnits: snap.totalUnits,
         generatedAt: new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'long', year: 'numeric' })
       };
+      summary = WattWatchCalculations.calculateHouseholdSummary(reportData.appliances, reportData.rate);
     }
 
     // Budget check
@@ -183,6 +211,105 @@ const WattWatchReport = {
         </div>
       `;
     });
+
+    // Tariff breakdown schedule
+    let tariffScheduleHtml = '';
+    if (reportData.tariffDetails) {
+      let slabRows = '';
+      if (Array.isArray(reportData.tariffDetails.slabBreakdown) && reportData.tariffDetails.slabBreakdown.length > 0) {
+        reportData.tariffDetails.slabBreakdown.forEach(s => {
+          slabRows += `
+            <tr style="border-bottom: 1px solid rgba(23, 43, 85, 0.08);">
+              <td style="padding: 6px 8px;">Tier ${s.tier}: ${WattWatchAppliances.escapeHtml(s.label)}</td>
+              <td style="padding: 6px 8px; text-align: right;">${WattWatchCalculations.formatKwh(s.units)}</td>
+              <td style="padding: 6px 8px; text-align: right;">₹${Number(s.rate).toFixed(2)} / kWh</td>
+              <td style="padding: 6px 8px; text-align: right; font-weight: 600;">${WattWatchCalculations.formatCurrency(s.cost)}</td>
+            </tr>
+          `;
+        });
+      }
+
+      const isSlab = reportData.tariffModel === 'slab';
+      tariffScheduleHtml = `
+        <div style="margin-bottom: 1.5rem;">
+          <h3 style="font-family: var(--font-heading); font-size: 1.15rem; color: #172B55; margin-bottom: 0.5rem;">
+            Tariff Structure &amp; Billing Calculation (${isSlab ? 'Progressive Slab Schedule' : 'Standard Flat Rate'})
+          </h3>
+          <table style="width: 100%; border-collapse: collapse; font-size: 0.8rem; text-align: left; background: #FAF7F0; border: 1px solid rgba(185, 154, 98, 0.35); border-radius: 6px;">
+            <thead>
+              <tr style="background: #E5EAF2; border-bottom: 2px solid #172B55;">
+                <th style="padding: 6px 8px;">Billing Tier / Cost Component</th>
+                <th style="padding: 6px 8px; text-align: right;">Consumption Allocated</th>
+                <th style="padding: 6px 8px; text-align: right;">Applicable Rate</th>
+                <th style="padding: 6px 8px; text-align: right;">Charge Amount</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${slabRows}
+              <tr style="border-top: 1px solid #172B55; font-weight: 600;">
+                <td colspan="3" style="padding: 6px 8px;">Energy Charges Subtotal</td>
+                <td style="padding: 6px 8px; text-align: right;">${WattWatchCalculations.formatCurrency(reportData.tariffDetails.energyCharges)}</td>
+              </tr>
+              <tr style="border-bottom: 1px solid rgba(23, 43, 85, 0.08);">
+                <td colspan="3" style="padding: 6px 8px;">Fixed Utility / Meter Charges</td>
+                <td style="padding: 6px 8px; text-align: right;">${WattWatchCalculations.formatCurrency(reportData.tariffDetails.fixedCharge)}</td>
+              </tr>
+              <tr style="border-bottom: 1px solid rgba(23, 43, 85, 0.08);">
+                <td colspan="3" style="padding: 6px 8px;">Electricity Duty &amp; Taxes (${Number(reportData.tariffDetails.taxPercent || 0)}%)</td>
+                <td style="padding: 6px 8px; text-align: right;">${WattWatchCalculations.formatCurrency(reportData.tariffDetails.taxCharges)}</td>
+              </tr>
+            </tbody>
+            <tfoot>
+              <tr style="background: #E5EAF2; border-top: 2px solid #172B55; font-weight: 700;">
+                <td colspan="3" style="padding: 8px; color: #172B55;">Total Estimated Electricity Bill</td>
+                <td style="padding: 8px; text-align: right; color: #6E293F; font-size: 0.95rem;">${WattWatchCalculations.formatCurrency(reportData.totalCost)}</td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      `;
+    }
+
+    // Category distribution summary
+    let categoryRows = '';
+    const catSummary = summary?.categoryBreakdown || {};
+    const defaultCats = ['Cooling', 'Lighting', 'Kitchen', 'Entertainment', 'Computing', 'Other'];
+    defaultCats.forEach(cat => {
+      const c = catSummary[cat];
+      if (c && (c.count > 0 || c.kwh > 0)) {
+        categoryRows += `
+          <tr style="border-bottom: 1px solid rgba(23, 43, 85, 0.08);">
+            <td style="padding: 6px 8px;"><strong>${WattWatchAppliances.escapeHtml(cat)}</strong></td>
+            <td style="padding: 6px 8px; text-align: center;">${c.count}</td>
+            <td style="padding: 6px 8px; text-align: right;">${WattWatchCalculations.formatKwh(c.kwh)}</td>
+            <td style="padding: 6px 8px; text-align: right;">${Number(c.percentage || 0).toFixed(1)}%</td>
+            <td style="padding: 6px 8px; text-align: right; font-weight: 600;">${WattWatchCalculations.formatCurrency(c.cost)}</td>
+          </tr>
+        `;
+      }
+    });
+
+    const categorySummaryHtml = categoryRows ? `
+      <div style="margin-bottom: 1.5rem;">
+        <h3 style="font-family: var(--font-heading); font-size: 1.15rem; color: #172B55; margin-bottom: 0.5rem;">
+          Category Energy Distribution Matrix
+        </h3>
+        <table style="width: 100%; border-collapse: collapse; font-size: 0.8rem; text-align: left; background: #FAF7F0; border: 1px solid rgba(185, 154, 98, 0.35); border-radius: 6px;">
+          <thead>
+            <tr style="background: #E5EAF2; border-bottom: 2px solid #172B55;">
+              <th style="padding: 6px 8px;">Appliance Category</th>
+              <th style="padding: 6px 8px; text-align: center;">Tracked Units</th>
+              <th style="padding: 6px 8px; text-align: right;">Monthly Energy</th>
+              <th style="padding: 6px 8px; text-align: right;">Proportion of Total</th>
+              <th style="padding: 6px 8px; text-align: right;">Estimated Cost</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${categoryRows}
+          </tbody>
+        </table>
+      </div>
+    ` : '';
 
     container.innerHTML = `
       <!-- Printable Executive Document Wrapper -->
@@ -251,6 +378,12 @@ const WattWatchReport = {
           </div>
         </div>
 
+        <!-- Tariff Structure & Billing Breakdown Table -->
+        ${tariffScheduleHtml}
+
+        <!-- Category Energy Distribution Summary -->
+        ${categorySummaryHtml}
+
         <!-- Appliance Itemization Table -->
         <div style="margin-bottom: 1.5rem;">
           <h3 style="font-family: var(--font-heading); font-size: 1.15rem; color: #172B55; margin-bottom: 0.5rem;">
@@ -272,6 +405,15 @@ const WattWatchReport = {
             <tbody>
               ${rowsHtml || '<tr><td colspan="8" style="padding: 12px; text-align: center;">No appliances recorded.</td></tr>'}
             </tbody>
+            <tfoot>
+              <tr style="background: #E5EAF2; border-top: 2px solid #172B55; font-weight: 700;">
+                <td colspan="4" style="padding: 8px;">Total Tracked Appliances (${reportData.appliancesCount} Items)</td>
+                <td style="padding: 8px; text-align: center;">${reportData.totalUnits} Units</td>
+                <td style="padding: 8px;">--</td>
+                <td style="padding: 8px; font-weight: 700;">${WattWatchCalculations.formatKwh(reportData.totalKwh)}</td>
+                <td style="padding: 8px; color: #6E293F; font-weight: 700;">${WattWatchCalculations.formatCurrency(reportData.totalCost)}</td>
+              </tr>
+            </tfoot>
           </table>
         </div>
 

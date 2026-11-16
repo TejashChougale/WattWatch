@@ -159,6 +159,47 @@ const WattWatchRecommendations = {
           annualSavingsCost: savedCost * 12
         });
       }
+
+      // RULE 7: Continuous Refrigeration & Thermal Calibration
+      const isRefrig = app.name.toLowerCase().includes('fridge') || app.name.toLowerCase().includes('refrigerator');
+      if (isRefrig || ((app.category === 'Cooling' || app.category === 'Kitchen') && hours >= 20 && power >= 120)) {
+        const savedKwh = app.monthlyKwh * 0.08; // ~8% duty reduction
+        const savedCost = WattWatchCalculations.calculateCost(savedKwh, ratePerKwh);
+
+        tips.push({
+          id: `tip_refrig_${app.id}`,
+          applianceId: app.id,
+          applianceName: app.name,
+          category: app.category,
+          impactLevel: 'Moderate Impact',
+          impactClass: 'badge-gold',
+          reason: `Operates continuously throughout the day with recurring compressor thermal cycles.`,
+          suggestedAction: `Maintain 3°C to 4°C fresh compartment temperature and ensure door seals are airtight to prevent thermal leak.`,
+          savedKwhMonthly: savedKwh,
+          savedCostMonthly: savedCost,
+          annualSavingsCost: savedCost * 12
+        });
+      }
+
+      // RULE 8: Heavy Kitchen Thermal Optimization
+      if (app.category === 'Kitchen' && power >= 1200 && hours > 1) {
+        const savedKwh = app.monthlyKwh * 0.10; // ~10% thermal efficiency
+        const savedCost = WattWatchCalculations.calculateCost(savedKwh, ratePerKwh);
+
+        tips.push({
+          id: `tip_kitchen_${app.id}`,
+          applianceId: app.id,
+          applianceName: app.name,
+          category: app.category,
+          impactLevel: 'Thermal Efficiency',
+          impactClass: 'badge-burgundy',
+          reason: `High heating wattage (${power}W) generates significant continuous thermal load.`,
+          suggestedAction: `Use matching flat-bottom induction cookware with lids on to maximize direct thermal transfer and cut cook duration.`,
+          savedKwhMonthly: savedKwh,
+          savedCostMonthly: savedCost,
+          annualSavingsCost: savedCost * 12
+        });
+      }
     });
 
     // Deduplicate suggestions by unique appliance id + rule type
