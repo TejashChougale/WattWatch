@@ -1881,7 +1881,8 @@
 }
 
 #view-overview .budget-progress-bar {
-  background-image: linear-gradient(90deg, var(--royal-blue), var(--antique-gold));
+  background-color: var(--royal-blue);
+  background-image: none;
 }
 
 #view-overview .budget-stats-row {

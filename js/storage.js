@@ -941,7 +941,16 @@ const WattWatchStorage = {
     if (index !== -1) {
       history[index] = { ...history[index], ...snapshot, updatedAt: Date.now() };
     } else {
-      history.push({ ...snapshot, id: snapshot.id || `snap_${Date.now()}`, createdAt: Date.now() });
+      let validCreatedAt = Date.now();
+      if (typeof snapshot.createdAt === 'number' && !isNaN(snapshot.createdAt) && snapshot.createdAt > 0) {
+        validCreatedAt = snapshot.createdAt;
+      } else if (typeof snapshot.createdAt === 'string' && snapshot.createdAt.trim()) {
+        const parsedTime = new Date(snapshot.createdAt).getTime();
+        if (!isNaN(parsedTime) && parsedTime > 0) {
+          validCreatedAt = parsedTime;
+        }
+      }
+      history.push({ ...snapshot, id: snapshot.id || `snap_${Date.now()}`, createdAt: validCreatedAt });
     }
     // Sort descending by period (e.g. 2026-10 before 2026-09)
     history.sort((a, b) => b.period.localeCompare(a.period));
@@ -1055,6 +1064,13 @@ const WattWatchStorage = {
         return { success: false, error: `No valid appliance records found in imported file: ${firstApplianceError || 'Validation failed'}` };
       }
 
+      let finalAppliances = [];
+      let finalHistory = [];
+      let importedAppsCount = 0;
+      let skippedAppsCount = 0;
+      let importedHistCount = 0;
+      let skippedHistCount = 0;
+
       // Validate historical snapshots if present
       const validHistory = [];
       const parseRate = (val, fallback = 8.00) => {
@@ -1110,13 +1126,6 @@ const WattWatchStorage = {
           });
         }
       }
-
-      let finalAppliances = [];
-      let finalHistory = [];
-      let importedAppsCount = 0;
-      let skippedAppsCount = 0;
-      let importedHistCount = 0;
-      let skippedHistCount = 0;
 
       if (mode === 'replace') {
         finalAppliances = validAppliances;

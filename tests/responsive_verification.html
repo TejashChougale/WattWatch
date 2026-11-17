@@ -310,9 +310,9 @@
         const isQaSecondary = !!qaAddBtn;
         const toolbarAddBtn = doc390.querySelector('.appliances-toolbar button.btn-secondary');
         const isToolbarSecondary = !!toolbarAddBtn;
-        const emptyAddBtn = doc390.querySelector('#appliancesEmptyState .btn-primary');
-        const isEmptyPrimary = !!emptyAddBtn;
-        const btnHierarchyOk = isTopbarGold && isQaSecondary && isToolbarSecondary && isEmptyPrimary;
+        const emptyAddBtn = doc390.querySelector('#appliancesEmptyState .btn-secondary');
+        const isEmptySecondary = !!emptyAddBtn;
+        const btnHierarchyOk = isTopbarGold && isQaSecondary && isToolbarSecondary && isEmptySecondary;
         reports.push({
           id: 'REQ-12',
           name: 'Button hierarchy: Topbar primary (.btn-gold), repeated secondary (.btn-secondary)',
