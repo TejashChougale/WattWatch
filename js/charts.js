@@ -23,21 +23,21 @@ const WattWatchCharts = {
     const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
     return {
       isDark,
-      royalBlue: isDark ? '#3D68B2' : '#172B55',
-      deepBurgundy: isDark ? '#BA476C' : '#6E293F',
-      antiqueGold: isDark ? '#D4AF37' : '#B99A62',
-      antiqueGoldLight: isDark ? '#F1D988' : '#CBB07E',
-      softSlate: isDark ? '#9AA8BF' : '#687386',
-      gridColor: isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(23, 43, 85, 0.08)',
-      textColor: isDark ? '#F0E5D0' : '#172B55',
-      cardBg: isDark ? '#14213B' : '#FAF7F0',
+      royalBlue: isDark ? '#3b82f6' : '#1e3a8a',
+      deepBurgundy: isDark ? '#f43f5e' : '#be123c',
+      antiqueGold: isDark ? '#fbbf24' : '#d97706',
+      antiqueGoldLight: isDark ? '#fde68a' : '#f59e0b',
+      softSlate: isDark ? '#94a3b8' : '#64748b',
+      gridColor: isDark ? 'rgba(255, 255, 255, 0.06)' : 'rgba(15, 23, 42, 0.06)',
+      textColor: isDark ? '#f8fafc' : '#0f172a',
+      cardBg: isDark ? '#111827' : '#ffffff',
       categoryPalette: [
-        isDark ? '#3D68B2' : '#172B55', // Cooling
-        isDark ? '#D4AF37' : '#B99A62', // Lighting
-        isDark ? '#BA476C' : '#6E293F', // Kitchen
-        isDark ? '#8A5BB5' : '#5F2E8A', // Entertainment
-        isDark ? '#2E946E' : '#1E6649', // Computing
-        isDark ? '#7E8B9B' : '#687386'  // Other
+        isDark ? '#38bdf8' : '#0284c7', // Cooling (Sky)
+        isDark ? '#fbbf24' : '#d97706', // Lighting (Amber)
+        isDark ? '#f43f5e' : '#be123c', // Kitchen (Rose)
+        isDark ? '#a78bfa' : '#7c3aed', // Entertainment (Violet)
+        isDark ? '#34d399' : '#059669', // Computing (Emerald)
+        isDark ? '#94a3b8' : '#64748b'  // Other (Slate)
       ]
     };
   },

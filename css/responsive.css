@@ -161,7 +161,7 @@
 
   .topbar-page,
   .topbar-page-title {
-    font-size: 1.15rem;
+    font-size: clamp(0.95rem, 3.8vw, 1.15rem);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;

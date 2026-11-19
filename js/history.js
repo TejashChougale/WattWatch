@@ -82,7 +82,7 @@ const WattWatchHistory = {
     if (!inputPeriod || !inputPeriod.trim()) return;
 
     const trimmedPeriod = inputPeriod.trim();
-    if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(trimmedPeriod)) {
+    if (!WattWatchStorage.validatePeriod(trimmedPeriod)) {
       WattWatchApp.showToast('Please enter a valid format: YYYY-MM with month between 01 and 12 (e.g. 2026-11)', 'error', 'Invalid Period');
       return;
     }

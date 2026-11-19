@@ -231,9 +231,17 @@ const WattWatchApp = {
   refreshAll() {
     // Notify user if corrupted storage was detected and safely quarantined
     if (typeof WattWatchStorage !== 'undefined' && WattWatchStorage.hasCorruptedData && WattWatchStorage.hasCorruptedData()) {
-      const corrupted = WattWatchStorage.corruptedState;
-      WattWatchStorage.corruptedState = null;
-      this.showToast(`Corrupted storage detected in "${corrupted?.key || 'storage'}". Safely quarantined to "${corrupted?.backupKey || 'backup'}". Clean defaults restored.`, 'warning', 'Storage Recovery');
+      const items = (typeof WattWatchStorage.getCorruptedItems === 'function')
+        ? WattWatchStorage.getCorruptedItems()
+        : (WattWatchStorage.corruptedState ? [WattWatchStorage.corruptedState] : []);
+      if (typeof WattWatchStorage.clearCorruptedData === 'function') {
+        WattWatchStorage.clearCorruptedData();
+      } else {
+        WattWatchStorage.corruptedState = null;
+      }
+      items.forEach(corrupted => {
+        this.showToast(`Corrupted storage detected in "${corrupted?.key || 'storage'}". Safely quarantined to "${corrupted?.backupKey || 'backup'}". Clean defaults restored.`, 'warning', 'Storage Recovery');
+      });
     }
 
     const settings = WattWatchStorage.getSettings();
@@ -979,7 +987,7 @@ const WattWatchApp = {
       btnLoadSample.addEventListener('click', () => {
         this.openConfirmDialog({
           title: 'Load Curated Sample Household?',
-          message: 'This will replace your current appliances with a realistic set of 7 modern household appliances (Inverter AC, BLDC fans, Refrigerator, OLED TV, Geyser, LEDs, Workstation).',
+          message: 'Warning: This will replace your current appliances with a curated set of 7 modern household appliances. Any custom appliances in your active workspace will be lost. This action cannot be undone.',
           confirmText: 'Load Sample Data',
           confirmClass: 'btn-primary',
           onConfirm: () => {
@@ -1093,7 +1101,11 @@ const WattWatchApp = {
               const histMsg = res.historyCount ? ` and ${res.historyCount} snapshot(s)` : '';
               const skippedMsg = res.skippedCount ? ` (${res.skippedCount} duplicate items skipped)` : '';
               const mergeMsg = res.mode === 'merge' ? ' (Merged safely)' : ' (Replaced current inventory)';
-              this.showToast(`Successfully imported ${res.count} appliance(s)${histMsg}${skippedMsg}${mergeMsg}`, 'success', 'Import Successful');
+              if (res.warning) {
+                this.showToast(`Imported ${res.count} appliance(s)${histMsg}${skippedMsg}. Warning: ${res.warning}`, 'warning', 'Import Notice');
+              } else {
+                this.showToast(`Successfully imported ${res.count} appliance(s)${histMsg}${skippedMsg}${mergeMsg}`, 'success', 'Import Successful');
+              }
             } else {
               this.showToast(res.error || 'Failed to import data', 'error', 'Import Error');
             }
@@ -1126,7 +1138,7 @@ const WattWatchApp = {
       btnClear.addEventListener('click', () => {
         this.openConfirmDialog({
           title: 'Reset All Application Data?',
-          message: 'Are you sure you want to completely erase all appliances, historical snapshots, and restore default settings? This cannot be undone.',
+          message: 'Are you sure you want to completely erase all appliances, historical snapshots, and restore default settings for your active workspace? This action cannot be undone.',
           confirmText: 'Reset Everything',
           confirmClass: 'btn-danger',
           onConfirm: () => {
@@ -1464,6 +1476,16 @@ const WattWatchApp = {
    * @param {HTMLElement} [triggerElement]
    */
   openPrivacyModal(triggerElement) {
+    if (typeof WattWatchAuth !== 'undefined') {
+      if (WattWatchAuth._startupFocusTimeout) {
+        clearTimeout(WattWatchAuth._startupFocusTimeout);
+        WattWatchAuth._startupFocusTimeout = null;
+      }
+      if (WattWatchAuth._tabFocusTimeout) {
+        clearTimeout(WattWatchAuth._tabFocusTimeout);
+        WattWatchAuth._tabFocusTimeout = null;
+      }
+    }
     const modal = document.getElementById('privacyModal');
     if (!modal) return;
     const trigger = triggerElement || document.activeElement;

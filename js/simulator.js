@@ -345,7 +345,7 @@ const WattWatchSimulator = {
           }
         </td>
         <td>
-          <input type="number" class="form-control slab-rate-input" value="${Number(s.rate).toFixed(2)}" min="0.5" step="0.25" style="padding: 0.35rem 0.6rem; font-size: 0.85rem;">
+          <input type="number" class="form-control slab-rate-input" value="${Number(s.rate).toFixed(2)}" min="0" step="0.25" style="padding: 0.35rem 0.6rem; font-size: 0.85rem;">
         </td>
         <td>
           ${slabs.length > 1
@@ -366,14 +366,15 @@ const WattWatchSimulator = {
   addNewSlabRow() {
     const currentSlabs = this.readCurrentSlabsFromUI();
     const last = currentSlabs[currentSlabs.length - 1];
-    const prevLimit = (last && last.upTo !== null) ? last.upTo : (currentSlabs.length * 150);
+    const prevLimit = (last && last.upTo !== null && Number.isFinite(last.upTo)) ? last.upTo : (currentSlabs.length * 150);
 
     // Make previous last have a numeric limit
     if (last && last.upTo === null) {
       last.upTo = prevLimit + 100;
     }
 
-    currentSlabs.push({ upTo: null, rate: (last ? last.rate + 2.0 : 10.0) });
+    const nextRate = (last && Number.isFinite(last.rate)) ? last.rate + 2.0 : 10.0;
+    currentSlabs.push({ upTo: null, rate: nextRate });
     this.renderSlabRows(currentSlabs);
     this.runTariffCalculation();
   },
@@ -400,8 +401,23 @@ const WattWatchSimulator = {
       const rateInp = r.querySelector('.slab-rate-input');
 
       const val = upToInp ? upToInp.value : null;
-      const upTo = (val === 'null' || val === '' || isNaN(Number(val))) ? null : Number(val);
-      const rate = rateInp ? (parseFloat(rateInp.value) || 5.0) : 5.0;
+      let upTo;
+      if (val === 'null') {
+        upTo = null;
+      } else if (val === null || val === undefined || String(val).trim() === '') {
+        upTo = NaN;
+      } else {
+        const numVal = Number(val);
+        upTo = Number.isFinite(numVal) ? numVal : NaN;
+      }
+
+      let rate;
+      if (!rateInp || rateInp.value === null || rateInp.value === undefined || String(rateInp.value).trim() === '') {
+        rate = NaN;
+      } else {
+        const numRate = Number(rateInp.value);
+        rate = Number.isFinite(numRate) ? numRate : NaN;
+      }
 
       slabs.push({ upTo, rate });
     });
@@ -520,27 +536,31 @@ const WattWatchSimulator = {
     }
 
     const slabs = this.readCurrentSlabsFromUI();
-    if (model === 'slab' && typeof WattWatchCalculations !== 'undefined') {
-      const testTariff = WattWatchCalculations.calculateAdvancedTariff(100, {
-        tariffModel: 'slab',
-        electricityRate: flatRate,
-        fixedCharges,
-        additionalTaxPercent: taxPercent,
-        slabConfig: slabs
-      });
-      if (!testTariff.isValid) {
-        WattWatchApp.showToast('Cannot apply settings: slab configuration is invalid. Verify progressive thresholds and non-negative rates.', 'error', 'Invalid Slabs');
-        return;
+    let sanitizedSlabs = slabs;
+
+    if (model === 'slab') {
+      if (typeof WattWatchCalculations !== 'undefined' && WattWatchCalculations.validateSlabConfig) {
+        const valSlab = WattWatchCalculations.validateSlabConfig(slabs, { requireOpenEnded: true });
+        if (!valSlab.valid) {
+          WattWatchApp.showToast(`Cannot apply settings: ${valSlab.error || 'slab configuration is invalid.'}`, 'error', 'Invalid Slabs');
+          return;
+        }
+        sanitizedSlabs = valSlab.sanitized;
       }
     }
 
-    WattWatchStorage.saveSettings({
+    const saved = WattWatchStorage.saveSettings({
       tariffModel: model,
       electricityRate: flatRate,
       fixedCharges,
       additionalTaxPercent: taxPercent,
-      slabConfig: slabs
+      slabConfig: sanitizedSlabs
     });
+
+    if (!saved) {
+      WattWatchApp.showToast('Failed to apply settings. Please verify all tariff values.', 'error', 'Save Failed');
+      return;
+    }
 
     WattWatchApp.showToast(`Applied ${model === 'slab' ? 'Slab-based' : 'Flat'} tariff to system settings`, 'success', 'Tariff Applied');
     WattWatchApp.refreshAll();

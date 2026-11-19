@@ -109,6 +109,7 @@ const WattWatchStorage = {
   activeUserId: null,
   testNamespace: null,
   corruptedState: null,
+  corruptedItems: [],
 
   ALLOWED_CATEGORIES: ['Cooling', 'Lighting', 'Kitchen', 'Entertainment', 'Computing', 'Other'],
 
@@ -133,7 +134,43 @@ const WattWatchStorage = {
    * @returns {boolean}
    */
   hasCorruptedData() {
-    return this.corruptedState !== null;
+    return this.corruptedState !== null || (Array.isArray(this.corruptedItems) && this.corruptedItems.length > 0);
+  },
+
+  /**
+   * Returns list of all quarantined corrupted items
+   * @returns {Array<Object>}
+   */
+  getCorruptedItems() {
+    if (Array.isArray(this.corruptedItems) && this.corruptedItems.length > 0) {
+      return [...this.corruptedItems];
+    }
+    return this.corruptedState ? [this.corruptedState] : [];
+  },
+
+  /**
+   * Clears in-memory corrupted tracking states
+   */
+  clearCorruptedData() {
+    this.corruptedState = null;
+    this.corruptedItems = [];
+  },
+
+  /**
+   * Validates and returns a positive numeric epoch millisecond timestamp, or null if invalid
+   * @param {*} val
+   * @returns {number|null}
+   */
+  validateTimestamp(val) {
+    if (val === null || val === undefined || typeof val === 'boolean') return null;
+    if (typeof val === 'number') {
+      return (!isNaN(val) && Number.isFinite(val) && val > 0) ? Math.floor(val) : null;
+    }
+    if (typeof val === 'string' && val.trim().length > 0) {
+      const parsed = new Date(val.trim()).getTime();
+      return (!isNaN(parsed) && parsed > 0) ? parsed : null;
+    }
+    return null;
   },
 
   /**
@@ -181,10 +218,10 @@ const WattWatchStorage = {
       };
     }
 
-    // Power Rating (Watts): strictly positive finite number up to 50,000 W
+    // Power Rating (Watts): strictly positive finite number of at least 1 Watt up to 50,000 W
     const numWatts = Number(app.powerWatts);
-    if (typeof app.powerWatts === 'boolean' || isNaN(numWatts) || !Number.isFinite(numWatts) || numWatts <= 0) {
-      return { valid: false, error: 'Power rating must be a positive number greater than 0 Watts' };
+    if (typeof app.powerWatts === 'boolean' || isNaN(numWatts) || !Number.isFinite(numWatts) || numWatts < 1) {
+      return { valid: false, error: 'Power rating must be a positive number of at least 1 Watt' };
     }
     if (numWatts > 50000) {
       return { valid: false, error: 'Power rating cannot exceed 50,000 Watts' };
@@ -488,6 +525,9 @@ const WattWatchStorage = {
           if (mergedHistory.some(h => h && h.id === newSnap.id)) {
             newSnap.id = `snap_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
           }
+          if (newSnap.createdAt !== undefined && newSnap.createdAt !== null) {
+            newSnap.createdAt = this.validateTimestamp(newSnap.createdAt) || Date.now();
+          }
           // Validate appliances in snapshot
           if (Array.isArray(newSnap.appliancesSnapshot)) {
             newSnap.appliancesSnapshot = newSnap.appliancesSnapshot
@@ -508,8 +548,31 @@ const WattWatchStorage = {
       let mergedSettings = userSettings;
       let importedSettings = false;
       if ((!userSettings || Object.keys(userSettings).length === 0) && guestSettings && typeof guestSettings === 'object') {
-        mergedSettings = { ...guestSettings };
-        importedSettings = true;
+        let isGuestSettingsValid = true;
+
+        if (guestSettings.tariffModel === 'slab' || Array.isArray(guestSettings.slabConfig)) {
+          if (typeof WattWatchCalculations !== 'undefined' && typeof WattWatchCalculations.validateSlabConfig === 'function') {
+            const valSlab = WattWatchCalculations.validateSlabConfig(guestSettings.slabConfig, { requireOpenEnded: true });
+            if (!valSlab.valid) {
+              console.warn('[WattWatch Storage] Refusing to migrate invalid guest slab configuration:', valSlab.error);
+              isGuestSettingsValid = false;
+            } else {
+              guestSettings.slabConfig = valSlab.sanitized;
+            }
+          } else {
+            console.warn('[WattWatch Storage] Refusing to migrate guest slab configuration: WattWatchCalculations.validateSlabConfig is unavailable');
+            isGuestSettingsValid = false;
+          }
+        }
+
+        if (isGuestSettingsValid) {
+          mergedSettings = { ...guestSettings };
+          importedSettings = true;
+        } else {
+          console.warn('[WattWatch Storage] Guest settings contained invalid slab configuration; skipping settings migration');
+          mergedSettings = null;
+          importedSettings = false;
+        }
       }
 
       // 6. Transactional write to destination user namespace in localStorage with rollback defense
@@ -598,6 +661,16 @@ const WattWatchStorage = {
   },
 
   /**
+   * Migrates guest data to a user account, validating settings and schemas
+   * @param {string} uid
+   * @param {Object} [options]
+   * @returns {Object}
+   */
+  migrateGuestDataToUser(uid, options = {}) {
+    return this.migrateGuestData(uid, options);
+  },
+
+  /**
    * Retrieves saved appliances from localStorage with safety validation and corrupted data preservation
    * @returns {Array} List of validated appliance objects
    */
@@ -654,7 +727,10 @@ const WattWatchStorage = {
         const backupKey = `wattwatch_corrupted_${Date.now()}_${key}`;
         try {
           localStorage.setItem(backupKey, raw);
-          this.corruptedState = { key, backupKey, timestamp: Date.now() };
+          const item = { key, backupKey, timestamp: Date.now() };
+          this.corruptedState = item;
+          if (!Array.isArray(this.corruptedItems)) this.corruptedItems = [];
+          this.corruptedItems.push(item);
           console.warn(`[WattWatch Storage] Preserved raw corrupted appliances data in "${backupKey}".`);
         } catch (bErr) { /* ignore quota */ }
       }
@@ -705,7 +781,10 @@ const WattWatchStorage = {
         const backupKey = `wattwatch_corrupted_${Date.now()}_${key}`;
         try {
           localStorage.setItem(backupKey, raw);
-          this.corruptedState = { key, backupKey, timestamp: Date.now() };
+          const item = { key, backupKey, timestamp: Date.now() };
+          this.corruptedState = item;
+          if (!Array.isArray(this.corruptedItems)) this.corruptedItems = [];
+          this.corruptedItems.push(item);
           console.warn(`[WattWatch Storage] Preserved raw corrupted settings data in "${backupKey}".`);
         } catch (bErr) { /* ignore quota */ }
       }
@@ -722,6 +801,18 @@ const WattWatchStorage = {
     try {
       const current = this.getSettings();
       const merged = { ...current, ...settings };
+      if (merged.tariffModel === 'slab') {
+        if (typeof WattWatchCalculations === 'undefined' || typeof WattWatchCalculations.validateSlabConfig !== 'function') {
+          console.warn('[WattWatch Storage] Refusing to persist slab configuration: WattWatchCalculations.validateSlabConfig is unavailable');
+          return false;
+        }
+        const valSlab = WattWatchCalculations.validateSlabConfig(merged.slabConfig, { requireOpenEnded: true });
+        if (!valSlab.valid) {
+          console.warn('[WattWatch Storage] Refusing to persist invalid slab configuration:', valSlab.error);
+          return false;
+        }
+        merged.slabConfig = valSlab.sanitized;
+      }
       localStorage.setItem(this._getKey('SETTINGS'), JSON.stringify(merged));
       return true;
     } catch (e) {
@@ -827,7 +918,10 @@ const WattWatchStorage = {
         const backupKey = `wattwatch_corrupted_${Date.now()}_${key}`;
         try {
           localStorage.setItem(backupKey, raw);
-          this.corruptedState = { key, backupKey, timestamp: Date.now() };
+          const item = { key, backupKey, timestamp: Date.now() };
+          this.corruptedState = item;
+          if (!Array.isArray(this.corruptedItems)) this.corruptedItems = [];
+          this.corruptedItems.push(item);
           console.warn(`[WattWatch Storage] Preserved raw corrupted history data in "${backupKey}".`);
         } catch (bErr) { /* ignore quota */ }
       }
@@ -922,6 +1016,12 @@ const WattWatchStorage = {
       return { valid: false, error: 'Snapshot taxCharges must be a non-negative finite number' };
     }
 
+    if (snapshot.createdAt !== undefined && snapshot.createdAt !== null) {
+      if (typeof snapshot.createdAt === 'boolean' || (typeof snapshot.createdAt === 'number' && (isNaN(snapshot.createdAt) || snapshot.createdAt <= 0))) {
+        return { valid: false, error: 'Snapshot createdAt cannot be boolean or negative' };
+      }
+    }
+
     return { valid: true };
   },
 
@@ -941,7 +1041,16 @@ const WattWatchStorage = {
     if (index !== -1) {
       history[index] = { ...history[index], ...snapshot, updatedAt: Date.now() };
     } else {
-      history.push({ ...snapshot, id: snapshot.id || `snap_${Date.now()}`, createdAt: Date.now() });
+      let validCreatedAt = Date.now();
+      if (typeof snapshot.createdAt === 'number' && !isNaN(snapshot.createdAt) && snapshot.createdAt > 0) {
+        validCreatedAt = snapshot.createdAt;
+      } else if (typeof snapshot.createdAt === 'string' && snapshot.createdAt.trim()) {
+        const parsedTime = new Date(snapshot.createdAt).getTime();
+        if (!isNaN(parsedTime) && parsedTime > 0) {
+          validCreatedAt = parsedTime;
+        }
+      }
+      history.push({ ...snapshot, id: snapshot.id || `snap_${Date.now()}`, createdAt: validCreatedAt });
     }
     // Sort descending by period (e.g. 2026-10 before 2026-09)
     history.sort((a, b) => b.period.localeCompare(a.period));
@@ -1037,7 +1146,7 @@ const WattWatchStorage = {
       // Strip sensitive credentials/tokens
       parsed = this.sanitizeImportPayload(parsed);
 
-      const mode = (options && options.mode === 'replace') ? 'replace' : 'merge';
+      const mode = (options === 'replace' || (options && options.mode === 'replace')) ? 'replace' : 'merge';
 
       // Validate each appliance schema
       const validAppliances = [];
@@ -1054,6 +1163,13 @@ const WattWatchStorage = {
       if (validAppliances.length === 0 && parsed.appliances.length > 0) {
         return { success: false, error: `No valid appliance records found in imported file: ${firstApplianceError || 'Validation failed'}` };
       }
+
+      let finalAppliances = [];
+      let finalHistory = [];
+      let importedAppsCount = 0;
+      let skippedAppsCount = 0;
+      let importedHistCount = 0;
+      let skippedHistCount = 0;
 
       // Validate historical snapshots if present
       const validHistory = [];
@@ -1110,13 +1226,6 @@ const WattWatchStorage = {
           });
         }
       }
-
-      let finalAppliances = [];
-      let finalHistory = [];
-      let importedAppsCount = 0;
-      let skippedAppsCount = 0;
-      let importedHistCount = 0;
-      let skippedHistCount = 0;
 
       if (mode === 'replace') {
         finalAppliances = validAppliances;
@@ -1183,6 +1292,7 @@ const WattWatchStorage = {
 
       // Prepare merged or replaced settings
       let newSettings = null;
+      let settingsWarning = null;
       if (parsed.settings && typeof parsed.settings === 'object') {
         const currentSettings = this.getSettings();
         newSettings = mode === 'replace' ? {} : { ...currentSettings };
@@ -1194,24 +1304,49 @@ const WattWatchStorage = {
         if (parsed.settings.billingDays) newSettings.billingDays = Number(parsed.settings.billingDays) || 30;
 
         if (!isNaN(Number(parsed.settings.budgetInr))) newSettings.budgetInr = Number(parsed.settings.budgetInr);
-        if (parsed.settings.tariffModel === 'slab' || parsed.settings.tariffModel === 'flat') {
-          newSettings.tariffModel = parsed.settings.tariffModel;
-        }
+        let importedSlabConfigValid = true;
+        let slabValidationError = null;
         if (Array.isArray(parsed.settings.slabConfig)) {
           const candidate = parsed.settings.slabConfig;
-          const validSlabs = candidate.length > 0 && candidate.every((item, index) => {
-            if (!item || typeof item !== 'object' || Array.isArray(item)) return false;
-            const rate = Number(item.rate);
-            if (!Number.isFinite(rate) || rate < 0) return false;
-            if (item.upTo === null) return index === candidate.length - 1;
-            const limit = Number(item.upTo);
-            if (!Number.isFinite(limit) || limit <= 0) return false;
-            return index === 0 || limit > Number(candidate[index - 1].upTo);
-          }) && candidate[candidate.length - 1].upTo === null;
-          if (validSlabs) newSettings.slabConfig = candidate.map(item => ({
-            upTo: item.upTo === null ? null : Number(item.upTo),
-            rate: Number(item.rate)
-          }));
+          let valSlab = null;
+          if (typeof WattWatchCalculations !== 'undefined' && typeof WattWatchCalculations.validateSlabConfig === 'function') {
+            valSlab = WattWatchCalculations.validateSlabConfig(candidate, { requireOpenEnded: true });
+          } else {
+            valSlab = { valid: false, error: 'WattWatchCalculations.validateSlabConfig is unavailable' };
+          }
+
+          if (valSlab && valSlab.valid) {
+            newSettings.slabConfig = valSlab.sanitized;
+          } else {
+            importedSlabConfigValid = false;
+            slabValidationError = valSlab?.error || 'Invalid slab configuration';
+            console.warn('[WattWatch Storage] Refusing to import invalid slab configuration:', slabValidationError);
+          }
+        } else if (parsed.settings.tariffModel === 'slab') {
+          importedSlabConfigValid = false;
+          slabValidationError = 'Slab tariff model specified without valid slabConfig array';
+        }
+
+        if (parsed.settings.tariffModel === 'flat') {
+          newSettings.tariffModel = 'flat';
+        } else if (parsed.settings.tariffModel === 'slab') {
+          if (importedSlabConfigValid) {
+            newSettings.tariffModel = 'slab';
+          } else {
+            console.warn('[WattWatch Storage] Refusing to set slab tariffModel on import with invalid slabConfig');
+            if (mode === 'replace') {
+              newSettings.tariffModel = 'flat';
+              settingsWarning = `Invalid slab tariff settings in backup (${slabValidationError || 'validation failed'}); fell back to flat tariff mode.`;
+            } else {
+              settingsWarning = `Invalid slab tariff settings in backup (${slabValidationError || 'validation failed'}) were skipped; existing settings preserved.`;
+            }
+          }
+        } else if (!importedSlabConfigValid && Array.isArray(parsed.settings.slabConfig)) {
+          if (mode === 'replace') {
+            settingsWarning = `Invalid slab configuration in backup (${slabValidationError || 'validation failed'}) was omitted; fell back to flat tariff mode.`;
+          } else {
+            settingsWarning = `Invalid slab configuration in backup (${slabValidationError || 'validation failed'}) was skipped; existing settings preserved.`;
+          }
         }
         if (!isNaN(Number(parsed.settings.fixedCharges))) newSettings.fixedCharges = Number(parsed.settings.fixedCharges);
         if (!isNaN(Number(parsed.settings.additionalTaxPercent))) newSettings.additionalTaxPercent = Number(parsed.settings.additionalTaxPercent);
@@ -1294,7 +1429,7 @@ const WattWatchStorage = {
         };
       }
 
-      return {
+      const importResult = {
         success: true,
         count: importedAppsCount,
         skippedCount: skippedAppsCount,
@@ -1304,6 +1439,13 @@ const WattWatchStorage = {
         totalHistory: finalHistory.length,
         mode: mode
       };
+
+      if (settingsWarning) {
+        importResult.warning = settingsWarning;
+        importResult.settingsWarning = settingsWarning;
+      }
+
+      return importResult;
     } catch (e) {
       return {
         success: false,
@@ -1555,7 +1697,7 @@ const WattWatchStorage = {
     for (const rec of history) {
       if (!rec) continue;
       try {
-        let recordedDate = '';
+        let recordedDate = 'Unknown date';
         if (rec.createdAt !== null && rec.createdAt !== undefined) {
           try {
             const d = new Date(rec.createdAt);
@@ -1563,7 +1705,7 @@ const WattWatchStorage = {
               recordedDate = d.toISOString().split('T')[0];
             }
           } catch (_) {
-            recordedDate = '';
+            recordedDate = 'Unknown date';
           }
         }
         const effRateVal = Number(rec.effectiveRate ?? rec.tariffBreakdown?.effectiveRatePerKwh ?? rec.electricityRate);

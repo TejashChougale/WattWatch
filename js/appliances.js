@@ -242,8 +242,8 @@ const WattWatchAppliances = {
     }
 
     // Validate Power
-    if (isNaN(power) || power <= 0) {
-      this.showFieldError('modalPowerWatts', 'Power must be greater than 0 Watts');
+    if (isNaN(power) || power < 1) {
+      this.showFieldError('modalPowerWatts', 'Power must be at least 1 Watt (max 50,000 W)');
       isValid = false;
     } else if (power > 50000) {
       this.showFieldError('modalPowerWatts', 'Power rating seems unrealistically high (max 50,000 W)');
@@ -660,7 +660,7 @@ const WattWatchAppliances = {
 
     WattWatchApp.openConfirmDialog({
       title: 'Remove All Appliances?',
-      message: `Are you sure you want to remove all ${count} appliance(s) from your ${workspaceDesc}? This will clear your current appliance inventory, but your historical billing snapshots and custom settings will remain completely untouched.`,
+      message: `Are you sure you want to remove all ${count} appliance(s) from your ${workspaceDesc}? This action cannot be undone. Only your active workspace inventory will be cleared; your historical billing snapshots and custom settings will remain completely untouched.`,
       confirmText: `Remove All (${count})`,
       cancelText: 'Cancel',
       confirmClass: 'btn-danger',
