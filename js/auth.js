@@ -441,6 +441,14 @@ const WattWatchAuth = {
    * @param {HTMLElement} [trigger]
    */
   openPrivacyNotice(trigger) {
+    if (this._startupFocusTimeout) {
+      clearTimeout(this._startupFocusTimeout);
+      this._startupFocusTimeout = null;
+    }
+    if (this._tabFocusTimeout) {
+      clearTimeout(this._tabFocusTimeout);
+      this._tabFocusTimeout = null;
+    }
     if (typeof WattWatchApp !== 'undefined' && typeof WattWatchApp.openPrivacyModal === 'function') {
       WattWatchApp.openPrivacyModal(trigger);
     }

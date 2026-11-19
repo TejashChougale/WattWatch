@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <script>
-    window.__wattwatchLocalTestAllowed = ['localhost', '127.0.0.1', '[::1]'].includes(location.hostname) || location.protocol === 'file:' || location.hostname === '';
+    window.__wattwatchLocalTestAllowed = (location.protocol === 'http:' || location.protocol === 'https:') && ['localhost', '127.0.0.1', '[::1]'].includes(location.hostname);
   </script>
   <title>WattWatch Comprehensive Responsive Verification</title>
   <style>
@@ -29,6 +29,7 @@
   <iframe id="frame320" src="../index.html" style="width: 320px; height: 700px;"></iframe>
   <iframe id="frame360" src="../index.html" style="width: 360px; height: 700px;"></iframe>
   <iframe id="frame390" src="../index.html" style="width: 390px; height: 700px;"></iframe>
+  <iframe id="frame430" src="../index.html" style="width: 430px; height: 700px;"></iframe>
   <iframe id="frame768" src="../index.html" style="width: 768px; height: 700px;"></iframe>
   <iframe id="frame1024" src="../index.html" style="width: 1024px; height: 700px;"></iframe>
   <iframe id="frame1366" src="../index.html" style="width: 1366px; height: 700px;"></iframe>
@@ -46,6 +47,7 @@
         const f320 = document.getElementById('frame320');
         const f360 = document.getElementById('frame360');
         const f390 = document.getElementById('frame390');
+        const f430 = document.getElementById('frame430');
         const f768 = document.getElementById('frame768');
         const f1024 = document.getElementById('frame1024');
         const f1366 = document.getElementById('frame1366');
@@ -56,6 +58,8 @@
         const doc360 = f360.contentDocument;
         const win390 = f390.contentWindow;
         const doc390 = f390.contentDocument;
+        const win430 = f430.contentWindow;
+        const doc430 = f430.contentDocument;
         const win768 = f768.contentWindow;
         const doc768 = f768.contentDocument;
         const win1024 = f1024.contentWindow;
@@ -107,6 +111,17 @@
           details: 'clientWidth=' + w390 + ', scrollWidth=' + sw390 + ', delta=' + delta390
         });
 
+        // 4A. 430px Large Mobile Horizontal Overflow Check
+        const w430 = doc430.documentElement.clientWidth;
+        const sw430 = doc430.documentElement.scrollWidth;
+        const delta430 = sw430 - w430;
+        reports.push({
+          id: 'REQ-4A',
+          name: 'Large Mobile 430px viewport horizontal overflow (scrollWidth <= clientWidth)',
+          passed: delta430 <= 0,
+          details: 'clientWidth=' + w430 + ', scrollWidth=' + sw430 + ', delta=' + delta430
+        });
+
         // 4B. 768px Tablet Viewport Horizontal Overflow Check
         const w768 = doc768.documentElement.clientWidth;
         const sw768 = doc768.documentElement.scrollWidth;
@@ -137,6 +152,7 @@
           { win: win320, doc: doc320, w: 320 },
           { win: win360, doc: doc360, w: 360 },
           { win: win390, doc: doc390, w: 390 },
+          { win: win430, doc: doc430, w: 430 },
           { win: win768, doc: doc768, w: 768 },
           { win: win1024, doc: doc1024, w: 1024 },
           { win: win1366, doc: doc1366, w: 1366 }
@@ -161,9 +177,9 @@
         });
         reports.push({
           id: 'REQ-4D',
-          name: 'All 7 views zero horizontal overflow across 320, 360, 390, 768, 1024, 1366px viewports',
+          name: 'All 7 views zero horizontal overflow across 320, 360, 390, 430, 768, 1024, 1366px viewports',
           passed: allViewsNoOverflow,
-          details: allViewsNoOverflow ? 'Verified 42 combinations (6 viewports x 7 views) with 0 overflow' : viewOverflowDetails
+          details: allViewsNoOverflow ? 'Verified 49 combinations (7 viewports x 7 views) with 0 overflow' : viewOverflowDetails
         });
 
         // 5. Desktop 1366px Layout Check
@@ -376,9 +392,9 @@
         });
         reports.push({
           id: 'REQ-14B',
-          name: 'Dark Theme zero horizontal overflow across all 6 viewports and 7 views',
+          name: 'Dark Theme zero horizontal overflow across all 7 viewports and 7 views',
           passed: darkThemeNoOverflow,
-          details: darkThemeNoOverflow ? 'Verified 42 dark-theme combinations (6 viewports x 7 views) with 0 overflow' : darkOverflowDetails
+          details: darkThemeNoOverflow ? 'Verified 49 dark-theme combinations (7 viewports x 7 views) with 0 overflow' : darkOverflowDetails
         });
 
         // 15. Add Appliance Dropdown at 390px

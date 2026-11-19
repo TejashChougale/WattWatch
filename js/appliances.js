@@ -242,8 +242,8 @@ const WattWatchAppliances = {
     }
 
     // Validate Power
-    if (isNaN(power) || power <= 0) {
-      this.showFieldError('modalPowerWatts', 'Power must be greater than 0 Watts');
+    if (isNaN(power) || power < 1) {
+      this.showFieldError('modalPowerWatts', 'Power must be at least 1 Watt (max 50,000 W)');
       isValid = false;
     } else if (power > 50000) {
       this.showFieldError('modalPowerWatts', 'Power rating seems unrealistically high (max 50,000 W)');

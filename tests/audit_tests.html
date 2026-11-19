@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <script>
-    window.__wattwatchLocalTestAllowed = ['localhost', '127.0.0.1', '[::1]'].includes(location.hostname) || location.protocol === 'file:' || location.hostname === '';
+    window.__wattwatchLocalTestAllowed = (location.protocol === 'http:' || location.protocol === 'https:') && ['localhost', '127.0.0.1', '[::1]'].includes(location.hostname);
   </script>
   <title>WattWatch - Automated Test Suite</title>
   <link rel="stylesheet" href="../css/style.css">
@@ -124,6 +124,15 @@
       <tbody id="applianceTableBody"></tbody>
       <tbody id="tariffSlabsTableBody"></tbody>
     </table>
+    <div id="simulatorTariffControls" style="display: none;">
+      <select id="calcTariffModelSelect">
+        <option value="flat">Flat</option>
+        <option value="slab">Slab</option>
+      </select>
+      <input type="number" id="calcFlatRateInput" value="8.00">
+      <input type="number" id="calcFixedCharges" value="50.00">
+      <input type="number" id="calcTaxPercent" value="5.00">
+    </div>
     <button type="button" id="btnRemoveAllAppliances"></button>
     <div id="applianceEmptyState" style="display: none;">
       <div class="empty-state-title"></div>
@@ -207,6 +216,11 @@
         const k = localStorage.key(i);
         initialLocalStorageSnapshot[k] = localStorage.getItem(k);
       }
+
+      const originalGlobalShowToast = WattWatchApp.showToast;
+      const originalGlobalValidateSlabConfig = WattWatchCalculations.validateSlabConfig;
+      const originalGlobalOpenConfirm = WattWatchApp.openConfirmDialog;
+      let trackedQuarantineBackupKey = null;
 
       WattWatchStorage.setTestNamespace('wattwatch_audit_test_');
       const nsKey = (k) => `${WattWatchStorage.getTestNamespace() || ''}${k}`;
@@ -1291,6 +1305,12 @@
       assert(periodRegex.test('2026-99') === false, 'Strict period regex rejects invalid month 99');
       assert(periodRegex.test('2026/11') === false, 'Strict period regex rejects slash format 2026/11');
       assert(periodRegex.test('invalid') === false, 'Strict period regex rejects arbitrary strings');
+      assert(WattWatchStorage.validatePeriod('2026-11') === true, 'Production validatePeriod accepts valid 2026-11');
+      assert(WattWatchStorage.validatePeriod('2026-00') === false, 'Production validatePeriod rejects invalid month 00');
+      assert(WattWatchStorage.validatePeriod('2026-13') === false, 'Production validatePeriod rejects invalid month 13');
+      assert(WattWatchStorage.validatePeriod('invalid') === false, 'Production validatePeriod rejects arbitrary strings');
+      assert(WattWatchStorage.validatePeriod(null) === false, 'Production validatePeriod rejects null');
+      assert(WattWatchStorage.validatePeriod(12345) === false, 'Production validatePeriod rejects non-string');
 
       // D. Complete Typography Redesign Verification
       const rootStyles = getComputedStyle(document.documentElement);
@@ -1320,91 +1340,95 @@
       WattWatchStorage.saveSettings(customSettingToPreserve);
 
       const origOpenConfirm = window.WattWatchApp.openConfirmDialog;
-      let confirmOpened = false;
-      let confirmCfg = null;
-      window.WattWatchApp.openConfirmDialog = (cfg) => {
-        confirmOpened = true;
-        confirmCfg = cfg;
-        if (cfg && cfg.onConfirm) cfg.onConfirm(); // Simulate user confirmation
-      };
-
-      WattWatchAppliances.removeAllAppliances();
-      assert(confirmOpened === true, 'Remove All Appliances opens confirmation modal');
-      assert(confirmCfg && confirmCfg.title === 'Remove All Appliances?', 'Confirmation modal title is "Remove All Appliances?"');
-      assert(confirmCfg && confirmCfg.confirmText === 'Remove All (3)', 'Confirmation button shows exact appliance count (3)');
-      assert(WattWatchStorage.getAppliances().length === 0, 'Active workspace appliances successfully cleared after confirmation');
-
-      // Verify history and settings are completely untouched
-      const histAfterRm = WattWatchStorage.getHistory();
-      assert(histAfterRm.some(h => h.period === '2026-10'), 'Billing history snapshots preserved intact after Remove All');
-      const settAfterRm = WattWatchStorage.getSettings();
-      assert(settAfterRm.electricityRate === 11.50, 'Custom tariff settings preserved intact after Remove All');
-
-      // B. Cancel Remove All leaves appliances completely intact
-      WattWatchStorage.saveAppliances(rmTestApps.slice(0, 2));
-      assert(WattWatchStorage.getAppliances().length === 2, 'Saved 2 appliances for Cancel test');
-
-      let cancelSimulated = false;
-      window.WattWatchApp.openConfirmDialog = (cfg) => {
-        cancelSimulated = true;
-        // User clicks Cancel -> do NOT call cfg.onConfirm()
-      };
-
-      WattWatchAppliances.removeAllAppliances();
-      assert(cancelSimulated === true, 'Confirmation dialog was presented');
-      assert(WattWatchStorage.getAppliances().length === 2, 'Appliances remained completely intact when user cancelled Remove All');
-
-      // C. Empty inventory handling (graceful notification without opening dialog)
-      WattWatchStorage.saveAppliances([]);
-      let dialogOpenedOnEmpty = false;
-      let toastShownOnEmpty = false;
-      window.WattWatchApp.openConfirmDialog = () => { dialogOpenedOnEmpty = true; };
       const origToast = window.WattWatchApp.showToast;
-      window.WattWatchApp.showToast = (msg) => {
-        if (msg && msg.includes('No appliances in your active inventory')) toastShownOnEmpty = true;
-      };
-
-      WattWatchAppliances.removeAllAppliances();
-      assert(dialogOpenedOnEmpty === false, 'Remove All does not open confirm dialog on empty inventory');
-      assert(toastShownOnEmpty === true, 'Remove All shows helpful toast notification on empty inventory');
-      window.WattWatchApp.showToast = origToast;
-
-      // D. Workspace isolation: Guest Mode vs Authenticated Account Mode
-      WattWatchStorage.setActiveUser(null);
-      const guestOnlyApps = [
-        { id: 'g_iso_1', name: 'Guest Desk Lamp', category: 'Lighting', powerWatts: 15, dailyHours: 5, operatingDays: 30, quantity: 1 },
-        { id: 'g_iso_2', name: 'Guest Kettle', category: 'Kitchen', powerWatts: 1500, dailyHours: 0.2, operatingDays: 30, quantity: 1 }
-      ];
-      WattWatchStorage.saveAppliances(guestOnlyApps);
-
       const rmUserUid = 'rm_all_iso_user_99';
-      WattWatchStorage.setActiveUser(rmUserUid);
-      const userOnlyApps = [
-        { id: 'u_iso_1', name: 'Account AC', category: 'Cooling', powerWatts: 1500, dailyHours: 6, operatingDays: 30, quantity: 1 },
-        { id: 'u_iso_2', name: 'Account TV', category: 'Entertainment', powerWatts: 120, dailyHours: 4, operatingDays: 30, quantity: 1 }
-      ];
-      WattWatchStorage.saveAppliances(userOnlyApps);
-      assert(WattWatchStorage.getAppliances().length === 2, 'User has 2 private appliances');
 
-      // User calls Remove All Appliances and confirms
-      window.WattWatchApp.openConfirmDialog = (cfg) => {
-        if (cfg && cfg.onConfirm) cfg.onConfirm();
-      };
-      WattWatchAppliances.removeAllAppliances();
-      assert(WattWatchStorage.getAppliances().length === 0, 'User account inventory cleared');
+      try {
+        let confirmOpened = false;
+        let confirmCfg = null;
+        window.WattWatchApp.openConfirmDialog = (cfg) => {
+          confirmOpened = true;
+          confirmCfg = cfg;
+          if (cfg && cfg.onConfirm) cfg.onConfirm(); // Simulate user confirmation
+        };
 
-      // Switch back to Guest Mode: Guest appliances MUST remain 100% intact!
-      WattWatchStorage.setActiveUser(null);
-      const guestAppsCheck = WattWatchStorage.getAppliances();
-      assert(guestAppsCheck.length === 2, 'Guest inventory was completely isolated and unaffected by user account Remove All');
-      assert(guestAppsCheck[0].name === 'Guest Desk Lamp', 'Guest appliances remain intact');
+        WattWatchAppliances.removeAllAppliances();
+        assert(confirmOpened === true, 'Remove All Appliances opens confirmation modal');
+        assert(confirmCfg && confirmCfg.title === 'Remove All Appliances?', 'Confirmation modal title is "Remove All Appliances?"');
+        assert(confirmCfg && confirmCfg.confirmText === 'Remove All (3)', 'Confirmation button shows exact appliance count (3)');
+        assert(WattWatchStorage.getAppliances().length === 0, 'Active workspace appliances successfully cleared after confirmation');
 
-      window.WattWatchApp.openConfirmDialog = origOpenConfirm;
+        // Verify history and settings are completely untouched
+        const histAfterRm = WattWatchStorage.getHistory();
+        assert(histAfterRm.some(h => h.period === '2026-10'), 'Billing history snapshots preserved intact after Remove All');
+        const settAfterRm = WattWatchStorage.getSettings();
+        assert(settAfterRm.electricityRate === 11.50, 'Custom tariff settings preserved intact after Remove All');
 
-      // Clean up test user keys
-      localStorage.removeItem(nsKey(`wattwatch_user_${rmUserUid}_appliances`));
-      localStorage.removeItem(nsKey(`wattwatch_user_${rmUserUid}_settings`));
-      localStorage.removeItem(nsKey(`wattwatch_user_${rmUserUid}_history`));
+        // B. Cancel Remove All leaves appliances completely intact
+        WattWatchStorage.saveAppliances(rmTestApps.slice(0, 2));
+        assert(WattWatchStorage.getAppliances().length === 2, 'Saved 2 appliances for Cancel test');
+
+        let cancelSimulated = false;
+        window.WattWatchApp.openConfirmDialog = (cfg) => {
+          cancelSimulated = true;
+          // User clicks Cancel -> do NOT call cfg.onConfirm()
+        };
+
+        WattWatchAppliances.removeAllAppliances();
+        assert(cancelSimulated === true, 'Confirmation dialog was presented');
+        assert(WattWatchStorage.getAppliances().length === 2, 'Appliances remained completely intact when user cancelled Remove All');
+
+        // C. Empty inventory handling (graceful notification without opening dialog)
+        WattWatchStorage.saveAppliances([]);
+        let dialogOpenedOnEmpty = false;
+        let toastShownOnEmpty = false;
+        window.WattWatchApp.openConfirmDialog = () => { dialogOpenedOnEmpty = true; };
+        window.WattWatchApp.showToast = (msg) => {
+          if (msg && msg.includes('No appliances in your active inventory')) toastShownOnEmpty = true;
+        };
+
+        WattWatchAppliances.removeAllAppliances();
+        assert(dialogOpenedOnEmpty === false, 'Remove All does not open confirm dialog on empty inventory');
+        assert(toastShownOnEmpty === true, 'Remove All shows helpful toast notification on empty inventory');
+
+        // D. Workspace isolation: Guest Mode vs Authenticated Account Mode
+        WattWatchStorage.setActiveUser(null);
+        const guestOnlyApps = [
+          { id: 'g_iso_1', name: 'Guest Desk Lamp', category: 'Lighting', powerWatts: 15, dailyHours: 5, operatingDays: 30, quantity: 1 },
+          { id: 'g_iso_2', name: 'Guest Kettle', category: 'Kitchen', powerWatts: 1500, dailyHours: 0.2, operatingDays: 30, quantity: 1 }
+        ];
+        WattWatchStorage.saveAppliances(guestOnlyApps);
+
+        WattWatchStorage.setActiveUser(rmUserUid);
+        const userOnlyApps = [
+          { id: 'u_iso_1', name: 'Account AC', category: 'Cooling', powerWatts: 1500, dailyHours: 6, operatingDays: 30, quantity: 1 },
+          { id: 'u_iso_2', name: 'Account TV', category: 'Entertainment', powerWatts: 120, dailyHours: 4, operatingDays: 30, quantity: 1 }
+        ];
+        WattWatchStorage.saveAppliances(userOnlyApps);
+        assert(WattWatchStorage.getAppliances().length === 2, 'User has 2 private appliances');
+
+        // User calls Remove All Appliances and confirms
+        window.WattWatchApp.openConfirmDialog = (cfg) => {
+          if (cfg && cfg.onConfirm) cfg.onConfirm();
+        };
+        WattWatchAppliances.removeAllAppliances();
+        assert(WattWatchStorage.getAppliances().length === 0, 'User account inventory cleared');
+
+        // Switch back to Guest Mode: Guest appliances MUST remain 100% intact!
+        WattWatchStorage.setActiveUser(null);
+        const guestAppsCheck = WattWatchStorage.getAppliances();
+        assert(guestAppsCheck.length === 2, 'Guest inventory was completely isolated and unaffected by user account Remove All');
+        assert(guestAppsCheck[0].name === 'Guest Desk Lamp', 'Guest appliances remain intact');
+      } finally {
+        window.WattWatchApp.openConfirmDialog = origOpenConfirm;
+        window.WattWatchApp.showToast = origToast;
+        WattWatchStorage.setActiveUser(null);
+
+        // Clean up test user keys
+        localStorage.removeItem(nsKey(`wattwatch_user_${rmUserUid}_appliances`));
+        localStorage.removeItem(nsKey(`wattwatch_user_${rmUserUid}_settings`));
+        localStorage.removeItem(nsKey(`wattwatch_user_${rmUserUid}_history`));
+      }
 
       // 18. Strict Appliance Domain Validation Tests
       // Reject decimal quantities
@@ -1438,18 +1462,31 @@
 
       // 20. Corrupted LocalStorage Recovery & Quarantine Tests
       const testKeyApp = WattWatchStorage._getKey('APPLIANCES');
-      localStorage.setItem(testKeyApp, 'MALFORMED_JSON_{{{');
-      const safeRecoveredApps = WattWatchStorage.getAppliances();
-      assert(Array.isArray(safeRecoveredApps) && safeRecoveredApps.length === 0, 'getAppliances recovers safely from malformed JSON without crashing');
-      assert(WattWatchStorage.hasCorruptedData() === true, 'Corrupted data state flagged');
-      let hasQuarantineKey = false;
-      const allCorruptedKeys = Object.keys(localStorage).filter(k => k.includes('wattwatch_corrupted_'));
-      if (allCorruptedKeys.length > 0) {
-        hasQuarantineKey = true;
-        allCorruptedKeys.forEach(k => localStorage.removeItem(k));
+      let backupKeyApp = null;
+      try {
+        localStorage.setItem(testKeyApp, 'MALFORMED_JSON_{{{');
+        const safeRecoveredApps = WattWatchStorage.getAppliances();
+        assert(Array.isArray(safeRecoveredApps) && safeRecoveredApps.length === 0, 'getAppliances recovers safely from malformed JSON without crashing');
+        assert(WattWatchStorage.hasCorruptedData() === true, 'Corrupted data state flagged');
+        const corruptItemsApp = WattWatchStorage.getCorruptedItems();
+        const matchedAppItem = corruptItemsApp.find(i => i.key === testKeyApp) || (WattWatchStorage.corruptedState?.key === testKeyApp ? WattWatchStorage.corruptedState : null);
+        backupKeyApp = (matchedAppItem && matchedAppItem.backupKey) || Object.keys(localStorage).find(k => k.startsWith('wattwatch_corrupted_') && k.endsWith(`_${testKeyApp}`)) || null;
+        const hasQuarantineKey = backupKeyApp !== null && localStorage.getItem(backupKeyApp) !== null;
+        assert(hasQuarantineKey === true, 'Malformed data quarantined into wattwatch_corrupted_* key');
+      } finally {
+        if (backupKeyApp) {
+          localStorage.removeItem(backupKeyApp);
+        }
+        if (Array.isArray(WattWatchStorage.corruptedItems)) {
+          WattWatchStorage.corruptedItems = WattWatchStorage.corruptedItems.filter(i => i.key !== testKeyApp && i.backupKey !== backupKeyApp);
+        }
+        if (WattWatchStorage.corruptedState && (WattWatchStorage.corruptedState.key === testKeyApp || WattWatchStorage.corruptedState.backupKey === backupKeyApp)) {
+          WattWatchStorage.corruptedState = (WattWatchStorage.corruptedItems && WattWatchStorage.corruptedItems.length > 0)
+            ? WattWatchStorage.corruptedItems[WattWatchStorage.corruptedItems.length - 1]
+            : null;
+        }
+        localStorage.removeItem(testKeyApp);
       }
-      assert(hasQuarantineKey === true, 'Malformed data quarantined into wattwatch_corrupted_* key');
-      WattWatchStorage.corruptedState = null;
 
       // 21. Slab Tariff Boundaries & Excess Consumption Coverage
       const customCappedSlabSettings = {
@@ -1488,18 +1525,31 @@
 
       // 23. Settings Corrupted Storage Recovery & Quarantine
       const testKeySett = WattWatchStorage._getKey('SETTINGS');
-      localStorage.setItem(testKeySett, 'CORRUPTED_SETTINGS_{{{');
-      const safeRecoveredSettings = WattWatchStorage.getSettings();
-      assert(typeof safeRecoveredSettings === 'object' && safeRecoveredSettings.electricityRate === 8.00, 'getSettings recovers safely from malformed JSON without crashing, returning defaults');
-      assert(WattWatchStorage.hasCorruptedData() === true, 'Corrupted settings state flagged in storage');
-      let hasQuarantineSettKey = false;
-      const allSettCorruptedKeys = Object.keys(localStorage).filter(k => k.includes('wattwatch_corrupted_'));
-      if (allSettCorruptedKeys.length > 0) {
-        hasQuarantineSettKey = true;
-        allSettCorruptedKeys.forEach(k => localStorage.removeItem(k));
+      let backupKeySett = null;
+      try {
+        localStorage.setItem(testKeySett, 'CORRUPTED_SETTINGS_{{{');
+        const safeRecoveredSettings = WattWatchStorage.getSettings();
+        assert(typeof safeRecoveredSettings === 'object' && safeRecoveredSettings.electricityRate === 8.00, 'getSettings recovers safely from malformed JSON without crashing, returning defaults');
+        assert(WattWatchStorage.hasCorruptedData() === true, 'Corrupted settings state flagged in storage');
+        const corruptItemsSett = WattWatchStorage.getCorruptedItems();
+        const matchedSettItem = corruptItemsSett.find(i => i.key === testKeySett) || (WattWatchStorage.corruptedState?.key === testKeySett ? WattWatchStorage.corruptedState : null);
+        backupKeySett = (matchedSettItem && matchedSettItem.backupKey) || Object.keys(localStorage).find(k => k.startsWith('wattwatch_corrupted_') && k.endsWith(`_${testKeySett}`)) || null;
+        const hasQuarantineSettKey = backupKeySett !== null && localStorage.getItem(backupKeySett) !== null;
+        assert(hasQuarantineSettKey === true, 'Malformed settings quarantined into wattwatch_corrupted_* key');
+      } finally {
+        if (backupKeySett) {
+          localStorage.removeItem(backupKeySett);
+        }
+        if (Array.isArray(WattWatchStorage.corruptedItems)) {
+          WattWatchStorage.corruptedItems = WattWatchStorage.corruptedItems.filter(i => i.key !== testKeySett && i.backupKey !== backupKeySett);
+        }
+        if (WattWatchStorage.corruptedState && (WattWatchStorage.corruptedState.key === testKeySett || WattWatchStorage.corruptedState.backupKey === backupKeySett)) {
+          WattWatchStorage.corruptedState = (WattWatchStorage.corruptedItems && WattWatchStorage.corruptedItems.length > 0)
+            ? WattWatchStorage.corruptedItems[WattWatchStorage.corruptedItems.length - 1]
+            : null;
+        }
+        localStorage.removeItem(testKeySett);
       }
-      assert(hasQuarantineSettKey === true, 'Malformed settings quarantined into wattwatch_corrupted_* key');
-      WattWatchStorage.corruptedState = null;
 
       // 24. JSON Backup Theme Export, Import, and Transactional Rollback
       WattWatchStorage.saveTheme('dark');
@@ -2480,40 +2530,851 @@
       assert(reportHtml.includes('Category Energy Distribution Matrix'), 'Report preview renders Category Distribution matrix');
       assert(reportHtml.includes('Total Tracked Appliances'), 'Report preview includes total summary footer in itemization table');
 
+      // ==========================================
+      // F. FINAL AUDIT & RELEASE REGRESSION TESTS
+      // ==========================================
+
+      // 1. Advanced Tariff Calculation: 360 kWh @ ₹8/kWh, fixed charge ₹110, 5% tax = ₹3,139.50
+      const tariffResult360 = WattWatchCalculations.calculateAdvancedTariff(360, {
+        tariffModel: 'flat',
+        electricityRate: 8,
+        fixedCharges: 110,
+        additionalTaxPercent: 5
+      });
+      assert(tariffResult360.isValid === true, '360 kWh tariff calculation is marked valid');
+      assertAlmostEqual(tariffResult360.energyCharges, 2880, '360 kWh @ ₹8 gives energyCharges = ₹2,880.00');
+      assertAlmostEqual(tariffResult360.fixedCharge, 110, 'Fixed charge = ₹110.00');
+      assertAlmostEqual(tariffResult360.taxCharges, 149.50, '5% tax on (2880 + 110) = ₹149.50');
+      assertAlmostEqual(tariffResult360.totalCost, 3139.50, '360 kWh total cost = ₹3,139.50');
+      assertAlmostEqual(tariffResult360.effectiveRatePerKwh, 3139.50 / 360, 'Effective rate matches totalCost / 360');
+
+      // 2. M6 Capped Slab: 150 kWh with one 100 kWh tier at ₹5 must not under-bill (= ₹750)
+      const cappedSlabTariff = WattWatchCalculations.calculateAdvancedTariff(150, {
+        tariffModel: 'slab',
+        slabConfig: [{ upTo: 100, rate: 5 }],
+        fixedCharges: 0,
+        additionalTaxPercent: 0
+      });
+      assert(cappedSlabTariff.isValid === true, 'Capped slab tariff is marked valid');
+      assertAlmostEqual(cappedSlabTariff.energyCharges, 750, '150 kWh with 100 kWh tier @ ₹5 gives ₹750 (500 + 50*5)');
+      assertAlmostEqual(cappedSlabTariff.totalCost, 750, 'Total cost for 150 kWh capped slab is ₹750');
+
+      // 3. Slab Validation: Open-ended final tier requirement in settings
+      const validSettingsSlabs = [
+        { upTo: 100, rate: 4.5 },
+        { upTo: 300, rate: 7.0 },
+        { upTo: null, rate: 9.5 }
+      ];
+      const validSlabRes = WattWatchCalculations.validateSlabConfig(validSettingsSlabs, { requireOpenEnded: true });
+      assert(validSlabRes.valid === true, 'validateSlabConfig accepts valid slab sequence with final open-ended tier');
+
+      const invalidNoOpenEndedSlabs = [
+        { upTo: 100, rate: 4.5 },
+        { upTo: 300, rate: 7.0 }
+      ];
+      const invalidNoOpenRes = WattWatchCalculations.validateSlabConfig(invalidNoOpenEndedSlabs, { requireOpenEnded: true });
+      assert(invalidNoOpenRes.valid === false, 'validateSlabConfig with requireOpenEnded rejects slabs without upTo: null');
+
+      const nonProgressiveSlabs = [
+        { upTo: 200, rate: 4.5 },
+        { upTo: 100, rate: 7.0 },
+        { upTo: null, rate: 9.5 }
+      ];
+      const nonProgRes = WattWatchCalculations.validateSlabConfig(nonProgressiveSlabs);
+      assert(nonProgRes.valid === false, 'validateSlabConfig rejects non-progressive upper bounds (200 before 100)');
+
+      // 4. Shared Appliance Validator Rules
+      // Power must be 1 to 50,000 W
+      assert(WattWatchStorage.validateAppliance({ name: 'Fan', category: 'Cooling', powerWatts: 0, quantity: 1, dailyHours: 4, operatingDays: 30 }).valid === false, 'validateAppliance rejects 0 Watts');
+      assert(WattWatchStorage.validateAppliance({ name: 'Fan', category: 'Cooling', powerWatts: -5, quantity: 1, dailyHours: 4, operatingDays: 30 }).valid === false, 'validateAppliance rejects negative Watts');
+      assert(WattWatchStorage.validateAppliance({ name: 'Fan', category: 'Cooling', powerWatts: 0.5, quantity: 1, dailyHours: 4, operatingDays: 30 }).valid === false, 'validateAppliance rejects < 1 Watt');
+      assert(WattWatchStorage.validateAppliance({ name: 'Fan', category: 'Cooling', powerWatts: 1, quantity: 1, dailyHours: 4, operatingDays: 30 }).valid === true, 'validateAppliance accepts 1 Watt');
+      assert(WattWatchStorage.validateAppliance({ name: 'Industrial', category: 'Other', powerWatts: 50000, quantity: 1, dailyHours: 4, operatingDays: 30 }).valid === true, 'validateAppliance accepts 50,000 Watts');
+      assert(WattWatchStorage.validateAppliance({ name: 'Overload', category: 'Other', powerWatts: 50001, quantity: 1, dailyHours: 4, operatingDays: 30 }).valid === false, 'validateAppliance rejects > 50,000 Watts');
+
+      // Quantity must be positive integer 1 to 100
+      assert(WattWatchStorage.validateAppliance({ name: 'Bulb', category: 'Lighting', powerWatts: 10, quantity: 1.5, dailyHours: 4, operatingDays: 30 }).valid === false, 'validateAppliance rejects fractional quantity');
+      assert(WattWatchStorage.validateAppliance({ name: 'Bulb', category: 'Lighting', powerWatts: 10, quantity: 0, dailyHours: 4, operatingDays: 30 }).valid === false, 'validateAppliance rejects 0 quantity');
+      assert(WattWatchStorage.validateAppliance({ name: 'Bulb', category: 'Lighting', powerWatts: 10, quantity: 101, dailyHours: 4, operatingDays: 30 }).valid === false, 'validateAppliance rejects > 100 quantity');
+
+      // Daily hours 0 to 24
+      assert(WattWatchStorage.validateAppliance({ name: 'TV', category: 'Entertainment', powerWatts: 100, quantity: 1, dailyHours: -1, operatingDays: 30 }).valid === false, 'validateAppliance rejects negative hours');
+      assert(WattWatchStorage.validateAppliance({ name: 'TV', category: 'Entertainment', powerWatts: 100, quantity: 1, dailyHours: 25, operatingDays: 30 }).valid === false, 'validateAppliance rejects > 24 hours');
+      assert(WattWatchStorage.validateAppliance({ name: 'TV', category: 'Entertainment', powerWatts: 100, quantity: 1, dailyHours: 0, operatingDays: 30 }).valid === true, 'validateAppliance accepts 0 hours');
+
+      // Operating days integer 1 to 31
+      assert(WattWatchStorage.validateAppliance({ name: 'PC', category: 'Computing', powerWatts: 200, quantity: 1, dailyHours: 5, operatingDays: 0 }).valid === false, 'validateAppliance rejects 0 operating days');
+      assert(WattWatchStorage.validateAppliance({ name: 'PC', category: 'Computing', powerWatts: 200, quantity: 1, dailyHours: 5, operatingDays: 32 }).valid === false, 'validateAppliance rejects > 31 operating days');
+      assert(WattWatchStorage.validateAppliance({ name: 'PC', category: 'Computing', powerWatts: 200, quantity: 1, dailyHours: 5, operatingDays: 15.5 }).valid === false, 'validateAppliance rejects fractional operating days');
+
+      // Allowed categories & non-empty name
+      assert(WattWatchStorage.validateAppliance({ name: '', category: 'Cooling', powerWatts: 100, quantity: 1, dailyHours: 4, operatingDays: 30 }).valid === false, 'validateAppliance rejects empty name');
+      assert(WattWatchStorage.validateAppliance({ name: 'Test', category: 'NonExistentCategory', powerWatts: 100, quantity: 1, dailyHours: 4, operatingDays: 30 }).valid === false, 'validateAppliance rejects unwhitelisted category');
+
+      // 5. Corrupted Storage Quarantine with Timestamped Backup Keys
+      const testCorruptKey = nsKey('wattwatch_settings_v1');
+      let corruptBackupKey = null;
+      try {
+        localStorage.setItem(testCorruptKey, 'INVALID_JSON_CORRUPTED{[');
+        WattWatchStorage.clearCorruptedData();
+        const loadedSettings = WattWatchStorage.getSettings();
+        assert(WattWatchStorage.hasCorruptedData() === true, 'Corrupted settings triggers hasCorruptedData');
+        const corruptItems = WattWatchStorage.getCorruptedItems();
+        assert(corruptItems.length > 0, 'Quarantined corrupted items are tracked');
+        assert(corruptItems[0].key === testCorruptKey, 'Quarantine records exact corrupted key');
+        assert(corruptItems[0].backupKey.startsWith('wattwatch_corrupted_'), 'Quarantine creates timestamped wattwatch_corrupted_ backup key');
+        corruptBackupKey = corruptItems[0].backupKey;
+        trackedQuarantineBackupKey = corruptBackupKey;
+        assert(localStorage.getItem(corruptBackupKey) === 'INVALID_JSON_CORRUPTED{[', 'Quarantine preserves raw corrupted payload');
+      } finally {
+        // Clean up corrupt backup and corrupt key
+        if (corruptBackupKey) {
+          localStorage.removeItem(corruptBackupKey);
+        }
+        localStorage.removeItem(testCorruptKey);
+        WattWatchStorage.clearCorruptedData();
+      }
+
+      // 6. CSV Export with Invalid Dates Outputs "Unknown date" and Never Throws
+      const snapWithInvalidDate = {
+        period: '2026-10',
+        periodLabel: 'October 2026',
+        totalKwh: 200,
+        totalCost: 1600,
+        effectiveRate: 8.0,
+        tariffModel: 'flat',
+        appliancesCount: 3,
+        createdAt: 'INVALID_TIMESTAMP_STRING'
+      };
+      const snapWithNullDate = {
+        period: '2026-09',
+        periodLabel: 'September 2026',
+        totalKwh: 150,
+        totalCost: 1200,
+        effectiveRate: 8.0,
+        tariffModel: 'flat',
+        appliancesCount: 2,
+        createdAt: null
+      };
+      WattWatchStorage.saveHistory([snapWithInvalidDate, snapWithNullDate]);
+      const historyCsv = WattWatchStorage.generateHistoryCSV();
+      assert(typeof historyCsv === 'string', 'generateHistoryCSV returns string');
+      assert(historyCsv.includes('Unknown date'), 'generateHistoryCSV outputs "Unknown date" for invalid/missing dates');
+      assert(!historyCsv.includes('NaN'), 'generateHistoryCSV does not contain NaN');
+
+      // 7. Migration Transferred and Skipped Counts for Both Appliances and History
+      // Reset test guest and user spaces
+      const guestAppKey = WattWatchStorage._getGuestKey('APPLIANCES');
+      const guestHistKey = WattWatchStorage._getGuestKey('HISTORY');
+      const userAppKey = `${WattWatchStorage.testNamespace || ''}wattwatch_user_testuser123_appliances`;
+      const userHistKey = `${WattWatchStorage.testNamespace || ''}wattwatch_user_testuser123_history`;
+      const userSettKey = `${WattWatchStorage.testNamespace || ''}wattwatch_user_testuser123_settings`;
+
+      try {
+        localStorage.setItem(guestAppKey, JSON.stringify([
+          { id: 'g1', name: 'Valid Guest Fan', category: 'Cooling', powerWatts: 60, quantity: 1, dailyHours: 5, operatingDays: 30 },
+          { id: 'g2', name: 'Duplicate Fan', category: 'Cooling', powerWatts: 70, quantity: 1, dailyHours: 4, operatingDays: 30 },
+          { id: 'g_invalid', name: 'Corrupt', category: 'Cooling', powerWatts: -99, quantity: 1, dailyHours: 4, operatingDays: 30 }
+        ]));
+        localStorage.setItem(guestHistKey, JSON.stringify([
+          { id: 'gh1', period: '2026-08', totalKwh: 100, totalCost: 800, createdAt: 1700000000000 },
+          { id: 'gh2', period: '2026-07', totalKwh: 90, totalCost: 720, createdAt: 1700000000000 },
+          { id: 'gh_invalid', period: 'BAD-PERIOD', totalKwh: 10, totalCost: 80 }
+        ]));
+
+        // Existing user account already has "Duplicate Fan" and period "2026-07"
+        localStorage.setItem(userAppKey, JSON.stringify([
+          { id: 'u1', name: 'Duplicate Fan', category: 'Cooling', powerWatts: 70, quantity: 1, dailyHours: 4, operatingDays: 30 }
+        ]));
+        localStorage.setItem(userHistKey, JSON.stringify([
+          { id: 'uh1', period: '2026-07', totalKwh: 95, totalCost: 760, createdAt: 1700000000000 }
+        ]));
+
+        const migrationResult = WattWatchStorage.migrateGuestData('testuser123');
+        assert(migrationResult.success === true, 'migrateGuestData reports success');
+        assert(migrationResult.transferredAppliances === 1, 'Transferred 1 valid new guest appliance');
+        assert(migrationResult.skippedAppliances === 2, 'Skipped 2 appliances (1 duplicate + 1 invalid)');
+        assert(migrationResult.transferredHistory === 1, 'Transferred 1 valid new guest snapshot (2026-08)');
+        assert(migrationResult.skippedHistory === 2, 'Skipped 2 snapshots (1 duplicate period 2026-07 + 1 invalid period)');
+      } finally {
+        // Clean up migration test keys
+        localStorage.removeItem(guestAppKey);
+        localStorage.removeItem(guestHistKey);
+        localStorage.removeItem(userAppKey);
+        localStorage.removeItem(userHistKey);
+        localStorage.removeItem(userSettKey);
+      }
+
+      // =========================================================================
+      // 8. TARIFF APPLICATION, SLAB PARSING, IMPORT & MIGRATION VALIDATION
+      // =========================================================================
+      {
+        const savedToastFn = WattWatchApp.showToast;
+        const origValidator = WattWatchCalculations.validateSlabConfig;
+
+        const modelSelect = document.getElementById('calcTariffModelSelect');
+        const flatInp = document.getElementById('calcFlatRateInput');
+        const fixedInp = document.getElementById('calcFixedCharges');
+        const taxInp = document.getElementById('calcTaxPercent');
+        const tbody = document.getElementById('tariffSlabsTableBody');
+
+        const initialModelVal = modelSelect ? modelSelect.value : '';
+        const initialFlatVal = flatInp ? flatInp.value : '';
+        const initialFixedVal = fixedInp ? fixedInp.value : '';
+        const initialTaxVal = taxInp ? taxInp.value : '';
+        const initialTbodyHtml = tbody ? tbody.innerHTML : '';
+
+        const testGuestSettKey = WattWatchStorage._getGuestKey('SETTINGS');
+        const testGuestAppKey = WattWatchStorage._getGuestKey('APPLIANCES');
+        const testGuestHistKey = WattWatchStorage._getGuestKey('HISTORY');
+
+        const userValidUid = 'user_mig_valid_slabs';
+        const userValidSettKey = `${WattWatchStorage.testNamespace || ''}wattwatch_user_${userValidUid}_settings`;
+        const userValidAppKey = `${WattWatchStorage.testNamespace || ''}wattwatch_user_${userValidUid}_appliances`;
+        const userValidHistKey = `${WattWatchStorage.testNamespace || ''}wattwatch_user_${userValidUid}_history`;
+
+        const userAliasUid = 'user_mig_alias_test';
+        const userAliasSettKey = `${WattWatchStorage.testNamespace || ''}wattwatch_user_${userAliasUid}_settings`;
+        const userAliasAppKey = `${WattWatchStorage.testNamespace || ''}wattwatch_user_${userAliasUid}_appliances`;
+        const userAliasHistKey = `${WattWatchStorage.testNamespace || ''}wattwatch_user_${userAliasUid}_history`;
+
+        const userInvalidUid = 'user_mig_invalid_slabs';
+        const userInvalidSettKey = `${WattWatchStorage.testNamespace || ''}wattwatch_user_${userInvalidUid}_settings`;
+        const userInvalidAppKey = `${WattWatchStorage.testNamespace || ''}wattwatch_user_${userInvalidUid}_appliances`;
+        const userInvalidHistKey = `${WattWatchStorage.testNamespace || ''}wattwatch_user_${userInvalidUid}_history`;
+
+        const userNoValUid = 'user_mig_noval_slabs';
+        const userNoValSettKey = `${WattWatchStorage.testNamespace || ''}wattwatch_user_${userNoValUid}_settings`;
+        const userNoValAppKey = `${WattWatchStorage.testNamespace || ''}wattwatch_user_${userNoValUid}_appliances`;
+        const userNoValHistKey = `${WattWatchStorage.testNamespace || ''}wattwatch_user_${userNoValUid}_history`;
+
+        const userExistingUid = 'user_mig_existing_settings';
+        const userExistingSettKey = `${WattWatchStorage.testNamespace || ''}wattwatch_user_${userExistingUid}_settings`;
+        const userExistingAppKey = `${WattWatchStorage.testNamespace || ''}wattwatch_user_${userExistingUid}_appliances`;
+        const userExistingHistKey = `${WattWatchStorage.testNamespace || ''}wattwatch_user_${userExistingUid}_history`;
+
+        const userStemUid = 'user_mig_idempotent';
+        const userStemSettKey = `${WattWatchStorage.testNamespace || ''}wattwatch_user_${userStemUid}_settings`;
+        const userStemAppKey = `${WattWatchStorage.testNamespace || ''}wattwatch_user_${userStemUid}_appliances`;
+        const userStemHistKey = `${WattWatchStorage.testNamespace || ''}wattwatch_user_${userStemUid}_history`;
+
+        try {
+          // Ensure clean test environment without leftover corrupted quarantine states
+          localStorage.removeItem(nsKey('wattwatch_settings_v1'));
+          WattWatchStorage.clearCorruptedData();
+          WattWatchStorage.saveSettings({ tariffModel: 'flat', electricityRate: 8.0, fixedCharges: 50, additionalTaxPercent: 0 });
+
+          // Test 1: Applying valid open-ended slab configuration via applyTariffToSettings() and saveSettings()
+          let lastToast = null;
+          WattWatchApp.showToast = (msg, type, title) => {
+            lastToast = { msg, type, title };
+          };
+
+          if (modelSelect) modelSelect.value = 'slab';
+          if (flatInp) flatInp.value = '8.00';
+          if (fixedInp) fixedInp.value = '60.00';
+          if (taxInp) taxInp.value = '5.00';
+
+          const validOpenSlabs = [
+            { upTo: 100, rate: 4.5 },
+            { upTo: 250, rate: 6.5 },
+            { upTo: null, rate: 9.0 }
+          ];
+          WattWatchSimulator.renderSlabRows(validOpenSlabs);
+          lastToast = null;
+          WattWatchSimulator.applyTariffToSettings();
+          assert(lastToast !== null && lastToast.type === 'success', `applyTariffToSettings shows success toast for valid open-ended slab config (got: ${JSON.stringify(lastToast)})`);
+          assert(lastToast.title === 'Tariff Applied', `applyTariffToSettings displays Tariff Applied toast title (got: ${lastToast?.title})`);
+
+          const savedTariffSettings = WattWatchStorage.getSettings();
+          assert(savedTariffSettings.tariffModel === 'slab', 'saveSettings saves tariffModel as slab');
+          assert(Array.isArray(savedTariffSettings.slabConfig) && savedTariffSettings.slabConfig.length === 3, 'saveSettings saves 3 slab tiers');
+          assert(savedTariffSettings.slabConfig[0].upTo === 100 && savedTariffSettings.slabConfig[0].rate === 4.5, 'Tier 1 is up to 100 @ 4.5');
+          assert(savedTariffSettings.slabConfig[2].upTo === null && savedTariffSettings.slabConfig[2].rate === 9.0, 'Tier 3 is open-ended @ 9.0');
+
+          // Direct saveSettings check
+          const directSaveRes = WattWatchStorage.saveSettings({
+            tariffModel: 'slab',
+            electricityRate: 7.0,
+            fixedCharges: 50,
+            additionalTaxPercent: 0,
+            slabConfig: [{ upTo: 50, rate: 3.5 }, { upTo: null, rate: 6.0 }]
+          });
+          assert(directSaveRes === true, 'WattWatchStorage.saveSettings returns true for valid open-ended slab config');
+
+          // Test 2: Rejecting a capped final slab ([{ upTo: 100, rate: 5 }, { upTo: 200, rate: 10 }]) when saving permanent settings
+          const cappedSaveRes = WattWatchStorage.saveSettings({
+            tariffModel: 'slab',
+            slabConfig: [{ upTo: 100, rate: 5.0 }, { upTo: 200, rate: 10.0 }]
+          });
+          assert(cappedSaveRes === false, 'WattWatchStorage.saveSettings returns false when final slab is capped (not upTo: null)');
+
+          // Verify applyTariffToSettings displays error toast and does not save
+          WattWatchSimulator.renderSlabRows([{ upTo: 100, rate: 5.0 }, { upTo: 200, rate: 10.0 }]);
+          lastToast = null;
+          WattWatchSimulator.applyTariffToSettings();
+          assert(lastToast !== null && lastToast.type === 'error', 'applyTariffToSettings displays error toast for capped final slab');
+          assert(lastToast.title === 'Invalid Slabs', 'applyTariffToSettings displays Invalid Slabs title');
+          assert(lastToast.msg.includes('Cannot apply settings:'), 'applyTariffToSettings error toast contains descriptive explanation');
+
+          // Test 2b: saveSettings rejects slab mode when validator is unavailable
+          try {
+            WattWatchCalculations.validateSlabConfig = undefined;
+            const noValSaveRes = WattWatchStorage.saveSettings({
+              tariffModel: 'slab',
+              slabConfig: [{ upTo: null, rate: 6.0 }]
+            });
+            assert(noValSaveRes === false, 'WattWatchStorage.saveSettings returns false when validateSlabConfig is unavailable');
+          } finally {
+            WattWatchCalculations.validateSlabConfig = origValidator;
+          }
+
+          // Flat tariff application unaffected
+          if (modelSelect) modelSelect.value = 'flat';
+          if (flatInp) flatInp.value = '8.50';
+          if (fixedInp) fixedInp.value = '40.00';
+          if (taxInp) taxInp.value = '0.00';
+          lastToast = null;
+          WattWatchSimulator.applyTariffToSettings();
+      assert(lastToast !== null && lastToast.type === 'success', 'applyTariffToSettings succeeds for flat tariff model unaffected');
+      assert(WattWatchStorage.getSettings().tariffModel === 'flat', 'Stored tariff model updated to flat');
+      assert(WattWatchStorage.getSettings().electricityRate === 8.5, 'Stored electricity rate updated to 8.5');
+
+      // Test 3: Preserving capped final slab support in WattWatchCalculations.calculateAdvancedTariff(250, mockCappedSettings)
+      const mockCappedSettings = {
+        tariffModel: 'slab',
+        electricityRate: 8.0,
+        fixedCharges: 0,
+        additionalTaxPercent: 0,
+        slabConfig: [
+          { upTo: 100, rate: 5.0 },
+          { upTo: 200, rate: 10.0 }
+        ]
+      };
+      const cappedCalcRes = WattWatchCalculations.calculateAdvancedTariff(250, mockCappedSettings);
+      assert(cappedCalcRes.isValid === true, 'calculateAdvancedTariff marks capped slab configuration as isValid=true');
+      // 100 @ 5 = 500, next 100 @ 10 = 1000, 50 excess @ 10 = 500. Total energy charge = 2000
+      assertAlmostEqual(cappedCalcRes.energyCharges, 2000.0, 'calculateAdvancedTariff bills excess over capped final slab at final slab rate (100*5 + 100*10 + 50*10 = 2000)');
+      assertAlmostEqual(cappedCalcRes.totalCost, 2000.0, 'calculateAdvancedTariff calculates correct totalCost for capped slab');
+      assertAlmostEqual(cappedCalcRes.effectiveRatePerKwh, 8.0, 'calculateAdvancedTariff calculates accurate effective rate (2000/250 = 8.0)');
+
+      // Test 4: Slab input parsing in readCurrentSlabsFromUI()
+      // 4a. Zero rate parsed as 0 (not defaulted to 5.0)
+      const tbody = document.getElementById('tariffSlabsTableBody');
+      tbody.innerHTML = `
+        <tr>
+          <td>Tier 1</td>
+          <td><input type="number" class="slab-upto-input" value="100"></td>
+          <td><input type="number" class="slab-rate-input" value="0"></td>
+        </tr>
+        <tr>
+          <td>Tier 2</td>
+          <td><input type="hidden" class="slab-upto-input" value="null"></td>
+          <td><input type="number" class="slab-rate-input" value="0.00"></td>
+        </tr>
+      `;
+      const zeroRateSlabs = WattWatchSimulator.readCurrentSlabsFromUI();
+      assert(zeroRateSlabs.length === 2, 'readCurrentSlabsFromUI parses 2 tiers');
+      assert(zeroRateSlabs[0].rate === 0, 'readCurrentSlabsFromUI parses rate "0" strictly as 0, not defaulted to 5.0');
+      assert(zeroRateSlabs[1].rate === 0, 'readCurrentSlabsFromUI parses rate "0.00" strictly as 0');
+      assert(zeroRateSlabs[1].upTo === null, 'readCurrentSlabsFromUI parses upTo "null" as null');
+
+      // 4b. Blank rate parsed as NaN and rejected by validator
+      tbody.innerHTML = `
+        <tr>
+          <td>Tier 1</td>
+          <td><input type="number" class="slab-upto-input" value="100"></td>
+          <td><input type="number" class="slab-rate-input" value=""></td>
+        </tr>
+        <tr>
+          <td>Tier 2</td>
+          <td><input type="hidden" class="slab-upto-input" value="null"></td>
+          <td><input type="number" class="slab-rate-input" value="  "></td>
+        </tr>
+      `;
+      const blankRateSlabs = WattWatchSimulator.readCurrentSlabsFromUI();
+      assert(Number.isNaN(blankRateSlabs[0].rate), 'readCurrentSlabsFromUI parses empty rate input as NaN');
+      assert(Number.isNaN(blankRateSlabs[1].rate), 'readCurrentSlabsFromUI parses whitespace rate input as NaN');
+      const valBlankRate = WattWatchCalculations.validateSlabConfig(blankRateSlabs);
+      assert(valBlankRate.valid === false, 'validateSlabConfig rejects slabs with NaN rates from blank inputs');
+
+      // 4c. Non-numeric rate parsed as NaN and rejected by validator
+      tbody.innerHTML = `
+        <tr>
+          <td>Tier 1</td>
+          <td><input type="number" class="slab-upto-input" value="100"></td>
+          <td><input type="text" class="slab-rate-input" value="abc"></td>
+        </tr>
+        <tr>
+          <td>Tier 2</td>
+          <td><input type="hidden" class="slab-upto-input" value="null"></td>
+          <td><input type="number" class="slab-rate-input" value="10"></td>
+        </tr>
+      `;
+      const nonNumSlabs = WattWatchSimulator.readCurrentSlabsFromUI();
+      assert(Number.isNaN(nonNumSlabs[0].rate), 'readCurrentSlabsFromUI parses "abc" rate as NaN');
+      assert(WattWatchCalculations.validateSlabConfig(nonNumSlabs).valid === false, 'validateSlabConfig rejects non-numeric rate');
+
+      // 4d. Valid decimal rate parsed accurately as 7.25
+      tbody.innerHTML = `
+        <tr>
+          <td>Tier 1</td>
+          <td><input type="number" class="slab-upto-input" value="150"></td>
+          <td><input type="number" class="slab-rate-input" value="7.25"></td>
+        </tr>
+        <tr>
+          <td>Tier 2</td>
+          <td><input type="hidden" class="slab-upto-input" value="null"></td>
+          <td><input type="number" class="slab-rate-input" value="12.75"></td>
+        </tr>
+      `;
+      const decSlabs = WattWatchSimulator.readCurrentSlabsFromUI();
+      assert(decSlabs[0].rate === 7.25, 'readCurrentSlabsFromUI parses decimal rate "7.25" accurately');
+      assert(decSlabs[1].rate === 12.75, 'readCurrentSlabsFromUI parses decimal rate "12.75" accurately');
+
+      // 4e. renderSlabRows renders min="0" on rate inputs
+      WattWatchSimulator.renderSlabRows([{ upTo: 100, rate: 0 }, { upTo: null, rate: 5 }]);
+      const renderedRateInp = tbody.querySelector('.slab-rate-input');
+      assert(renderedRateInp && renderedRateInp.getAttribute('min') === '0', 'renderSlabRows sets min="0" on slab-rate-input');
+
+      // Test 5: JSON import (importDataJSON) with valid open-ended slab settings succeeds
+      const validImportBackup = {
+        version: '1.0',
+        timestamp: Date.now(),
+        appliances: [
+          { id: 'app_imp_1', name: 'Imported Fan', category: 'Cooling', powerWatts: 75, quantity: 1, dailyHours: 8, operatingDays: 30 }
+        ],
+        history: [],
+        settings: {
+          tariffModel: 'slab',
+          electricityRate: 8.0,
+          fixedCharges: 75,
+          additionalTaxPercent: 5,
+          slabConfig: [
+            { upTo: 100, rate: 4.5 },
+            { upTo: 300, rate: 7.0 },
+            { upTo: null, rate: 9.5 }
+          ]
+        }
+      };
+      const resImportValid = WattWatchStorage.importDataJSON(JSON.stringify(validImportBackup), 'replace');
+      assert(resImportValid.success === true, 'importDataJSON succeeds with valid open-ended slab config');
+      const settAfterValidImport = WattWatchStorage.getSettings();
+      assert(settAfterValidImport.tariffModel === 'slab', 'importDataJSON sets tariffModel to slab');
+      assert(Array.isArray(settAfterValidImport.slabConfig) && settAfterValidImport.slabConfig.length === 3, 'importDataJSON imports all 3 slabs');
+      assert(settAfterValidImport.slabConfig[2].upTo === null && settAfterValidImport.slabConfig[2].rate === 9.5, 'importDataJSON imports open-ended final tier');
+
+      // Test 6: JSON import with invalid slab settings (capped final slab or negative rate)
+      const invalidImportCapped = {
+        version: '1.0',
+        timestamp: Date.now(),
+        appliances: [
+          { id: 'app_imp_2', name: 'Safe Appliance', category: 'Lighting', powerWatts: 20, quantity: 2, dailyHours: 4, operatingDays: 30 }
+        ],
+        history: [],
+        settings: {
+          tariffModel: 'slab',
+          electricityRate: 8.0,
+          slabConfig: [
+            { upTo: 100, rate: 5.0 },
+            { upTo: 200, rate: 10.0 }
+          ]
+        }
+      };
+      const resImportCapped = WattWatchStorage.importDataJSON(JSON.stringify(invalidImportCapped), 'replace');
+      assert(resImportCapped.success === true, 'importDataJSON completes without crashing when slabConfig is capped');
+      assert(Boolean(resImportCapped.warning) === true, 'importDataJSON in replace mode returns warning for invalid slab settings');
+      assert(resImportCapped.warning.includes('flat'), 'importDataJSON warning mentions fallback to flat mode');
+      const settAfterCappedImport = WattWatchStorage.getSettings();
+      assert(settAfterCappedImport.tariffModel !== 'slab', `importDataJSON in replace mode refuses to set tariffModel=slab on capped slabs (got tariffModel=${settAfterCappedImport.tariffModel}, slabConfig=${JSON.stringify(settAfterCappedImport.slabConfig)})`);
+
+      // In merge mode, invalid slabs from candidate do not corrupt existing slab settings
+      WattWatchStorage.saveSettings({
+        tariffModel: 'slab',
+        electricityRate: 8.0,
+        slabConfig: [{ upTo: 100, rate: 4.0 }, { upTo: null, rate: 8.0 }]
+      });
+      const invalidImportNegativeRate = {
+        version: '1.0',
+        timestamp: Date.now(),
+        appliances: [],
+        history: [],
+        settings: {
+          tariffModel: 'slab',
+          slabConfig: [{ upTo: 100, rate: -5.0 }, { upTo: null, rate: 8.0 }]
+        }
+      };
+      const resImportNeg = WattWatchStorage.importDataJSON(JSON.stringify(invalidImportNegativeRate), 'merge');
+      assert(Boolean(resImportNeg.warning) === true, 'importDataJSON in merge mode returns warning for skipped invalid slab settings');
+      assert(resImportNeg.warning.includes('skipped') && resImportNeg.warning.includes('preserved'), 'importDataJSON merge warning indicates invalid slabs were skipped and existing settings preserved');
+      const settAfterNegMerge = WattWatchStorage.getSettings();
+      assert(settAfterNegMerge.tariffModel === 'slab', 'importDataJSON merge preserves valid existing slab model');
+      assert(settAfterNegMerge.slabConfig[0].rate === 4.0, 'importDataJSON merge rejects negative slab rate and preserves existing slab config');
+
+      // Test 7: Guest settings migration (migrateGuestData / migrateGuestDataToUser) with valid slab settings
+      localStorage.removeItem(userValidSettKey);
+      localStorage.removeItem(userValidAppKey);
+      localStorage.removeItem(userValidHistKey);
+
+      localStorage.setItem(testGuestSettKey, JSON.stringify({
+        tariffModel: 'slab',
+        electricityRate: 8.0,
+        fixedCharges: 50,
+        additionalTaxPercent: 0,
+        slabConfig: [
+          { upTo: 100, rate: 4.5 },
+          { upTo: null, rate: 8.5 }
+        ]
+      }));
+      localStorage.setItem(testGuestAppKey, JSON.stringify([
+        { id: 'g_mig_app1', name: 'Guest Fridge', category: 'Kitchen', powerWatts: 150, quantity: 1, dailyHours: 24, operatingDays: 30 }
+      ]));
+      localStorage.setItem(testGuestHistKey, JSON.stringify([]));
+
+      const migResValid = WattWatchStorage.migrateGuestData(userValidUid);
+      assert(migResValid.success === true, 'migrateGuestData succeeds for valid guest data');
+      assert(migResValid.importedSettings === true, 'migrateGuestData sets importedSettings=true when guest slabs are valid');
+
+      const savedUserSett = JSON.parse(localStorage.getItem(userValidSettKey));
+      assert(savedUserSett !== null && savedUserSett.tariffModel === 'slab', 'Migrated user settings contain tariffModel=slab');
+      assert(Array.isArray(savedUserSett.slabConfig) && savedUserSett.slabConfig.length === 2, 'Migrated user settings contain 2 slab tiers');
+      assert(savedUserSett.slabConfig[1].upTo === null && savedUserSett.slabConfig[1].rate === 8.5, 'Migrated user settings preserve open-ended tier');
+
+      // Test migrateGuestDataToUser alias
+      localStorage.removeItem(userAliasSettKey);
+      const migAliasRes = WattWatchStorage.migrateGuestDataToUser(userAliasUid);
+      assert(migAliasRes.success === true, 'migrateGuestDataToUser alias delegates to migrateGuestData successfully');
+      assert(migAliasRes.importedSettings === true, 'migrateGuestDataToUser sets importedSettings=true');
+      localStorage.removeItem(userAliasSettKey);
+      localStorage.removeItem(userAliasAppKey);
+      localStorage.removeItem(userAliasHistKey);
+
+      // Clean up valid user test keys
+      localStorage.removeItem(userValidSettKey);
+      localStorage.removeItem(userValidAppKey);
+      localStorage.removeItem(userValidHistKey);
+
+      // Test 8: Guest settings migration with invalid slab settings (e.g. capped final tier or negative rate)
+      localStorage.removeItem(userInvalidSettKey);
+      localStorage.removeItem(userInvalidAppKey);
+      localStorage.removeItem(userInvalidHistKey);
+
+      // Set guest settings with capped slabs (missing upTo: null)
+      localStorage.setItem(testGuestSettKey, JSON.stringify({
+        tariffModel: 'slab',
+        slabConfig: [
+          { upTo: 100, rate: 5.0 },
+          { upTo: 200, rate: 10.0 }
+        ]
+      }));
+      localStorage.setItem(testGuestAppKey, JSON.stringify([
+        { id: 'g_mig_app2', name: 'Guest TV', category: 'Entertainment', powerWatts: 100, quantity: 1, dailyHours: 4, operatingDays: 30 }
+      ]));
+
+      const migResInvalid = WattWatchStorage.migrateGuestData(userInvalidUid);
+      assert(migResInvalid.success === true, 'migrateGuestData reports success overall even if settings are rejected');
+      assert(migResInvalid.transferredAppliances === 1, 'migrateGuestData safely transfers valid appliances even when settings are invalid');
+      assert(migResInvalid.importedSettings === false, 'migrateGuestData rejects invalid capped guest slab settings (importedSettings=false)');
+      assert(localStorage.getItem(userInvalidSettKey) === null, 'migrateGuestData does not write corrupt/capped slab settings to user space');
+
+      // Clean up invalid user test keys
+      localStorage.removeItem(userInvalidSettKey);
+      localStorage.removeItem(userInvalidAppKey);
+      localStorage.removeItem(userInvalidHistKey);
+
+      // Test 8b: Guest migration skips slab settings when validator is unavailable, but migrates valid appliances and history
+      localStorage.removeItem(userNoValSettKey);
+      localStorage.removeItem(userNoValAppKey);
+      localStorage.removeItem(userNoValHistKey);
+
+      localStorage.setItem(testGuestSettKey, JSON.stringify({
+        tariffModel: 'slab',
+        electricityRate: 8.0,
+        slabConfig: [{ upTo: null, rate: 6.0 }]
+      }));
+      localStorage.setItem(testGuestAppKey, JSON.stringify([
+        { id: 'g_noval_app', name: 'NoVal Lamp', category: 'Lighting', powerWatts: 20, quantity: 1, dailyHours: 4, operatingDays: 30 }
+      ]));
+      localStorage.setItem(testGuestHistKey, JSON.stringify([
+        { id: 'gh_noval', period: '2026-04', totalKwh: 120, totalCost: 960, createdAt: 1712000000000 }
+      ]));
+
+      try {
+        WattWatchCalculations.validateSlabConfig = undefined;
+        const migNoValRes = WattWatchStorage.migrateGuestData(userNoValUid);
+        assert(migNoValRes.success === true, 'migrateGuestData reports success overall when validator is unavailable');
+        assert(migNoValRes.importedSettings === false, 'migrateGuestData skips slab settings when validator is unavailable');
+        assert(migNoValRes.transferredAppliances === 1, 'migrateGuestData transfers valid appliances even when validator is unavailable');
+        assert(migNoValRes.transferredHistory === 1, 'migrateGuestData transfers valid history even when validator is unavailable');
+        assert(localStorage.getItem(userNoValSettKey) === null, 'User settings key remains empty when guest slab settings are skipped');
+        const noValApps = JSON.parse(localStorage.getItem(userNoValAppKey));
+        assert(Array.isArray(noValApps) && noValApps.length === 1 && noValApps[0].name === 'NoVal Lamp', 'User appliances correctly migrated when validator is unavailable');
+        const noValHist = JSON.parse(localStorage.getItem(userNoValHistKey));
+        assert(Array.isArray(noValHist) && noValHist.length === 1 && noValHist[0].period === '2026-04', 'User history correctly migrated when validator is unavailable');
+      } finally {
+        WattWatchCalculations.validateSlabConfig = origValidator;
+      }
+
+      // Clean up test keys
+      localStorage.removeItem(userNoValSettKey);
+      localStorage.removeItem(userNoValAppKey);
+      localStorage.removeItem(userNoValHistKey);
+
+      // Test 9: Preserving existing account settings (guest settings do not overwrite existing account settings)
+      localStorage.setItem(userExistingSettKey, JSON.stringify({
+        tariffModel: 'flat',
+        electricityRate: 9.75,
+        fixedCharges: 120,
+        additionalTaxPercent: 8
+      }));
+      localStorage.removeItem(userExistingAppKey);
+      localStorage.removeItem(userExistingHistKey);
+
+      // Valid guest settings that should NOT overwrite user's settings
+      localStorage.setItem(testGuestSettKey, JSON.stringify({
+        tariffModel: 'slab',
+        electricityRate: 6.0,
+        slabConfig: [{ upTo: null, rate: 5.0 }]
+      }));
+
+      const migResExisting = WattWatchStorage.migrateGuestData(userExistingUid);
+      assert(migResExisting.success === true, 'migrateGuestData succeeds when user already has settings');
+      assert(migResExisting.importedSettings === false, 'migrateGuestData does not overwrite existing account settings (importedSettings=false)');
+
+      const existingSettAfter = JSON.parse(localStorage.getItem(userExistingSettKey));
+      assert(existingSettAfter.tariffModel === 'flat', 'User existing tariffModel=flat preserved');
+      assert(existingSettAfter.electricityRate === 9.75, 'User existing electricityRate=9.75 preserved');
+      assert(existingSettAfter.fixedCharges === 120, 'User existing fixedCharges=120 preserved');
+
+      localStorage.removeItem(userExistingSettKey);
+      localStorage.removeItem(userExistingAppKey);
+      localStorage.removeItem(userExistingHistKey);
+
+      // Test 10: Preserving guest data and migration idempotency
+      localStorage.removeItem(userStemSettKey);
+      localStorage.removeItem(userStemAppKey);
+      localStorage.removeItem(userStemHistKey);
+
+      const guestAppPayload = [
+        { id: 'g_idemp_1', name: 'Idempotent AC', category: 'Cooling', powerWatts: 1500, quantity: 1, dailyHours: 6, operatingDays: 30 },
+        { id: 'g_idemp_2', name: 'Idempotent Iron', category: 'Other', powerWatts: 1000, quantity: 1, dailyHours: 1, operatingDays: 15 }
+      ];
+      const guestHistPayload = [
+        { id: 'gh_idemp_1', period: '2026-05', totalKwh: 300, totalCost: 2400, createdAt: 1715000000000 }
+      ];
+      localStorage.setItem(testGuestAppKey, JSON.stringify(guestAppPayload));
+      localStorage.setItem(testGuestHistKey, JSON.stringify(guestHistPayload));
+      localStorage.removeItem(testGuestSettKey);
+
+      // Migration run #1
+      const resIdemp1 = WattWatchStorage.migrateGuestData(userStemUid);
+      assert(resIdemp1.success === true, 'Migration run 1 succeeds');
+      assert(resIdemp1.transferredAppliances === 2, 'Migration run 1 transfers 2 appliances');
+      assert(resIdemp1.transferredHistory === 1, 'Migration run 1 transfers 1 history snapshot');
+
+      // Verify guest data keys remain completely intact
+      const guestAppAfter1 = JSON.parse(localStorage.getItem(testGuestAppKey));
+      const guestHistAfter1 = JSON.parse(localStorage.getItem(testGuestHistKey));
+      assert(Array.isArray(guestAppAfter1) && guestAppAfter1.length === 2, 'Guest appliances in localStorage remain completely untouched after migration');
+      assert(guestAppAfter1[0].name === 'Idempotent AC', 'Guest appliance payload unmodified');
+      assert(Array.isArray(guestHistAfter1) && guestHistAfter1.length === 1, 'Guest history in localStorage remains completely untouched after migration');
+
+      // Migration run #2 (Idempotency)
+      const resIdemp2 = WattWatchStorage.migrateGuestData(userStemUid);
+      assert(resIdemp2.success === true, 'Migration run 2 succeeds');
+      assert(resIdemp2.transferredAppliances === 0, 'Migration run 2 transfers 0 duplicate appliances');
+      assert(resIdemp2.skippedAppliances === 2, 'Migration run 2 skips 2 existing appliances');
+      assert(resIdemp2.transferredHistory === 0, 'Migration run 2 transfers 0 duplicate history snapshots');
+      assert(resIdemp2.skippedHistory === 1, 'Migration run 2 skips 1 existing history snapshot');
+
+      const userAppsFinal = JSON.parse(localStorage.getItem(userStemAppKey));
+      const userHistFinal = JSON.parse(localStorage.getItem(userStemHistKey));
+      assert(userAppsFinal.length === 2, 'User appliance inventory not duplicated or bloated on second migration');
+      assert(userHistFinal.length === 1, 'User history not duplicated on second migration');
+
+      // Clean up idempotency test keys
+      localStorage.removeItem(testGuestAppKey);
+      localStorage.removeItem(testGuestHistKey);
+      localStorage.removeItem(testGuestSettKey);
+      localStorage.removeItem(userStemAppKey);
+      localStorage.removeItem(userStemHistKey);
+      localStorage.removeItem(userStemSettKey);
+
+      // Flat tariff saving and import preservation
+      const flatSaveRes = WattWatchStorage.saveSettings({
+        tariffModel: 'flat',
+        electricityRate: 7.75,
+        fixedCharges: 85,
+        additionalTaxPercent: 5
+      });
+      assert(flatSaveRes === true, 'saveSettings preserves flat tariff saving cleanly');
+      const flatSett = WattWatchStorage.getSettings();
+      assert(flatSett.tariffModel === 'flat' && flatSett.electricityRate === 7.75 && flatSett.fixedCharges === 85, 'Stored settings preserve flat tariff values');
+
+      const flatImportPayload = {
+        version: '1.0',
+        timestamp: Date.now(),
+        appliances: [{ id: 'app_flat_test', name: 'Flat Test Appliance', category: 'Computing', powerWatts: 50, quantity: 1, dailyHours: 4, operatingDays: 30 }],
+        history: [],
+        settings: {
+          tariffModel: 'flat',
+          electricityRate: 8.25,
+          fixedCharges: 90,
+          additionalTaxPercent: 5
+        }
+      };
+      const flatImportRes = WattWatchStorage.importDataJSON(JSON.stringify(flatImportPayload), 'replace');
+      assert(flatImportRes.success === true, 'importDataJSON succeeds with valid flat tariff');
+      assert(flatImportRes.warning === undefined, 'importDataJSON has no warning for valid flat tariff');
+      assert(WattWatchStorage.getSettings().tariffModel === 'flat', 'Imported settings preserve flat tariffModel');
+      assert(WattWatchStorage.getSettings().electricityRate === 8.25, 'Imported settings preserve flat electricityRate');
+      } finally {
+        WattWatchApp.showToast = savedToastFn;
+        WattWatchCalculations.validateSlabConfig = origValidator;
+
+        if (modelSelect) modelSelect.value = initialModelVal;
+        if (flatInp) flatInp.value = initialFlatVal;
+        if (fixedInp) fixedInp.value = initialFixedVal;
+        if (taxInp) taxInp.value = initialTaxVal;
+        if (tbody) tbody.innerHTML = initialTbodyHtml;
+
+        localStorage.removeItem(userValidSettKey);
+        localStorage.removeItem(userValidAppKey);
+        localStorage.removeItem(userValidHistKey);
+
+        localStorage.removeItem(userAliasSettKey);
+        localStorage.removeItem(userAliasAppKey);
+        localStorage.removeItem(userAliasHistKey);
+
+        localStorage.removeItem(userInvalidSettKey);
+        localStorage.removeItem(userInvalidAppKey);
+        localStorage.removeItem(userInvalidHistKey);
+
+        localStorage.removeItem(userNoValSettKey);
+        localStorage.removeItem(userNoValAppKey);
+        localStorage.removeItem(userNoValHistKey);
+
+        localStorage.removeItem(userExistingSettKey);
+        localStorage.removeItem(userExistingAppKey);
+        localStorage.removeItem(userExistingHistKey);
+
+        localStorage.removeItem(userStemSettKey);
+        localStorage.removeItem(userStemAppKey);
+        localStorage.removeItem(userStemHistKey);
+
+        localStorage.removeItem(testGuestAppKey);
+        localStorage.removeItem(testGuestHistKey);
+        localStorage.removeItem(testGuestSettKey);
+
+        localStorage.removeItem(nsKey('wattwatch_settings_v1'));
+        WattWatchStorage.clearCorruptedData();
+      }
+      }
+
       // Restore sample household for storage
       WattWatchStorage.loadSampleHousehold();
       } catch (err) {
         console.error('Test runner caught unexpected error:', err);
         results.push({ name: 'Test Suite Execution Error', passed: false, details: err.message });
       } finally {
-        // Clean up test namespace keys
-        const allKeys = Object.keys(localStorage);
-        for (const k of allKeys) {
-          if (k.startsWith('wattwatch_audit_test_') || (k.includes('wattwatch_corrupted_') && !(k in initialLocalStorageSnapshot))) {
+        if (typeof originalGlobalShowToast !== 'undefined') {
+          WattWatchApp.showToast = originalGlobalShowToast;
+        }
+        if (typeof originalGlobalValidateSlabConfig !== 'undefined') {
+          WattWatchCalculations.validateSlabConfig = originalGlobalValidateSlabConfig;
+        }
+        if (typeof originalGlobalOpenConfirm !== 'undefined') {
+          WattWatchApp.openConfirmDialog = originalGlobalOpenConfirm;
+        }
+
+        // 1. Before cleanup, compare current localStorage against initialLocalStorageSnapshot
+        // and record whether production data was modified, deleted, or unexpectedly added.
+        const modifiedProductionKeys = [];
+        const deletedProductionKeys = [];
+        const unexpectedAddedKeys = [];
+
+        for (const k of Object.keys(initialLocalStorageSnapshot)) {
+          const isAuditNamespaceKey = k.startsWith('wattwatch_audit_test_');
+          if (!isAuditNamespaceKey) {
+            const currentVal = localStorage.getItem(k);
+            if (currentVal === null) {
+              deletedProductionKeys.push(k);
+            } else if (currentVal !== initialLocalStorageSnapshot[k]) {
+              modifiedProductionKeys.push(k);
+            }
+          }
+        }
+
+        for (let i = 0; i < localStorage.length; i++) {
+          const k = localStorage.key(i);
+          if (!(k in initialLocalStorageSnapshot)) {
+            const isExpectedTestKey = k.startsWith('wattwatch_audit_test_') || (trackedQuarantineBackupKey !== null && k === trackedQuarantineBackupKey);
+            if (!isExpectedTestKey) {
+              unexpectedAddedKeys.push(k);
+            }
+          }
+        }
+
+        const productionDataUntouched = (
+          modifiedProductionKeys.length === 0 &&
+          deletedProductionKeys.length === 0 &&
+          unexpectedAddedKeys.length === 0
+        );
+
+        // 2. Restore original localStorage state:
+        // - Remove keys that did not exist in the initial snapshot (removes test-run artifacts)
+        const currentKeys = [];
+        for (let i = 0; i < localStorage.length; i++) {
+          currentKeys.push(localStorage.key(i));
+        }
+        for (const k of currentKeys) {
+          if (!(k in initialLocalStorageSnapshot)) {
             localStorage.removeItem(k);
           }
         }
+
+        // - Restore every original key with its exact original value.
+        // This restores any modified/deleted production keys AND preserves pre-existing
+        // audit namespace and corrupted backup keys exactly as they were in the initial snapshot.
+        for (const [k, val] of Object.entries(initialLocalStorageSnapshot)) {
+          if (localStorage.getItem(k) !== val) {
+            localStorage.setItem(k, val);
+          }
+        }
+
+        // Reset application state
         WattWatchStorage.setTestNamespace(null);
         WattWatchStorage.setActiveUser(null);
         WattWatchAuth.closeModal(true);
         document.body.classList.remove('auth-gate-active');
 
-        // Verify real user data was completely untouched
-        let realDataUntouched = true;
-        for (const k of Object.keys(initialLocalStorageSnapshot)) {
-          if (localStorage.getItem(k) !== initialLocalStorageSnapshot[k]) {
-            realDataUntouched = false;
+        // 3. Verify post-cleanup state matches initial snapshot completely
+        let restorationSuccessful = true;
+        for (const [k, val] of Object.entries(initialLocalStorageSnapshot)) {
+          if (localStorage.getItem(k) !== val) {
+            restorationSuccessful = false;
             break;
           }
         }
-        for (let i = 0; i < localStorage.length; i++) {
-          const k = localStorage.key(i);
-          if (!(k in initialLocalStorageSnapshot)) {
-            realDataUntouched = false;
-            break;
-          }
+        if (localStorage.length !== Object.keys(initialLocalStorageSnapshot).length) {
+          restorationSuccessful = false;
         }
-        assert(realDataUntouched, 'Production localStorage data was completely untouched during test suite run');
+
+        // 4. Report integrity result after cleanup:
+        // Fail if production data was touched during test execution OR if cleanup failed to restore state.
+        const realDataUntouched = productionDataUntouched && restorationSuccessful;
+        let integrityDetails = '';
+        if (!productionDataUntouched) {
+          const violations = [];
+          if (modifiedProductionKeys.length > 0) violations.push(`Modified: [${modifiedProductionKeys.join(', ')}]`);
+          if (deletedProductionKeys.length > 0) violations.push(`Deleted: [${deletedProductionKeys.join(', ')}]`);
+          if (unexpectedAddedKeys.length > 0) violations.push(`Unexpected Added: [${unexpectedAddedKeys.join(', ')}]`);
+          integrityDetails = `Production data touched during execution (${violations.join('; ')})`;
+        } else if (!restorationSuccessful) {
+          integrityDetails = 'LocalStorage cleanup failed to restore initial snapshot state';
+        }
+
+        assert(realDataUntouched, 'Production localStorage data was completely untouched during test suite run', integrityDetails);
 
         // Render summary on DOM
         const passedCount = results.filter(r => r.passed).length;

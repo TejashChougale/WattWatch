@@ -160,6 +160,59 @@ const WattWatchCalculations = {
   },
 
   /**
+   * Validates a slab configuration array
+   * @param {*} candidateSlabs - Array of slab objects { upTo, rate }
+   * @param {Object} [options]
+   * @param {boolean} [options.requireOpenEnded=false] - If true, requires final slab upTo to be null
+   * @returns {{ valid: boolean, error?: string, sanitized?: Array<{ upTo: number|null, rate: number }> }}
+   */
+  validateSlabConfig(candidateSlabs, options = {}) {
+    if (!Array.isArray(candidateSlabs) || candidateSlabs.length === 0) {
+      return { valid: false, error: 'Slab configuration must be a non-empty array' };
+    }
+
+    const { requireOpenEnded = false } = options;
+
+    if (requireOpenEnded) {
+      const last = candidateSlabs[candidateSlabs.length - 1];
+      if (!last || last.upTo !== null) {
+        return { valid: false, error: 'Final slab tier must be open-ended (upTo: null)' };
+      }
+    }
+
+    for (let index = 0; index < candidateSlabs.length; index++) {
+      const slab = candidateSlabs[index];
+      if (!slab || typeof slab !== 'object' || Array.isArray(slab)) {
+        return { valid: false, error: `Slab at index ${index} must be a valid object` };
+      }
+      if (!this.isFiniteNumber(slab.rate) || Number(slab.rate) < 0) {
+        return { valid: false, error: `Slab at index ${index} has an invalid or negative rate` };
+      }
+      if (slab.upTo === null) {
+        if (index !== candidateSlabs.length - 1) {
+          return { valid: false, error: 'Only the final slab tier may have upTo: null' };
+        }
+      } else {
+        if (!this.isFiniteNumber(slab.upTo) || Number(slab.upTo) <= 0) {
+          return { valid: false, error: `Slab at index ${index} has an invalid or non-positive upper limit` };
+        }
+        if (index > 0 && candidateSlabs[index - 1].upTo !== null) {
+          if (Number(slab.upTo) <= Number(candidateSlabs[index - 1].upTo)) {
+            return { valid: false, error: 'Slab upper bounds must be strictly progressive' };
+          }
+        }
+      }
+    }
+
+    const sanitized = candidateSlabs.map(slab => ({
+      upTo: slab.upTo === null ? null : Number(slab.upTo),
+      rate: Number(slab.rate)
+    }));
+
+    return { valid: true, sanitized };
+  },
+
+  /**
    * Calculates daily energy consumption in kWh
    * @param {number} powerWatts - Nominal wattage (W)
    * @param {number} quantity - Number of units
@@ -269,27 +322,12 @@ const WattWatchCalculations = {
 
     if (model === 'slab') {
       // Do not silently fall back to flat tariff when explicitly supplied slab configuration is invalid. Return an explicit invalid result.
-      if (!Array.isArray(safeSettings.slabConfig) || safeSettings.slabConfig.length === 0) {
-        return this._createInvalidTariffResult(totalKwh, model, 'Slab configuration must be a non-empty array');
+      const valResult = this.validateSlabConfig(safeSettings.slabConfig);
+      if (!valResult.valid) {
+        return this._createInvalidTariffResult(totalKwh, model, valResult.error || 'Slab configuration contains invalid, negative, or non-progressive bounds/rates');
       }
 
-      const candidateSlabs = safeSettings.slabConfig;
-      const validConfig = candidateSlabs.every((slab, index) => {
-        if (!slab || typeof slab !== 'object' || Array.isArray(slab)) return false;
-        if (!this.isFiniteNumber(slab.rate) || Number(slab.rate) < 0) return false;
-        if (slab.upTo === null) return index === candidateSlabs.length - 1;
-        if (!this.isFiniteNumber(slab.upTo) || Number(slab.upTo) <= 0) return false;
-        return index === 0 || Number(slab.upTo) > Number(candidateSlabs[index - 1].upTo);
-      });
-
-      if (!validConfig) {
-        return this._createInvalidTariffResult(totalKwh, model, 'Slab configuration contains invalid, negative, or non-progressive bounds/rates');
-      }
-
-      const validSlabs = candidateSlabs.map(slab => ({
-        upTo: slab.upTo === null ? null : Number(slab.upTo),
-        rate: Number(slab.rate)
-      }));
+      const validSlabs = valResult.sanitized;
 
       let remainingKwh = kwh;
       let lowerBound = 0;
@@ -784,7 +822,7 @@ const WattWatchCalculations = {
     const annualKgCO2 = monthlyKgCO2 * 12;
     const annualMetricTons = annualKgCO2 / 1000;
 
-    // An average mature urban tree sequesters ~21.77 kg of CO2 per year (US EPA / CEA standard)
+    // Tree equivalent is estimated following the US EPA GHG equivalencies methodology (~21.77 kg CO₂ sequestered per mature urban tree per year)
     const treesEquivalent = Math.round(annualKgCO2 / 21.77);
 
     return {
