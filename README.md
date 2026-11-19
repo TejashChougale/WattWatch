@@ -8,7 +8,7 @@
 [![Audit Test Suite](https://img.shields.io/badge/Audit%20Tests-750%2F750%20Passed-2E946E.svg)](#-automated-testing--quality-assurance)
 [![Responsive Verification](https://img.shields.io/badge/Responsive-21%2F21%20Passed-2E946E.svg)](#-automated-testing--quality-assurance)
 
-> **WattWatch** is an enterprise-grade client-side energy intelligence platform. It provides comprehensive household electricity monitoring, frozen historical monthly billing snapshots, an active electricity budget tracker, month-to-month comparative deltas, an interactive appliance replacement simulator, an advanced progressive multi-slab tariff engine, a carbon footprint estimator, and client-side PDF energy audit reports.
+> **WattWatch** is a client-side household electricity tracking and analytics application. It provides appliance-level consumption estimates, monthly billing snapshots, an electricity budget tracker, month-to-month comparisons, an appliance replacement simulator, a configurable multi-slab tariff calculator, a carbon footprint estimator, and printable PDF energy reports.
 
 ---
 
