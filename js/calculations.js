@@ -515,6 +515,273 @@ const WattWatchCalculations = {
   },
 
   /**
+   * Calendar Calculation Helper: Gets actual number of days in the current or specified calendar month.
+   * Handles leap years and month boundaries accurately.
+   * @param {Date|string|number} [date=new Date()]
+   * @returns {number} Days in month (28, 29, 30, or 31)
+   */
+  getDaysInCurrentMonth(date = new Date()) {
+    const d = (date instanceof Date && !isNaN(date.getTime()))
+      ? date
+      : (typeof date === 'string' || typeof date === 'number')
+        ? new Date(date)
+        : new Date();
+    const safeDate = (!isNaN(d.getTime())) ? d : new Date();
+    const year = safeDate.getFullYear();
+    const month = safeDate.getMonth(); // 0 - 11
+    return new Date(year, month + 1, 0).getDate();
+  },
+
+  /**
+   * Budget Inversion Engine: Computes the maximum monthly energy allowance in kWh
+   * that can be consumed without exceeding the configured budget limit.
+   * Supports both uniform flat rates and progressive multi-slab tariffs with fixed charges & taxes.
+   * @param {number} budgetInr - Monthly budget in INR
+   * @param {Object} [settings={}] - Active tariff settings
+   * @returns {number} Allowed monthly energy in kWh (or NaN / 0)
+   */
+  calculateAllowedKwhForBudget(budgetInr, settings = {}) {
+    if (!this.isFiniteNumber(budgetInr) || Number(budgetInr) <= 0) {
+      return 0;
+    }
+    const budget = Number(budgetInr);
+    const safeSettings = (settings && typeof settings === 'object' && !Array.isArray(settings)) ? settings : {};
+    const model = safeSettings.tariffModel || 'flat';
+
+    const taxPercent = this.validateTaxPercent(safeSettings.additionalTaxPercent, 0);
+    const fixedCharge = this.validateFixedCharge(safeSettings.fixedCharges, 0);
+    if (isNaN(taxPercent) || isNaN(fixedCharge)) {
+      return NaN;
+    }
+
+    const taxMultiplier = 1 + (taxPercent / 100);
+    const maxSubtotal = budget / taxMultiplier;
+    let availableEnergyCharges = maxSubtotal - fixedCharge;
+
+    if (availableEnergyCharges <= 0) {
+      return 0;
+    }
+
+    if (model === 'slab') {
+      const valResult = this.validateSlabConfig(safeSettings.slabConfig);
+      if (!valResult.valid) {
+        return NaN;
+      }
+      const slabs = valResult.sanitized;
+      let totalAllowedKwh = 0;
+      let lowerBound = 0;
+
+      for (let i = 0; i < slabs.length; i++) {
+        const slab = slabs[i];
+        const rate = slab.rate;
+        const upperBound = slab.upTo;
+
+        if (upperBound !== null) {
+          const capacity = Math.max(0, upperBound - lowerBound);
+          lowerBound = upperBound;
+          if (rate === 0) {
+            totalAllowedKwh += capacity;
+          } else {
+            const costForCapacity = capacity * rate;
+            if (availableEnergyCharges <= costForCapacity) {
+              totalAllowedKwh += (availableEnergyCharges / rate);
+              availableEnergyCharges = 0;
+              break;
+            } else {
+              totalAllowedKwh += capacity;
+              availableEnergyCharges -= costForCapacity;
+            }
+          }
+        } else {
+          // Open-ended top tier
+          if (rate === 0) {
+            totalAllowedKwh += Infinity;
+          } else {
+            totalAllowedKwh += (availableEnergyCharges / rate);
+            availableEnergyCharges = 0;
+          }
+          break;
+        }
+      }
+
+      // If slabs were capped and remaining energy charges remain:
+      if (availableEnergyCharges > 0 && slabs.length > 0) {
+        const lastRate = slabs[slabs.length - 1].rate;
+        if (lastRate > 0) {
+          totalAllowedKwh += (availableEnergyCharges / lastRate);
+          availableEnergyCharges = 0;
+        }
+      }
+
+      return totalAllowedKwh;
+    } else {
+      const rate = this.validateTariffRate(safeSettings.electricityRate, 8.00);
+      if (isNaN(rate)) return NaN;
+      if (rate === 0) return Infinity;
+      return availableEnergyCharges / rate;
+    }
+  },
+
+  /**
+   * Daily Budget & Energy Pacing Calculator:
+   * Computes daily budget allowance, daily energy allowance, daily estimated cost,
+   * remaining monthly budget, and projected monthly budget difference.
+   * Handles actual calendar month lengths (28, 29, 30, 31) and leap years.
+   * @param {number} estimatedMonthlyBill
+   * @param {number} budgetInr
+   * @param {number} [totalMonthlyKwh=0]
+   * @param {Object} [settings={}]
+   * @param {number} [daysInMonth]
+   * @param {Date|string|number} [currentDate]
+   * @returns {Object} Daily budget & pacing metrics
+   */
+  calculateDailyPacing(estimatedMonthlyBill, budgetInr, totalMonthlyKwh = 0, settings = {}, daysInMonth = undefined, currentDate = undefined) {
+    const budgetStatus = this.calculateBudgetStatus(estimatedMonthlyBill, budgetInr);
+    const days = (Number.isInteger(daysInMonth) && daysInMonth >= 28 && daysInMonth <= 31)
+      ? daysInMonth
+      : this.getDaysInCurrentMonth(currentDate);
+
+    const isBillValid = budgetStatus.status !== 'invalid' && this.isFiniteNumber(estimatedMonthlyBill) && Number(estimatedMonthlyBill) >= 0;
+    const bill = isBillValid ? Number(estimatedMonthlyBill) : NaN;
+    const validKwh = (this.isFiniteNumber(totalMonthlyKwh) && Number(totalMonthlyKwh) >= 0) ? Number(totalMonthlyKwh) : NaN;
+
+    const hasBudget = budgetStatus.hasBudget;
+    const budget = hasBudget ? budgetStatus.budget : 0;
+
+    const dailyBudgetInr = hasBudget ? (budget / days) : 0;
+    const dailyEstimatedCost = isBillValid ? (bill / days) : NaN;
+    const dailyEstimatedKwh = !isNaN(validKwh) ? (validKwh / days) : NaN;
+
+    let monthlyAllowedKwh = NaN;
+    let dailyAllowedKwh = NaN;
+
+    if (hasBudget) {
+      monthlyAllowedKwh = this.calculateAllowedKwhForBudget(budget, settings);
+      if (this.isFiniteNumber(monthlyAllowedKwh) && monthlyAllowedKwh >= 0) {
+        dailyAllowedKwh = monthlyAllowedKwh / days;
+      }
+    }
+
+    const remainingBudget = hasBudget && isBillValid ? (budget - bill) : NaN;
+    const projectedDifference = hasBudget && isBillValid ? (bill - budget) : NaN;
+    const dailyCostDifference = (hasBudget && isBillValid) ? (dailyEstimatedCost - dailyBudgetInr) : NaN;
+
+    let pacingStatus = 'unset';
+    let pacingLabel = 'No Budget';
+    let explanation = 'Set a monthly electricity budget in Settings to enable daily energy pacing targets.';
+
+    if (!isBillValid) {
+      pacingStatus = 'invalid';
+      pacingLabel = 'Invalid Data';
+      explanation = 'Unable to calculate pacing because estimated electricity bill or tariff parameters are invalid.';
+    } else if (hasBudget) {
+      if (dailyCostDifference > 0.01) {
+        pacingStatus = 'over';
+        pacingLabel = 'Pacing Above Budget';
+        explanation = `Configured appliance usage is pacing at ₹${dailyEstimatedCost.toFixed(2)}/day (~${dailyEstimatedKwh.toFixed(2)} kWh/day), which is ₹${dailyCostDifference.toFixed(2)}/day above your daily budget allowance of ₹${dailyBudgetInr.toFixed(2)}/day (${days} days in current month). Projecting an overspend of ₹${projectedDifference.toFixed(2)}.`;
+      } else if (budgetStatus.status === 'critical' || budgetStatus.status === 'warning') {
+        pacingStatus = 'caution';
+        pacingLabel = 'Pacing Near Limit';
+        explanation = `Configured appliance usage is pacing at ₹${dailyEstimatedCost.toFixed(2)}/day (~${dailyEstimatedKwh.toFixed(2)} kWh/day), close to your daily budget allowance of ₹${dailyBudgetInr.toFixed(2)}/day. Estimated month-end surplus is ₹${remainingBudget.toFixed(2)}.`;
+      } else {
+        pacingStatus = 'under';
+        pacingLabel = 'Pacing Within Budget';
+        explanation = `Configured appliance usage is pacing comfortably at ₹${dailyEstimatedCost.toFixed(2)}/day (~${dailyEstimatedKwh.toFixed(2)} kWh/day) within your daily budget allowance of ₹${dailyBudgetInr.toFixed(2)}/day (${days} days in current month). Projected month-end surplus is ₹${remainingBudget.toFixed(2)}.`;
+      }
+    }
+
+    return {
+      isValid: isBillValid && (budgetStatus.status !== 'invalid'),
+      hasBudget,
+      daysInMonth: days,
+      budget,
+      estimatedBill: bill,
+      totalMonthlyKwh: validKwh,
+      dailyBudgetInr,
+      dailyEstimatedCost,
+      dailyAllowedKwh,
+      dailyEstimatedKwh,
+      monthlyAllowedKwh,
+      remainingBudget,
+      projectedDifference,
+      dailyCostDifference,
+      pacingStatus,
+      pacingLabel,
+      explanation,
+      accuracyDisclaimer: 'Note: Daily pacing is derived from configured equipment ratings and scheduled operating hours across the current calendar month, not real-time utility meter telemetry.'
+    };
+  },
+
+  /**
+   * Monthly Bill Forecasting Engine:
+   * Provides estimated end-of-month electricity bill, budget target, remaining budget / projected overspend,
+   * under-budget/caution/over-budget states, and practical explanations.
+   * Accurately labels projections as estimates from configured appliance schedules.
+   * @param {number} estimatedMonthlyBill
+   * @param {number} budgetInr
+   * @param {number} [totalMonthlyKwh=0]
+   * @param {Object} [settings={}]
+   * @param {number} [daysInMonth]
+   * @param {Date|string|number} [currentDate]
+   * @returns {Object} Comprehensive forecast analytics
+   */
+  calculateBillForecast(estimatedMonthlyBill, budgetInr, totalMonthlyKwh = 0, settings = {}, daysInMonth = undefined, currentDate = undefined) {
+    const budgetStatus = this.calculateBudgetStatus(estimatedMonthlyBill, budgetInr);
+    const pacing = this.calculateDailyPacing(estimatedMonthlyBill, budgetInr, totalMonthlyKwh, settings, daysInMonth, currentDate);
+
+    const isBillValid = budgetStatus.status !== 'invalid';
+    const bill = isBillValid && this.isFiniteNumber(estimatedMonthlyBill) ? Number(estimatedMonthlyBill) : NaN;
+    const hasBudget = budgetStatus.hasBudget;
+    const budget = hasBudget ? budgetStatus.budget : 0;
+    const remaining = hasBudget && isBillValid ? (budget - bill) : NaN;
+    const projectedOverspend = hasBudget && isBillValid && (bill > budget) ? (bill - budget) : 0;
+
+    let forecastState = 'unset';
+    let forecastStateLabel = 'No Budget Configured';
+    let explanation = 'Configure a monthly electricity budget in Settings to generate month-end budget variance forecasts.';
+
+    if (!isBillValid) {
+      forecastState = 'invalid';
+      forecastStateLabel = 'Invalid Forecast';
+      explanation = 'Monthly bill forecast could not be determined because bill amount or tariff inputs are invalid.';
+    } else if (hasBudget) {
+      if (budgetStatus.status === 'exceeded') {
+        forecastState = 'exceeded';
+        forecastStateLabel = 'Projected Over Budget';
+        explanation = `Based on your configured appliance inventory, your estimated month-end electricity bill is ₹${bill.toFixed(2)}, which is projected to exceed your ₹${budget.toFixed(2)} target by ₹${projectedOverspend.toFixed(2)} (${budgetStatus.utilizationPercent.toFixed(1)}% utilized).`;
+      } else if (budgetStatus.status === 'critical') {
+        forecastState = 'critical';
+        forecastStateLabel = 'Critical Budget Warning (≥90%)';
+        explanation = `Based on your configured appliance inventory, your estimated month-end electricity bill is ₹${bill.toFixed(2)}, utilizing ${budgetStatus.utilizationPercent.toFixed(1)}% of your ₹${budget.toFixed(2)} budget. Only ₹${remaining.toFixed(2)} headroom remains.`;
+      } else if (budgetStatus.status === 'warning') {
+        forecastState = 'warning';
+        forecastStateLabel = 'Caution Budget Position (≥75%)';
+        explanation = `Based on your configured appliance inventory, your estimated month-end electricity bill is ₹${bill.toFixed(2)}, utilizing ${budgetStatus.utilizationPercent.toFixed(1)}% of your ₹${budget.toFixed(2)} budget with ₹${remaining.toFixed(2)} remaining.`;
+      } else {
+        forecastState = 'safe';
+        forecastStateLabel = 'Comfortably Within Budget';
+        explanation = `Based on your configured appliance inventory, your estimated month-end electricity bill is ₹${bill.toFixed(2)}, which is projected to remain ₹${remaining.toFixed(2)} under your monthly budget limit of ₹${budget.toFixed(2)} (${budgetStatus.utilizationPercent.toFixed(1)}% utilized).`;
+      }
+    }
+
+    return {
+      isValid: isBillValid,
+      hasBudget,
+      estimatedBill: bill,
+      budget,
+      remaining,
+      projectedOverspend,
+      utilizationPercent: budgetStatus.utilizationPercent,
+      status: budgetStatus.status,
+      forecastState,
+      forecastStateLabel,
+      explanation,
+      pacing,
+      accuracyDisclaimer: 'Projections are mathematical estimates based on configured appliance ratings and scheduled operating hours. WattWatch does not connect to live smart meters; actual utility bills may vary.'
+    };
+  },
+
+  /**
    * Month-to-Month Comparison: Calculates differentials between two billing snapshots
    * Includes robust zero-division safety and numeric integrity verification.
    * @param {Object} snapA - Base/earlier period snapshot

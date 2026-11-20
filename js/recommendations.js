@@ -1,6 +1,8 @@
 /**
  * WATTWATCH - Energy-Saving Recommendations Engine
  * Generates rule-based, data-driven optimization strategies using actual appliance parameters.
+ * Supports both uniform flat tariffs and progressive multi-slab tariffs by comparing
+ * complete household bills before and after proposed reductions.
  * Note: All figures are calculated estimates based on nominal ratings; actual savings vary by utility.
  */
 
@@ -8,35 +10,72 @@ const WattWatchRecommendations = {
   /**
    * Evaluates active appliances and returns prioritized energy-saving tips
    * @param {Array} appliances - Raw appliance list
-   * @param {number} ratePerKwh - Electricity tariff rate (₹/kWh)
-   * @returns {Object} { tips: Array, totalPotentialSavingsKwh: number, totalPotentialSavingsCost: number }
+   * @param {number|Object} rateOrSettings - Electricity tariff rate (₹/kWh) or settings object
+   * @returns {Object} { tips: Array, totalPotentialSavingsKwh: number, totalPotentialSavingsCost: number, ... }
    */
-  generateRecommendations(appliances = [], ratePerKwh = 8.00) {
+  generateRecommendations(appliances = [], rateOrSettings = 8.00) {
     if (!appliances || appliances.length === 0) {
       return {
         tips: [],
         totalPotentialSavingsKwh: 0,
-        totalPotentialSavingsCost: 0
+        totalPotentialSavingsCost: 0,
+        annualSavingsCost: 0,
+        tariffMode: 'flat',
+        isEstimated: true,
+        accuracyDisclaimer: 'All recommendations are calculated estimates based on configured equipment ratings and operating schedules, not guaranteed utility reductions.'
       };
     }
 
-    const summary = WattWatchCalculations.calculateHouseholdSummary(appliances, ratePerKwh);
-    const enrichedList = summary.appliances;
-    const totalMonthlyKwh = summary.totalMonthlyKwh;
+    let settings = null;
+    let fallbackRate = 8.00;
+
+    if (typeof rateOrSettings === 'object' && rateOrSettings !== null) {
+      settings = rateOrSettings;
+      fallbackRate = WattWatchCalculations.validateTariffRate(settings.electricityRate, 8.00);
+    } else {
+      fallbackRate = WattWatchCalculations.validateTariffRate(rateOrSettings, 8.00);
+      settings = { tariffModel: 'flat', electricityRate: fallbackRate };
+    }
+
+    const summary = WattWatchCalculations.calculateHouseholdSummary(appliances, settings || fallbackRate);
+    const enrichedList = summary.appliances || [];
+    const totalMonthlyKwh = summary.totalMonthlyKwh || 0;
+    const isSlab = settings && settings.tariffModel === 'slab';
     const tips = [];
 
+    /**
+     * Helper to compute exact monetary savings for a given kWh reduction.
+     * For slab tariffs, compares the complete household bill before and after the reduction.
+     * Avoids flat rate multiplication against tiered consumption.
+     */
+    const computeMonetarySavings = (savedKwh) => {
+      if (!savedKwh || savedKwh <= 0 || isNaN(savedKwh)) return 0;
+      if (isSlab && settings) {
+        const curKwh = Math.max(0, totalMonthlyKwh);
+        const postKwh = Math.max(0, curKwh - savedKwh);
+        const baseTariff = WattWatchCalculations.calculateAdvancedTariff(curKwh, settings);
+        const postTariff = WattWatchCalculations.calculateAdvancedTariff(postKwh, settings);
+        if (baseTariff && baseTariff.isValid && postTariff && postTariff.isValid) {
+          return Math.max(0, baseTariff.totalCost - postTariff.totalCost);
+        }
+      }
+      return WattWatchCalculations.calculateCost(savedKwh, fallbackRate);
+    };
+
     enrichedList.forEach(app => {
-      const share = app.sharePercentage;
-      const power = app.powerWatts;
-      const hours = app.dailyHours;
-      const days = app.operatingDays;
-      const qty = app.quantity;
+      const share = app.sharePercentage || 0;
+      const power = app.powerWatts || 0;
+      const hours = app.dailyHours || 0;
+      const days = app.operatingDays || 0;
+      const qty = app.quantity || 1;
+      const appMonthlyKwh = app.monthlyKwh || 0;
 
       // RULE 1: High Share Dominance (> 22% of total household consumption)
       if (share >= 22 && totalMonthlyKwh > 50) {
         const reducedHours = Math.min(1.5, Math.max(0.5, hours * 0.2));
-        const savedKwh = WattWatchCalculations.calculateMonthlyKwh(power, qty, reducedHours, days);
-        const savedCost = WattWatchCalculations.calculateCost(savedKwh, ratePerKwh);
+        const rawSavedKwh = WattWatchCalculations.calculateMonthlyKwh(power, qty, reducedHours, days);
+        const savedKwh = Math.min(appMonthlyKwh, Math.max(0, rawSavedKwh));
+        const savedCost = computeMonetarySavings(savedKwh);
 
         tips.push({
           id: `tip_dom_${app.id}`,
@@ -49,15 +88,17 @@ const WattWatchRecommendations = {
           suggestedAction: `Moderate daily operating duration by ${(reducedHours).toFixed(1)} hours or adopt eco-mode settings.`,
           savedKwhMonthly: savedKwh,
           savedCostMonthly: savedCost,
-          annualSavingsCost: savedCost * 12
+          annualSavingsCost: savedCost * 12,
+          isEstimated: true
         });
       }
 
       // RULE 2: Extended High-Draw Operating Hours (> 600W running > 4 hours/day)
       if (power >= 600 && hours > 4) {
         const targetReductionHours = 1.0;
-        const savedKwh = WattWatchCalculations.calculateMonthlyKwh(power, qty, targetReductionHours, days);
-        const savedCost = WattWatchCalculations.calculateCost(savedKwh, ratePerKwh);
+        const rawSavedKwh = WattWatchCalculations.calculateMonthlyKwh(power, qty, targetReductionHours, days);
+        const savedKwh = Math.min(appMonthlyKwh, Math.max(0, rawSavedKwh));
+        const savedCost = computeMonetarySavings(savedKwh);
 
         tips.push({
           id: `tip_highrun_${app.id}`,
@@ -70,7 +111,8 @@ const WattWatchRecommendations = {
           suggestedAction: `Utilize a programmable timer or thermostat shut-off to trim daily active usage by 1 hour.`,
           savedKwhMonthly: savedKwh,
           savedCostMonthly: savedCost,
-          annualSavingsCost: savedCost * 12
+          annualSavingsCost: savedCost * 12,
+          isEstimated: true
         });
       }
 
@@ -78,8 +120,8 @@ const WattWatchRecommendations = {
       if (app.category === 'Cooling' && power >= 800) {
         // Bureau of Energy Efficiency (BEE) benchmark: Setting AC at 24°C saves ~6% per degree vs 18°-20°C
         const estimatedEcoSavingsRatio = 0.12; // 12% saving by shifting from 20°C to 24°C
-        const savedKwh = app.monthlyKwh * estimatedEcoSavingsRatio;
-        const savedCost = WattWatchCalculations.calculateCost(savedKwh, ratePerKwh);
+        const savedKwh = Math.min(appMonthlyKwh, Math.max(0, appMonthlyKwh * estimatedEcoSavingsRatio));
+        const savedCost = computeMonetarySavings(savedKwh);
 
         tips.push({
           id: `tip_cooling_${app.id}`,
@@ -92,15 +134,17 @@ const WattWatchRecommendations = {
           suggestedAction: `Set baseline thermostat to 24°C and supplement with ceiling airflow to cut compressor duty by ~12%.`,
           savedKwhMonthly: savedKwh,
           savedCostMonthly: savedCost,
-          annualSavingsCost: savedCost * 12
+          annualSavingsCost: savedCost * 12,
+          isEstimated: true
         });
       }
 
       // RULE 4: Water Heating Overheating Prevention (Geysers running > 1.2 hours)
       if (app.category === 'Other' && (app.name.toLowerCase().includes('geyser') || app.name.toLowerCase().includes('heater') || power >= 1500) && hours > 1.2) {
         const trimHours = Math.max(0.5, hours - 0.75);
-        const savedKwh = WattWatchCalculations.calculateMonthlyKwh(power, qty, trimHours, days);
-        const savedCost = WattWatchCalculations.calculateCost(savedKwh, ratePerKwh);
+        const rawSavedKwh = WattWatchCalculations.calculateMonthlyKwh(power, qty, trimHours, days);
+        const savedKwh = Math.min(appMonthlyKwh, Math.max(0, rawSavedKwh));
+        const savedCost = computeMonetarySavings(savedKwh);
 
         tips.push({
           id: `tip_water_${app.id}`,
@@ -113,7 +157,8 @@ const WattWatchRecommendations = {
           suggestedAction: `Power on 20-30 minutes prior to bathing rather than prolonged continuous standby.`,
           savedKwhMonthly: savedKwh,
           savedCostMonthly: savedCost,
-          annualSavingsCost: savedCost * 12
+          annualSavingsCost: savedCost * 12,
+          isEstimated: true
         });
       }
 
@@ -121,8 +166,9 @@ const WattWatchRecommendations = {
       if (app.category === 'Lighting' && power > 20) {
         // Replacing high wattage fixtures with 9W modern LEDs
         const wattageDifference = Math.max(10, power - 9);
-        const savedKwh = WattWatchCalculations.calculateMonthlyKwh(wattageDifference, qty, hours, days);
-        const savedCost = WattWatchCalculations.calculateCost(savedKwh, ratePerKwh);
+        const rawSavedKwh = WattWatchCalculations.calculateMonthlyKwh(wattageDifference, qty, hours, days);
+        const savedKwh = Math.min(appMonthlyKwh, Math.max(0, rawSavedKwh));
+        const savedCost = computeMonetarySavings(savedKwh);
 
         tips.push({
           id: `tip_lighting_${app.id}`,
@@ -135,15 +181,16 @@ const WattWatchRecommendations = {
           suggestedAction: `Retrofit fixtures with 9W warm architectural LED bulbs yielding equivalent lumens.`,
           savedKwhMonthly: savedKwh,
           savedCostMonthly: savedCost,
-          annualSavingsCost: savedCost * 12
+          annualSavingsCost: savedCost * 12,
+          isEstimated: true
         });
       }
 
       // RULE 6: Entertainment & Computing Phantom Standby Load
       if ((app.category === 'Entertainment' || app.category === 'Computing') && hours >= 4) {
         // 8% conservation by isolating vampire standby draw with smart power strip
-        const savedKwh = app.monthlyKwh * 0.08;
-        const savedCost = WattWatchCalculations.calculateCost(savedKwh, ratePerKwh);
+        const savedKwh = Math.min(appMonthlyKwh, Math.max(0, appMonthlyKwh * 0.08));
+        const savedCost = computeMonetarySavings(savedKwh);
 
         tips.push({
           id: `tip_phantom_${app.id}`,
@@ -156,15 +203,16 @@ const WattWatchRecommendations = {
           suggestedAction: `Connect peripheral clusters to a switched master strip to eliminate parasitic standby draw.`,
           savedKwhMonthly: savedKwh,
           savedCostMonthly: savedCost,
-          annualSavingsCost: savedCost * 12
+          annualSavingsCost: savedCost * 12,
+          isEstimated: true
         });
       }
 
       // RULE 7: Continuous Refrigeration & Thermal Calibration
       const isRefrig = app.name.toLowerCase().includes('fridge') || app.name.toLowerCase().includes('refrigerator');
       if (isRefrig || ((app.category === 'Cooling' || app.category === 'Kitchen') && hours >= 20 && power >= 120)) {
-        const savedKwh = app.monthlyKwh * 0.08; // ~8% duty reduction
-        const savedCost = WattWatchCalculations.calculateCost(savedKwh, ratePerKwh);
+        const savedKwh = Math.min(appMonthlyKwh, Math.max(0, appMonthlyKwh * 0.08)); // ~8% duty reduction
+        const savedCost = computeMonetarySavings(savedKwh);
 
         tips.push({
           id: `tip_refrig_${app.id}`,
@@ -177,14 +225,15 @@ const WattWatchRecommendations = {
           suggestedAction: `Maintain 3°C to 4°C fresh compartment temperature and ensure door seals are airtight to prevent thermal leak.`,
           savedKwhMonthly: savedKwh,
           savedCostMonthly: savedCost,
-          annualSavingsCost: savedCost * 12
+          annualSavingsCost: savedCost * 12,
+          isEstimated: true
         });
       }
 
       // RULE 8: Heavy Kitchen Thermal Optimization
       if (app.category === 'Kitchen' && power >= 1200 && hours > 1) {
-        const savedKwh = app.monthlyKwh * 0.10; // ~10% thermal efficiency
-        const savedCost = WattWatchCalculations.calculateCost(savedKwh, ratePerKwh);
+        const savedKwh = Math.min(appMonthlyKwh, Math.max(0, appMonthlyKwh * 0.10)); // ~10% thermal efficiency
+        const savedCost = computeMonetarySavings(savedKwh);
 
         tips.push({
           id: `tip_kitchen_${app.id}`,
@@ -197,7 +246,8 @@ const WattWatchRecommendations = {
           suggestedAction: `Use matching flat-bottom induction cookware with lids on to maximize direct thermal transfer and cut cook duration.`,
           savedKwhMonthly: savedKwh,
           savedCostMonthly: savedCost,
-          annualSavingsCost: savedCost * 12
+          annualSavingsCost: savedCost * 12,
+          isEstimated: true
         });
       }
     });
@@ -222,7 +272,11 @@ const WattWatchRecommendations = {
     return {
       tips: uniqueTips,
       totalPotentialSavingsKwh,
-      totalPotentialSavingsCost
+      totalPotentialSavingsCost,
+      annualSavingsCost: totalPotentialSavingsCost * 12,
+      tariffMode: isSlab ? 'slab' : 'flat',
+      isEstimated: true,
+      accuracyDisclaimer: 'All recommendations are calculated estimates based on configured equipment ratings and operating schedules, not guaranteed utility reductions.'
     };
   }
 };

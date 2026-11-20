@@ -31,79 +31,213 @@ const DEFAULT_SETTINGS = {
   carbonEmissionFactor: 0.82 // Grid emission factor in kg CO2e / kWh (India CEA avg; null if cleared)
 };
 
-// Curated sample appliances representing a typical modern household
-const SAMPLE_APPLIANCES = [
-  {
-    id: 'app_sample_1',
-    name: '1.5 Ton 5-Star Inverter AC (Living Room)',
-    category: 'Cooling',
-    powerWatts: 1450,
-    dailyHours: 6.5,
-    operatingDays: 30,
-    quantity: 1,
-    createdAt: Date.now() - 500000
+// Curated sample presets representing diverse household scenarios for demonstration & estimation
+const SAMPLE_PRESETS = {
+  studio_1bhk: {
+    id: 'studio_1bhk',
+    name: '1 BHK Studio',
+    badge: 'Compact Urban',
+    description: 'Energy-conscious urban apartment featuring essential cooling, efficient refrigeration, work laptop, and solid-state LED illumination.',
+    appliances: [
+      {
+        name: '1.0 Ton 3-Star Inverter AC',
+        category: 'Cooling',
+        powerWatts: 1100,
+        dailyHours: 5.0,
+        operatingDays: 30,
+        quantity: 1
+      },
+      {
+        name: 'Single Door Refrigerator 190L',
+        category: 'Kitchen',
+        powerWatts: 120,
+        dailyHours: 10.0,
+        operatingDays: 30,
+        quantity: 1
+      },
+      {
+        name: 'BLDC Ultra-Quiet Ceiling Fan',
+        category: 'Cooling',
+        powerWatts: 35,
+        dailyHours: 10.0,
+        operatingDays: 30,
+        quantity: 1
+      },
+      {
+        name: 'Office Laptop Workstation',
+        category: 'Computing',
+        powerWatts: 65,
+        dailyHours: 8.0,
+        operatingDays: 24,
+        quantity: 1
+      },
+      {
+        name: 'Microwave Oven (Solo)',
+        category: 'Kitchen',
+        powerWatts: 800,
+        dailyHours: 0.4,
+        operatingDays: 30,
+        quantity: 1
+      },
+      {
+        name: 'LED Bulbs 9W (Warm White)',
+        category: 'Lighting',
+        powerWatts: 9,
+        dailyHours: 6.0,
+        operatingDays: 30,
+        quantity: 4
+      }
+    ]
   },
-  {
-    id: 'app_sample_2',
-    name: 'Double-Door Frost Free Refrigerator 340L',
-    category: 'Kitchen',
-    powerWatts: 180,
-    dailyHours: 12.0, // compressor active cycle equivalent
-    operatingDays: 30,
-    quantity: 1,
-    createdAt: Date.now() - 400000
+  family_2bhk: {
+    id: 'family_2bhk',
+    name: '2 BHK Family Home',
+    badge: 'Standard Household',
+    description: 'Comprehensive 4-person family residence equipped with dual ACs, frost-free refrigeration, BLDC fans, smart entertainment, washing machine, and water geyser.',
+    appliances: [
+      {
+        name: '1.5 Ton 5-Star Inverter AC (Living Room)',
+        category: 'Cooling',
+        powerWatts: 1450,
+        dailyHours: 6.5,
+        operatingDays: 30,
+        quantity: 1
+      },
+      {
+        name: 'Double-Door Frost Free Refrigerator 340L',
+        category: 'Kitchen',
+        powerWatts: 180,
+        dailyHours: 12.0,
+        operatingDays: 30,
+        quantity: 1
+      },
+      {
+        name: 'BLDC Ultra-Quiet Ceiling Fans',
+        category: 'Cooling',
+        powerWatts: 35,
+        dailyHours: 14.0,
+        operatingDays: 30,
+        quantity: 3
+      },
+      {
+        name: 'Instant Water Geyser 15L',
+        category: 'Other',
+        powerWatts: 2000,
+        dailyHours: 1.5,
+        operatingDays: 30,
+        quantity: 1
+      },
+      {
+        name: '65" 4K OLED Smart TV & Surround Audio',
+        category: 'Entertainment',
+        powerWatts: 140,
+        dailyHours: 4.5,
+        operatingDays: 30,
+        quantity: 1
+      },
+      {
+        name: 'Architectural LED Warm Downlights (Pack of 8)',
+        category: 'Lighting',
+        powerWatts: 10,
+        dailyHours: 6.0,
+        operatingDays: 30,
+        quantity: 8
+      },
+      {
+        name: 'Executive Workstation (Laptop + Dual 4K Displays)',
+        category: 'Computing',
+        powerWatts: 160,
+        dailyHours: 8.0,
+        operatingDays: 24,
+        quantity: 1
+      },
+      {
+        name: 'Fully Automatic Front Load Washing Machine',
+        category: 'Other',
+        powerWatts: 450,
+        dailyHours: 1.0,
+        operatingDays: 20,
+        quantity: 1
+      }
+    ]
   },
-  {
-    id: 'app_sample_3',
-    name: 'BLDC Ultra-Quiet Ceiling Fans',
-    category: 'Cooling',
-    powerWatts: 35,
-    dailyHours: 14.0,
-    operatingDays: 30,
-    quantity: 3,
-    createdAt: Date.now() - 300000
-  },
-  {
-    id: 'app_sample_4',
-    name: 'Instant Water Geyser 15L',
-    category: 'Other',
-    powerWatts: 2000,
-    dailyHours: 1.5,
-    operatingDays: 30,
-    quantity: 1,
-    createdAt: Date.now() - 200000
-  },
-  {
-    id: 'app_sample_5',
-    name: '65" 4K OLED Smart TV & Surround Audio',
-    category: 'Entertainment',
-    powerWatts: 140,
-    dailyHours: 4.5,
-    operatingDays: 30,
-    quantity: 1,
-    createdAt: Date.now() - 100000
-  },
-  {
-    id: 'app_sample_6',
-    name: 'Architectural LED Warm Downlights (Pack of 8)',
-    category: 'Lighting',
-    powerWatts: 10,
-    dailyHours: 6.0,
-    operatingDays: 30,
-    quantity: 8,
-    createdAt: Date.now() - 50000
-  },
-  {
-    id: 'app_sample_7',
-    name: 'Executive Workstation (Laptop + Dual 4K Displays)',
-    category: 'Computing',
-    powerWatts: 160,
-    dailyHours: 8.0,
-    operatingDays: 24,
-    quantity: 1,
-    createdAt: Date.now()
+  wfh_setup: {
+    id: 'wfh_setup',
+    name: 'Work-from-Home Setup',
+    badge: 'Professional Remote',
+    description: 'High-draw home office configuration with dual 4K workstations, enterprise networking equipment, continuous climate moderation, and pantry appliances.',
+    appliances: [
+      {
+        name: 'High-Performance Workstation PC (Dual 4K Displays)',
+        category: 'Computing',
+        powerWatts: 240,
+        dailyHours: 9.0,
+        operatingDays: 24,
+        quantity: 1
+      },
+      {
+        name: 'Gigabit Wi-Fi Router & Managed Switch',
+        category: 'Computing',
+        powerWatts: 25,
+        dailyHours: 24.0,
+        operatingDays: 30,
+        quantity: 1
+      },
+      {
+        name: '1.5 Ton Inverter AC (Home Office)',
+        category: 'Cooling',
+        powerWatts: 1350,
+        dailyHours: 7.0,
+        operatingDays: 26,
+        quantity: 1
+      },
+      {
+        name: 'BLDC Variable Speed Ceiling Fan',
+        category: 'Cooling',
+        powerWatts: 35,
+        dailyHours: 12.0,
+        operatingDays: 30,
+        quantity: 1
+      },
+      {
+        name: 'Compact Direct Cool Refrigerator 210L',
+        category: 'Kitchen',
+        powerWatts: 130,
+        dailyHours: 11.0,
+        operatingDays: 30,
+        quantity: 1
+      },
+      {
+        name: 'Electric Kettle & Espresso Station',
+        category: 'Kitchen',
+        powerWatts: 1500,
+        dailyHours: 0.6,
+        operatingDays: 30,
+        quantity: 1
+      },
+      {
+        name: 'Ergonomic Task & Bias LED Lighting',
+        category: 'Lighting',
+        powerWatts: 12,
+        dailyHours: 8.0,
+        operatingDays: 26,
+        quantity: 3
+      }
+    ]
   }
-];
+};
+
+// Backward-compatible reference for curated sample appliances
+const SAMPLE_APPLIANCES = SAMPLE_PRESETS.family_2bhk.appliances.map((app, idx) => ({
+  id: `app_sample_${idx + 1}`,
+  name: app.name,
+  category: app.category,
+  powerWatts: app.powerWatts,
+  dailyHours: app.dailyHours,
+  operatingDays: app.operatingDays,
+  quantity: app.quantity,
+  createdAt: Date.now() - ((7 - idx) * 100000)
+}));
 
 const WattWatchStorage = {
   activeUserId: null,
@@ -1069,11 +1203,52 @@ const WattWatchStorage = {
   },
 
   /**
-   * Loads sample appliances into storage
+   * Retrieves available sample household presets metadata
+   * @returns {Array<{ id: string, name: string, badge: string, description: string, applianceCount: number, totalUnits: number, estimatedMonthlyKwh: number }>}
+   */
+  getSamplePresets() {
+    return Object.keys(SAMPLE_PRESETS).map(key => {
+      const p = SAMPLE_PRESETS[key];
+      const appCount = p.appliances.length;
+      const totalUnits = p.appliances.reduce((sum, a) => sum + (a.quantity || 1), 0);
+      let estKwh = 0;
+      p.appliances.forEach(a => {
+        const kwh = WattWatchCalculations.calculateMonthlyKwh(a.powerWatts, a.quantity || 1, a.dailyHours, a.operatingDays);
+        if (!isNaN(kwh) && kwh >= 0) estKwh += kwh;
+      });
+      return {
+        id: p.id,
+        name: p.name,
+        badge: p.badge,
+        description: p.description,
+        applianceCount: appCount,
+        totalUnits,
+        estimatedMonthlyKwh: estKwh
+      };
+    });
+  },
+
+  /**
+   * Loads sample appliances from a selected preset into storage.
+   * Defaults to 'family_2bhk' for complete backward compatibility.
+   * Preserves settings and historical billing snapshots intact.
+   * @param {string} [presetKey='family_2bhk'] - 'studio_1bhk' | 'family_2bhk' | 'wfh_setup'
    * @returns {Array} Loaded sample appliances
    */
-  loadSampleHousehold() {
-    const samples = JSON.parse(JSON.stringify(SAMPLE_APPLIANCES));
+  loadSampleHousehold(presetKey = 'family_2bhk') {
+    const safeKey = (typeof presetKey === 'string' && SAMPLE_PRESETS[presetKey]) ? presetKey : 'family_2bhk';
+    const preset = SAMPLE_PRESETS[safeKey] || SAMPLE_PRESETS.family_2bhk;
+    const now = Date.now();
+    const samples = preset.appliances.map((app, idx) => ({
+      id: `app_sample_${safeKey}_${idx + 1}`,
+      name: app.name,
+      category: app.category,
+      powerWatts: app.powerWatts,
+      dailyHours: app.dailyHours,
+      operatingDays: app.operatingDays,
+      quantity: app.quantity,
+      createdAt: now - ((preset.appliances.length - idx) * 50000)
+    }));
     this.saveAppliances(samples);
     return samples;
   },
