@@ -305,7 +305,7 @@
                 </div>
                 <div>
                   <h3 style="font-family: var(--font-serif); font-size: 1.1rem; color: var(--text-primary); margin: 0;">
-                    Monthly Electricity Budget Tracker
+                    Monthly Electricity Budget &amp; Pacing Tracker
                   </h3>
                   <div style="font-size: 0.78rem; color: var(--text-secondary);">
                     Target Budget: <strong id="budgetCardAmount" style="color: var(--text-primary);">₹2,500.00</strong>
@@ -321,6 +321,22 @@
               </div>
             </div>
 
+            <!-- Forecast Summary Chips -->
+            <div class="budget-forecast-chips" id="budgetForecastChips">
+              <div class="budget-forecast-chip">
+                <span>Month-End Estimate</span>
+                <strong id="budgetForecastProjectedBill">₹0.00</strong>
+              </div>
+              <div class="budget-forecast-chip">
+                <span>Target Budget</span>
+                <strong id="budgetForecastTarget">₹2,500.00</strong>
+              </div>
+              <div class="budget-forecast-chip">
+                <span>Projected Position</span>
+                <strong id="budgetForecastVariance" style="color: var(--emerald-primary);">₹0.00 under</strong>
+              </div>
+            </div>
+
             <!-- Visual Progress Bar -->
             <div class="budget-progress-track">
               <div class="budget-progress-bar" id="budgetCardProgressFill" style="width: 0%; background-color: var(--royal-blue);"></div>
@@ -329,6 +345,46 @@
             <div class="budget-stats-row">
               <span id="budgetCardPercent" style="font-weight: 600; color: var(--text-primary);">0% utilized</span>
               <span id="budgetCardRemaining" style="font-weight: 500;">--</span>
+            </div>
+
+            <!-- Practical Explanation Box -->
+            <div class="budget-explanation-box" id="budgetForecastExplanation">
+              Configure a monthly electricity budget in Settings to generate month-end budget variance forecasts.
+            </div>
+
+            <!-- Daily Budget & Energy Pacing Grid -->
+            <div class="budget-pacing-grid" id="budgetPacingGrid">
+              <div class="pacing-tile">
+                <span class="pacing-tile-label">Daily Budget Target</span>
+                <span class="pacing-tile-val" id="pacingDailyBudget">₹0.00 / day</span>
+                <span class="pacing-tile-sub" id="pacingDaysLabel">30-day target</span>
+              </div>
+              <div class="pacing-tile">
+                <span class="pacing-tile-label">Daily Energy Target</span>
+                <span class="pacing-tile-val" id="pacingDailyKwh">0.00 kWh / day</span>
+                <span class="pacing-tile-sub">Max allowance</span>
+              </div>
+              <div class="pacing-tile">
+                <span class="pacing-tile-label">Configured Daily Cost</span>
+                <span class="pacing-tile-val" id="pacingConfiguredCost">₹0.00 / day</span>
+                <span class="pacing-tile-sub" id="pacingDailyKwhEst">~0.00 kWh/day</span>
+              </div>
+              <div class="pacing-tile">
+                <span class="pacing-tile-label">Month Variance</span>
+                <span class="pacing-tile-val" id="pacingProjectedDelta">₹0.00 surplus</span>
+                <span class="pacing-tile-sub" id="pacingDeltaSub">Under budget</span>
+              </div>
+            </div>
+
+            <!-- Pacing Note & Accuracy Disclaimer -->
+            <div class="budget-pacing-note" id="budgetPacingNote"></div>
+            <div class="budget-accuracy-disclaimer">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="10"/>
+                <line x1="12" y1="8" x2="12" y2="12"/>
+                <line x1="12" y1="16" x2="12.01" y2="16"/>
+              </svg>
+              <span>Estimates derived from configured appliance ratings and scheduled operating hours across the current calendar month. Not live smart-meter telemetry.</span>
             </div>
           </div>
 
@@ -1309,10 +1365,26 @@
 
               <hr class="gold-divider">
 
-              <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.75rem;">
-                <button type="button" class="btn btn-secondary btn-sm" id="btnLoadSampleData">
-                  Load Sample Household
-                </button>
+              <div style="margin-bottom: 0.85rem;">
+                <label for="settingsPresetSelect" style="display: block; font-size: 0.825rem; font-weight: 600; color: var(--text-primary); margin-bottom: 0.35rem;">
+                  Sample Household Presets
+                </label>
+                <div style="display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center;">
+                  <select id="settingsPresetSelect" class="form-control" style="flex: 1; min-width: 200px; font-size: 0.85rem; padding: 0.45rem 0.65rem;">
+                    <option value="studio_1bhk">1 BHK Studio (6 appliances · ~240 kWh)</option>
+                    <option value="family_2bhk" selected>2 BHK Family Home (8 appliances · ~555 kWh)</option>
+                    <option value="wfh_setup">Work-from-Home Setup (7 appliances · ~405 kWh)</option>
+                  </select>
+                  <button type="button" class="btn btn-secondary btn-sm" id="btnLoadSampleData">
+                    Load Selected Preset
+                  </button>
+                </div>
+                <p id="settingsPresetDesc" style="font-size: 0.775rem; color: var(--text-secondary); margin: 0.4rem 0 0; line-height: 1.4;">
+                  Standard 4-person family household with dual ACs, refrigerator, BLDC fans, TV, washing machine, and water geyser.
+                </p>
+              </div>
+
+              <div style="display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 0.75rem;">
                 <button type="button" class="btn btn-danger btn-sm" id="btnClearAllData">
                   Reset All Application Data
                 </button>

@@ -3271,6 +3271,238 @@
       }
       }
 
+      // 46. Phase 1 Feature Verifications (Bill Forecasting, Daily Pacing, Recommendation Engine with Slabs, Household Presets & Confirmation Safeguards)
+      {
+        const phase1NsPrefix = 'wattwatch_audit_test_p1_';
+        const origNs = WattWatchStorage.getTestNamespace();
+        const origConfirm = WattWatchApp.openConfirmDialog;
+        const origToast = WattWatchApp.showToast;
+        let p1ToastCalls = [];
+        WattWatchApp.showToast = (msg, type, title) => { p1ToastCalls.push({ msg, type, title }); };
+
+        try {
+          WattWatchStorage.setTestNamespace(phase1NsPrefix);
+
+          // A. Calendar calculation & Month Boundaries (Leap year, 28, 29, 30, 31 days)
+          assert(WattWatchCalculations.getDaysInCurrentMonth(new Date(2024, 1, 15)) === 29, 'getDaysInCurrentMonth handles 2024 leap year February (29 days)');
+          assert(WattWatchCalculations.getDaysInCurrentMonth(new Date(2025, 1, 15)) === 28, 'getDaysInCurrentMonth handles 2025 non-leap February (28 days)');
+          assert(WattWatchCalculations.getDaysInCurrentMonth(new Date(2028, 1, 10)) === 29, 'getDaysInCurrentMonth handles 2028 leap year February (29 days)');
+          assert(WattWatchCalculations.getDaysInCurrentMonth(new Date(2026, 3, 1)) === 30, 'getDaysInCurrentMonth handles April (30 days)');
+          assert(WattWatchCalculations.getDaysInCurrentMonth(new Date(2026, 0, 1)) === 31, 'getDaysInCurrentMonth handles January (31 days)');
+          const fallbackDays = WattWatchCalculations.getDaysInCurrentMonth('invalid-date-string');
+          assert(Number.isInteger(fallbackDays) && fallbackDays >= 28 && fallbackDays <= 31, 'getDaysInCurrentMonth falls back safely on invalid date input');
+
+          // B. Budget Inversion Engine (calculateAllowedKwhForBudget)
+          const flatCfg = { tariffModel: 'flat', electricityRate: 8.0, fixedCharges: 110, additionalTaxPercent: 5 };
+          const flatAllowed = WattWatchCalculations.calculateAllowedKwhForBudget(2500, flatCfg);
+          assertAlmostEqual(flatAllowed, 283.869, 'calculateAllowedKwhForBudget accurately solves flat tariff budget ceiling');
+          const flatRecalc = WattWatchCalculations.calculateAdvancedTariff(flatAllowed, flatCfg);
+          assertAlmostEqual(flatRecalc.totalCost, 2500, 'calculateAllowedKwhForBudget roundtrips perfectly with calculateAdvancedTariff under flat tariff');
+
+          const slabCfg = {
+            tariffModel: 'slab',
+            slabConfig: [{ upTo: 100, rate: 4.5 }, { upTo: 300, rate: 7.5 }, { upTo: null, rate: 10.0 }],
+            fixedCharges: 110,
+            additionalTaxPercent: 5
+          };
+          const slabAllowed = WattWatchCalculations.calculateAllowedKwhForBudget(2500, slabCfg);
+          assertAlmostEqual(slabAllowed, 332.095, 'calculateAllowedKwhForBudget accurately solves progressive multi-slab tariff budget ceiling');
+          const slabRecalc = WattWatchCalculations.calculateAdvancedTariff(slabAllowed, slabCfg);
+          assertAlmostEqual(slabRecalc.totalCost, 2500, 'calculateAllowedKwhForBudget roundtrips perfectly with calculateAdvancedTariff under slab tariff');
+
+          // Independent Numerical Example: 4-tier progressive slab with ₹120 fixed charge and 10% tax
+          const multiTierSlabCfg = {
+            tariffModel: 'slab',
+            slabConfig: [
+              { upTo: 100, rate: 3.0 },
+              { upTo: 250, rate: 5.5 },
+              { upTo: 500, rate: 8.0 },
+              { upTo: null, rate: 11.0 }
+            ],
+            fixedCharges: 120,
+            additionalTaxPercent: 10
+          };
+          const tier4Allowed = WattWatchCalculations.calculateAllowedKwhForBudget(4000, multiTierSlabCfg);
+          assertAlmostEqual(tier4Allowed, 535.5785, 'calculateAllowedKwhForBudget solves 4-tier progressive slab accurately');
+          const tier4Tariff = WattWatchCalculations.calculateAdvancedTariff(tier4Allowed, multiTierSlabCfg);
+          assertAlmostEqual(tier4Tariff.totalCost, 4000, 'calculateAllowedKwhForBudget roundtrips 4-tier progressive slab with calculateAdvancedTariff');
+
+          // Independent Numerical Example: Leap year Feb 2024 (29 days) with 18% tax and ₹150 fixed charge
+          const leapFlatCfg = { tariffModel: 'flat', electricityRate: 7.5, fixedCharges: 150, additionalTaxPercent: 18 };
+          const leapAllowed = WattWatchCalculations.calculateAllowedKwhForBudget(3000, leapFlatCfg);
+          assertAlmostEqual(leapAllowed, 318.983, 'calculateAllowedKwhForBudget solves 18% tax leap year budget ceiling accurately');
+          const leapTariff = WattWatchCalculations.calculateAdvancedTariff(leapAllowed, leapFlatCfg);
+          assertAlmostEqual(leapTariff.totalCost, 3000, 'calculateAllowedKwhForBudget roundtrips 18% tax flat rate with calculateAdvancedTariff');
+          const leapPacing = WattWatchCalculations.calculateDailyPacing(2478, 3000, 260, leapFlatCfg, 29);
+          assertAlmostEqual(leapPacing.dailyBudgetInr, 3000 / 29, 'Leap year pacing divides monthly budget by exactly 29 days');
+          assertAlmostEqual(leapPacing.dailyEstimatedCost, 2478 / 29, 'Leap year pacing divides monthly bill by exactly 29 days');
+          assertAlmostEqual(leapPacing.dailyCostDifference, -18.0, 'Leap year pacing daily difference is exactly (2478 - 3000) / 29');
+          assertAlmostEqual(leapPacing.remainingBudget, 522.0, 'Leap year pacing remaining budget is exactly 3000 - 2478');
+
+          assert(WattWatchCalculations.calculateAllowedKwhForBudget(0, slabCfg) === 0, 'calculateAllowedKwhForBudget returns 0 for budget = 0');
+          assert(WattWatchCalculations.calculateAllowedKwhForBudget(-100, slabCfg) === 0, 'calculateAllowedKwhForBudget returns 0 for negative budget');
+          assert(isNaN(WattWatchCalculations.calculateAllowedKwhForBudget(2500, { electricityRate: NaN })), 'calculateAllowedKwhForBudget returns NaN for invalid rate');
+
+          // C. Daily Budget & Energy Pacing (calculateDailyPacing)
+          const pacingUnder = WattWatchCalculations.calculateDailyPacing(1500, 2400, 210, flatCfg, 30);
+          assert(pacingUnder.isValid === true, 'calculateDailyPacing returns valid pacing status');
+          assert(pacingUnder.hasBudget === true, 'calculateDailyPacing identifies active budget');
+          assertAlmostEqual(pacingUnder.dailyBudgetInr, 80.0, 'Daily budget is exactly monthly budget / days');
+          assertAlmostEqual(pacingUnder.dailyEstimatedCost, 50.0, 'Daily estimated cost is exactly monthly bill / days');
+          assertAlmostEqual(pacingUnder.dailyEstimatedKwh, 7.0, 'Daily estimated kWh is exactly monthly kWh / days');
+          assertAlmostEqual(pacingUnder.dailyCostDifference, -30.0, 'Pacing difference is negative when under budget');
+          assert(pacingUnder.pacingStatus === 'under', 'Pacing status is under when pacing within budget');
+          assert(pacingUnder.explanation.includes('pacing comfortably'), 'Pacing explanation describes comfortable pacing');
+          assert(pacingUnder.accuracyDisclaimer.length > 0, 'Pacing contains accuracy disclaimer');
+
+          const pacingCaution = WattWatchCalculations.calculateDailyPacing(1800, 2400, 210, flatCfg, 30);
+          assert(pacingCaution.pacingStatus === 'caution', 'Pacing status is caution when near budget limit (>=75%)');
+          assert(pacingCaution.explanation.includes('close to your daily budget allowance'), 'Pacing explanation warns when near budget limit');
+
+          const pacingOver = WattWatchCalculations.calculateDailyPacing(3000, 2400, 360, flatCfg, 30);
+          assert(pacingOver.pacingStatus === 'over', 'Pacing status is over when pacing above budget');
+          assertAlmostEqual(pacingOver.dailyCostDifference, 20.0, 'Pacing difference is positive when over budget');
+          assert(pacingOver.explanation.includes('Pacing Above Budget') || pacingOver.explanation.includes('above your daily budget'), 'Pacing explanation warns of pacing above budget');
+
+          const pacingUnset = WattWatchCalculations.calculateDailyPacing(1800, 0, 210, flatCfg, 30);
+          assert(pacingUnset.hasBudget === false, 'Pacing handles unset budget');
+          assert(pacingUnset.pacingStatus === 'unset', 'Pacing status is unset when no budget is configured');
+
+          const pacingInvalid = WattWatchCalculations.calculateDailyPacing(-500, 2400, 210, flatCfg, 30);
+          assert(pacingInvalid.isValid === false, 'Pacing rejects negative bill amount');
+          assert(pacingInvalid.pacingStatus === 'invalid', 'Pacing status is invalid on negative bill');
+
+          // D. Monthly Bill Forecasting (calculateBillForecast)
+          const forecastSafe = WattWatchCalculations.calculateBillForecast(1600, 2500, 200, flatCfg, 30);
+          assert(forecastSafe.forecastState === 'safe', 'calculateBillForecast identifies comfortably within budget state');
+          assertAlmostEqual(forecastSafe.remaining, 900, 'Forecast calculates exact remaining budget headroom');
+          assert(forecastSafe.explanation.includes('under your monthly budget limit'), 'Forecast explanation clarifies under-budget headroom');
+          assert(forecastSafe.accuracyDisclaimer.includes('mathematical estimates'), 'Forecast includes accuracy disclaimer');
+
+          const forecastWarn = WattWatchCalculations.calculateBillForecast(2000, 2500, 250, flatCfg, 30);
+          assert(forecastWarn.forecastState === 'warning', 'calculateBillForecast identifies caution position at 80% (>= 75%)');
+
+          const forecastCrit = WattWatchCalculations.calculateBillForecast(2300, 2500, 290, flatCfg, 30);
+          assert(forecastCrit.forecastState === 'critical', 'calculateBillForecast identifies critical position at 92% (>= 90%)');
+
+          const forecastExceed = WattWatchCalculations.calculateBillForecast(2800, 2500, 350, flatCfg, 30);
+          assert(forecastExceed.forecastState === 'exceeded', 'calculateBillForecast identifies projected over budget state');
+          assertAlmostEqual(forecastExceed.projectedOverspend, 300, 'Forecast calculates exact projected overspend');
+
+          const forecastUnset = WattWatchCalculations.calculateBillForecast(2000, 0, 250, flatCfg, 30);
+          assert(forecastUnset.forecastState === 'unset', 'Forecast marks unset budget properly');
+
+          const forecastInvalid = WattWatchCalculations.calculateBillForecast(NaN, 2500, 250, flatCfg, 30);
+          assert(forecastInvalid.isValid === false, 'Forecast marks invalid bill properly');
+
+          // E. Personalized Energy Recommendations with Slab Tariffs
+          const testApps = [
+            { id: 'app_rec_ac', name: 'Master Bedroom AC', category: 'Cooling', powerWatts: 1450, dailyHours: 8, operatingDays: 30, quantity: 1 },
+            { id: 'app_rec_fridge', name: 'Kitchen Refrigerator', category: 'Kitchen', powerWatts: 180, dailyHours: 24, operatingDays: 30, quantity: 1 },
+            { id: 'app_rec_tv', name: 'Living Room TV', category: 'Entertainment', powerWatts: 120, dailyHours: 6, operatingDays: 30, quantity: 1 }
+          ];
+
+          const recsSlab = WattWatchRecommendations.generateRecommendations(testApps, slabCfg);
+          assert(Array.isArray(recsSlab.tips) && recsSlab.tips.length > 0, 'Recommendations generates tips for test inventory');
+          assert(recsSlab.tariffMode === 'slab', 'Recommendations detects slab tariff model');
+          assert(recsSlab.isEstimated === true, 'Recommendations flagged as estimated');
+          assert(recsSlab.totalPotentialSavingsCost > 0, 'Recommendations computes positive monetary savings under slab tariff');
+          assert(recsSlab.tips[0].savedCostMonthly >= recsSlab.tips[recsSlab.tips.length - 1].savedCostMonthly, 'Recommendations sorted by descending potential monetary savings');
+
+          // Verify marginal savings calculation for slab tariff
+          const summaryBase = WattWatchCalculations.calculateHouseholdSummary(testApps, slabCfg);
+          const topTip = recsSlab.tips[0];
+          const postTariffCheck = WattWatchCalculations.calculateAdvancedTariff(summaryBase.totalMonthlyKwh - topTip.savedKwhMonthly, slabCfg);
+          const expectedMarginalSaved = summaryBase.totalMonthlyCost - postTariffCheck.totalCost;
+          assertAlmostEqual(topTip.savedCostMonthly, expectedMarginalSaved, 'Recommendations computes exact marginal tariff bill difference for slab tariffs');
+
+          // Single rate backward compatibility
+          const recsFlatRate = WattWatchRecommendations.generateRecommendations(testApps, 8.00);
+          assert(recsFlatRate.tariffMode === 'flat', 'generateRecommendations preserves numeric flat rate argument');
+          assertAlmostEqual(recsFlatRate.tips[0].savedCostMonthly, recsFlatRate.tips[0].savedKwhMonthly * 8.0, 'Flat rate recommendation savings equal savedKwh * rate');
+
+          // F. Multiple Household Presets (1 BHK Studio, 2 BHK Family Home, Work-from-Home Setup)
+          const presets = WattWatchStorage.getSamplePresets();
+          assert(Array.isArray(presets) && presets.length === 3, 'getSamplePresets returns exactly 3 presets');
+          const presetIds = presets.map(p => p.id);
+          assert(presetIds.includes('studio_1bhk'), 'Presets include studio_1bhk');
+          assert(presetIds.includes('family_2bhk'), 'Presets include family_2bhk');
+          assert(presetIds.includes('wfh_setup'), 'Presets include wfh_setup');
+
+          // Load 1 BHK Studio
+          const studioApps = WattWatchStorage.loadSampleHousehold('studio_1bhk');
+          assert(Array.isArray(studioApps) && studioApps.length === 6, 'Studio preset loads 6 appliances');
+          studioApps.forEach(a => {
+            assert(a.powerWatts > 0 && a.dailyHours > 0 && a.operatingDays > 0, `Studio appliance ${a.name} has valid positive ratings`);
+          });
+
+          // Load Work-from-Home Setup
+          const wfhApps = WattWatchStorage.loadSampleHousehold('wfh_setup');
+          assert(Array.isArray(wfhApps) && wfhApps.length === 7, 'WFH setup preset loads 7 appliances');
+          wfhApps.forEach(a => {
+            assert(a.powerWatts > 0 && a.dailyHours > 0 && a.operatingDays > 0, `WFH appliance ${a.name} has valid positive ratings`);
+          });
+
+          // Load Default (Family Home)
+          const defaultApps = WattWatchStorage.loadSampleHousehold();
+          assert(Array.isArray(defaultApps) && defaultApps.length === 8, 'Default loadSampleHousehold loads 8 family appliances');
+
+          // Verify Settings and Billing History remain preserved when loading presets
+          const testSettingCustom = { electricityRate: 9.75, budgetInr: 3200, tariffModel: 'flat' };
+          WattWatchStorage.saveSettings(testSettingCustom);
+          const snapTest = { id: 'snap_p1_test', period: '2026-10', totalKwh: 300, totalCost: 2925, createdAt: Date.now() };
+          WattWatchStorage.saveSnapshot(snapTest);
+
+          WattWatchStorage.loadSampleHousehold('studio_1bhk');
+          assert(WattWatchStorage.getSettings().electricityRate === 9.75, 'Preset load preserves custom electricityRate');
+          assert(WattWatchStorage.getSettings().budgetInr === 3200, 'Preset load preserves custom budgetInr');
+          assert(WattWatchStorage.getHistory().some(s => s.id === 'snap_p1_test'), 'Preset load preserves historical billing snapshots');
+
+          // G. Preset Confirmation Dialog Safeguard
+          let confirmDialogOpened = false;
+          let confirmOptions = null;
+          WattWatchApp.openConfirmDialog = (opts) => {
+            confirmDialogOpened = true;
+            confirmOptions = opts;
+          };
+
+          const btnLoadSampleEl = document.getElementById('btnLoadSampleData');
+          if (btnLoadSampleEl) {
+            btnLoadSampleEl.click();
+            assert(confirmDialogOpened === true, 'btnLoadSampleData triggers confirmation dialog before replacing appliances');
+            assert(confirmOptions && confirmOptions.title && confirmOptions.message.includes('replace'), 'Confirmation dialog warns of appliance replacement');
+            assert(typeof confirmOptions.onConfirm === 'function', 'Confirmation dialog provides executable confirmation callback');
+            // Verify cancellation leaves active appliances, settings, and billing history unmodified
+            assert(WattWatchStorage.getAppliances().length === 6, 'Cancelling preset confirmation preserves active appliances');
+            assert(WattWatchStorage.getSettings().budgetInr === 3200, 'Cancelling preset confirmation preserves custom settings');
+            assert(WattWatchStorage.getHistory().some(s => s.id === 'snap_p1_test'), 'Cancelling preset confirmation preserves billing history');
+          }
+
+          // H. Preset Data Export & Portability Integrity
+          const exportedPresetJson = WattWatchStorage.exportDataJSON();
+          assert(typeof exportedPresetJson === 'string' && exportedPresetJson.includes('studio_1bhk'), 'exportDataJSON exports current preset data cleanly');
+          const parsedExport = JSON.parse(exportedPresetJson);
+          assert(Array.isArray(parsedExport.appliances) && parsedExport.appliances.length === 6, 'Exported JSON contains exact preset appliance count');
+          assert(parsedExport.settings.budgetInr === 3200, 'Exported JSON preserves custom budget setting');
+          assert(parsedExport.settings.electricityRate === 9.75, 'Exported JSON preserves custom electricity rate');
+
+        } finally {
+          WattWatchStorage.setTestNamespace(origNs);
+          WattWatchApp.openConfirmDialog = origConfirm;
+          WattWatchApp.showToast = origToast;
+
+          // Clean up test namespace keys
+          const keysToRemove = [];
+          for (let i = 0; i < localStorage.length; i++) {
+            const k = localStorage.key(i);
+            if (k && k.startsWith(phase1NsPrefix)) {
+              keysToRemove.push(k);
+            }
+          }
+          keysToRemove.forEach(k => localStorage.removeItem(k));
+        }
+      }
+
       // Restore sample household for storage
       WattWatchStorage.loadSampleHousehold();
       } catch (err) {

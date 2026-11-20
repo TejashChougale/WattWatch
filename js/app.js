@@ -276,7 +276,7 @@ const WattWatchApp = {
     this.renderAnalyticsData(summary, effectiveBill, settings);
 
     // Update Recommendations View
-    this.renderRecommendationsView(appliances, summary.ratePerKwh);
+    this.renderRecommendationsView(appliances, settings);
 
     // Update Settings View Inputs
     this.populateSettingsFields(settings);
@@ -398,7 +398,7 @@ const WattWatchApp = {
     }
 
     // Budget Tracker Widget
-    this.renderBudgetTracker(effectiveBill, settings.budgetInr);
+    this.renderBudgetTracker(effectiveBill, settings.budgetInr, summary.totalMonthlyKwh, settings);
 
     // Timescale Energy Insights & Appliance Load Comparison
     this.renderOverviewInsights(summary, effectiveBill, settings, advancedTariff);
@@ -406,19 +406,44 @@ const WattWatchApp = {
   },
 
   /**
-   * Renders the Electricity Budget Tracker widget on Overview
+   * Renders the Electricity Budget Tracker widget on Overview, including month-end bill forecasting
+   * and daily energy pacing metrics based on active calendar month days.
+   * @param {number} effectiveBill
+   * @param {number} budgetInr
+   * @param {number} [totalMonthlyKwh=0]
+   * @param {Object} [settings=null]
    */
-  renderBudgetTracker(effectiveBill, budgetInr) {
+  renderBudgetTracker(effectiveBill, budgetInr, totalMonthlyKwh = 0, settings = null) {
     const budgetCard = document.getElementById('overviewBudgetWidget');
     if (!budgetCard) return;
 
+    const safeSettings = (settings && typeof settings === 'object')
+      ? settings
+      : (typeof WattWatchStorage !== 'undefined' && typeof WattWatchStorage.getSettings === 'function' ? WattWatchStorage.getSettings() : {});
+
     const b = WattWatchCalculations.calculateBudgetStatus(effectiveBill, budgetInr);
+    const forecast = WattWatchCalculations.calculateBillForecast(effectiveBill, budgetInr, totalMonthlyKwh, safeSettings);
+    const pacing = forecast.pacing;
 
     const elAmount = document.getElementById('budgetCardAmount');
     const elRemaining = document.getElementById('budgetCardRemaining');
     const elPercent = document.getElementById('budgetCardPercent');
     const elProgress = document.getElementById('budgetCardProgressFill');
     const elBadge = document.getElementById('budgetCardBadge');
+
+    // Additional Forecast & Pacing Elements
+    const elProjBill = document.getElementById('budgetForecastProjectedBill');
+    const elTarget = document.getElementById('budgetForecastTarget');
+    const elVariance = document.getElementById('budgetForecastVariance');
+    const elExplanation = document.getElementById('budgetForecastExplanation');
+    const elPacingBudget = document.getElementById('pacingDailyBudget');
+    const elPacingDays = document.getElementById('pacingDaysLabel');
+    const elPacingDailyKwh = document.getElementById('pacingDailyKwh');
+    const elPacingCost = document.getElementById('pacingConfiguredCost');
+    const elPacingKwhEst = document.getElementById('pacingDailyKwhEst');
+    const elPacingDelta = document.getElementById('pacingProjectedDelta');
+    const elPacingDeltaSub = document.getElementById('pacingDeltaSub');
+    const elPacingNote = document.getElementById('budgetPacingNote');
 
     if (b.status === 'invalid') {
       if (elAmount) elAmount.textContent = '₹-- (Invalid)';
@@ -432,6 +457,22 @@ const WattWatchApp = {
         elBadge.className = 'badge badge-outline';
         elBadge.textContent = 'Invalid Budget';
       }
+      if (elProjBill) elProjBill.textContent = '₹--';
+      if (elTarget) elTarget.textContent = '₹--';
+      if (elVariance) {
+        elVariance.textContent = 'Invalid Data';
+        elVariance.style.color = 'var(--text-secondary)';
+      }
+      if (elExplanation) {
+        elExplanation.textContent = forecast.explanation;
+        elExplanation.className = 'budget-explanation-box';
+      }
+      if (elPacingBudget) elPacingBudget.textContent = '₹-- / day';
+      if (elPacingDailyKwh) elPacingDailyKwh.textContent = '-- kWh / day';
+      if (elPacingCost) elPacingCost.textContent = '₹-- / day';
+      if (elPacingDelta) elPacingDelta.textContent = '--';
+      if (elPacingDeltaSub) elPacingDeltaSub.textContent = 'Invalid input';
+      if (elPacingNote) elPacingNote.textContent = pacing.explanation;
       return;
     }
 
@@ -447,6 +488,24 @@ const WattWatchApp = {
         elBadge.className = 'badge badge-outline';
         elBadge.textContent = 'No Budget Set';
       }
+      if (elProjBill) elProjBill.textContent = WattWatchCalculations.formatCurrency(b.estimatedBill);
+      if (elTarget) elTarget.textContent = 'No Budget Set';
+      if (elVariance) {
+        elVariance.textContent = 'Unset';
+        elVariance.style.color = 'var(--text-secondary)';
+      }
+      if (elExplanation) {
+        elExplanation.textContent = forecast.explanation;
+        elExplanation.className = 'budget-explanation-box';
+      }
+      if (elPacingBudget) elPacingBudget.textContent = '₹0.00 / day';
+      if (elPacingDailyKwh) elPacingDailyKwh.textContent = '-- kWh / day';
+      if (elPacingCost) elPacingCost.textContent = pacing.isValid && !isNaN(pacing.dailyEstimatedCost) ? `₹${pacing.dailyEstimatedCost.toFixed(2)} / day` : '₹0.00 / day';
+      if (elPacingKwhEst) elPacingKwhEst.textContent = pacing.isValid && !isNaN(pacing.dailyEstimatedKwh) ? `~${pacing.dailyEstimatedKwh.toFixed(2)} kWh/day` : '~0.00 kWh/day';
+      if (elPacingDays) elPacingDays.textContent = `${pacing.daysInMonth}-day cycle`;
+      if (elPacingDelta) elPacingDelta.textContent = '--';
+      if (elPacingDeltaSub) elPacingDeltaSub.textContent = 'No budget set';
+      if (elPacingNote) elPacingNote.textContent = pacing.explanation;
       return;
     }
 
@@ -488,6 +547,44 @@ const WattWatchApp = {
         elBadge.textContent = 'Within Budget';
       }
     }
+
+    // Populate Forecast & Pacing details
+    if (elProjBill) elProjBill.textContent = WattWatchCalculations.formatCurrency(b.estimatedBill);
+    if (elTarget) elTarget.textContent = WattWatchCalculations.formatCurrency(b.budget);
+    if (elVariance) {
+      if (b.status === 'exceeded') {
+        elVariance.textContent = `+₹${Math.abs(b.remaining).toFixed(2)} over`;
+        elVariance.style.color = '#ef4444';
+      } else {
+        elVariance.textContent = `₹${b.remaining.toFixed(2)} under`;
+        elVariance.style.color = 'var(--emerald-primary)';
+      }
+    }
+
+    if (elExplanation) {
+      elExplanation.textContent = forecast.explanation;
+      elExplanation.className = `budget-explanation-box ${b.status === 'exceeded' ? 'state-exceeded' : (b.status === 'critical' || b.status === 'warning') ? 'state-caution' : ''}`;
+    }
+
+    if (elPacingBudget) elPacingBudget.textContent = `₹${pacing.dailyBudgetInr.toFixed(2)} / day`;
+    if (elPacingDays) elPacingDays.textContent = `${pacing.daysInMonth}-day target`;
+    if (elPacingDailyKwh) elPacingDailyKwh.textContent = !isNaN(pacing.dailyAllowedKwh) ? `${pacing.dailyAllowedKwh.toFixed(2)} kWh / day` : '-- kWh / day';
+    if (elPacingCost) elPacingCost.textContent = `₹${pacing.dailyEstimatedCost.toFixed(2)} / day`;
+    if (elPacingKwhEst) elPacingKwhEst.textContent = `~${pacing.dailyEstimatedKwh.toFixed(2)} kWh/day`;
+
+    if (elPacingDelta) {
+      if (pacing.dailyCostDifference > 0.01) {
+        elPacingDelta.textContent = `+₹${pacing.projectedDifference.toFixed(2)} over`;
+        elPacingDelta.style.color = '#ef4444';
+        if (elPacingDeltaSub) elPacingDeltaSub.textContent = 'Projected over budget';
+      } else {
+        elPacingDelta.textContent = `₹${pacing.remainingBudget.toFixed(2)} surplus`;
+        elPacingDelta.style.color = 'var(--emerald-primary)';
+        if (elPacingDeltaSub) elPacingDeltaSub.textContent = 'Projected under budget';
+      }
+    }
+
+    if (elPacingNote) elPacingNote.textContent = pacing.explanation;
 
     // Trigger warning notifications when thresholds are crossed once per session
     if (b.warningLevel === 100 && !this.budgetWarnedSession[100]) {
@@ -981,19 +1078,36 @@ const WattWatchApp = {
       });
     });
 
-    // Load Sample Household Button
+    // Sample Household Presets Selector & Loader
+    const presetSelect = document.getElementById('settingsPresetSelect');
+    const presetDesc = document.getElementById('settingsPresetDesc');
+    const presetsMeta = (typeof WattWatchStorage.getSamplePresets === 'function') ? WattWatchStorage.getSamplePresets() : [];
+    const updatePresetDesc = () => {
+      if (!presetSelect || !presetDesc) return;
+      const chosen = presetsMeta.find(p => p.id === presetSelect.value);
+      if (chosen) {
+        presetDesc.textContent = `${chosen.description} (${chosen.applianceCount} appliances, ${chosen.totalUnits} units, ~${Math.round(chosen.estimatedMonthlyKwh)} kWh/month estimate).`;
+      }
+    };
+    if (presetSelect) {
+      presetSelect.addEventListener('change', updatePresetDesc);
+      updatePresetDesc();
+    }
+
     const btnLoadSample = document.getElementById('btnLoadSampleData');
     if (btnLoadSample) {
       btnLoadSample.addEventListener('click', () => {
+        const selectedKey = presetSelect ? presetSelect.value : 'family_2bhk';
+        const chosen = presetsMeta.find(p => p.id === selectedKey) || presetsMeta.find(p => p.id === 'family_2bhk') || { name: 'Sample Household', applianceCount: 8 };
         this.openConfirmDialog({
-          title: 'Load Curated Sample Household?',
-          message: 'Warning: This will replace your current appliances with a curated set of 7 modern household appliances. Any custom appliances in your active workspace will be lost. This action cannot be undone.',
-          confirmText: 'Load Sample Data',
+          title: `Load ${chosen.name}?`,
+          message: `Warning: Loading this preset will replace your current appliance inventory with demonstration data for ${chosen.name} (${chosen.applianceCount} appliances). Your tariff settings, monthly budget, and billing history will remain preserved. Custom appliances in your active inventory will be replaced. Do you wish to proceed?`,
+          confirmText: `Load ${chosen.name}`,
           confirmClass: 'btn-primary',
           onConfirm: () => {
-            WattWatchStorage.loadSampleHousehold();
+            const loaded = WattWatchStorage.loadSampleHousehold(selectedKey);
             this.refreshAll();
-            this.showToast('Sample household loaded with 7 active appliances', 'success', 'Sample Data Ready');
+            this.showToast(`${chosen.name} loaded with ${loaded.length} appliances`, 'success', 'Sample Data Ready');
           }
         });
       });
