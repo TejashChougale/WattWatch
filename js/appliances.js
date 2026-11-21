@@ -62,8 +62,12 @@ const WattWatchAppliances = {
       filterContainer.addEventListener('click', (e) => {
         const pill = e.target.closest('.filter-pill');
         if (!pill) return;
-        filterContainer.querySelectorAll('.filter-pill').forEach(p => p.classList.remove('active'));
+        filterContainer.querySelectorAll('.filter-pill').forEach(p => {
+          p.classList.remove('active');
+          p.setAttribute('aria-selected', 'false');
+        });
         pill.classList.add('active');
+        pill.setAttribute('aria-selected', 'true');
         this.activeCategoryFilter = pill.getAttribute('data-category') || 'All';
         this.renderApplianceTable();
       });
@@ -243,6 +247,30 @@ const WattWatchAppliances = {
     if (elDaily) elDaily.textContent = WattWatchCalculations.formatKwh(dailyKwh);
     if (elMonthly) elMonthly.textContent = WattWatchCalculations.formatKwh(monthlyKwh);
     if (elCost) elCost.textContent = WattWatchCalculations.formatCurrency(monthlyCost, settings.currency);
+
+    const elAssumptions = document.getElementById('modalPreviewAssumptions');
+    if (elAssumptions) {
+      const parts = [];
+      if (candidate.dutyCyclePercent !== undefined && candidate.dutyCyclePercent < 100) {
+        parts.push(`${candidate.dutyCyclePercent}% duty cycle`);
+      }
+      if (candidate.standbyWatts !== undefined && candidate.standbyWatts > 0) {
+        parts.push(`${candidate.standbyWatts}W standby draw`);
+      }
+      if (candidate.weekdayHours !== undefined && candidate.weekendHours !== undefined && candidate.weekdayHours !== candidate.weekendHours) {
+        parts.push(`${candidate.weekdayHours}h weekday / ${candidate.weekendHours}h weekend`);
+      }
+      if (candidate.activeDaysPerWeek !== undefined && candidate.activeDaysPerWeek < 7) {
+        parts.push(`${candidate.activeDaysPerWeek} active days/week`);
+      }
+      if (parts.length > 0) {
+        elAssumptions.textContent = `Modeled with: ${parts.join(' · ')}`;
+        elAssumptions.style.display = 'block';
+      } else {
+        elAssumptions.textContent = '';
+        elAssumptions.style.display = 'none';
+      }
+    }
   },
 
   /**
@@ -692,13 +720,23 @@ const WattWatchAppliances = {
         (app.weekdayHours !== undefined && app.weekendHours !== undefined && app.weekdayHours !== app.weekendHours) ||
         (app.activeDaysPerWeek !== undefined && app.activeDaysPerWeek < 7);
 
+      let advDesc = '';
+      if (hasAdv) {
+        const parts = [];
+        if (app.dutyCyclePercent !== undefined && app.dutyCyclePercent < 100) parts.push(`${app.dutyCyclePercent}% duty`);
+        if (app.standbyWatts !== undefined && app.standbyWatts > 0) parts.push(`${app.standbyWatts}W standby`);
+        if (app.weekdayHours !== undefined && app.weekendHours !== undefined && app.weekdayHours !== app.weekendHours) parts.push(`${app.weekdayHours}h/${app.weekendHours}h`);
+        if (app.activeDaysPerWeek !== undefined && app.activeDaysPerWeek < 7) parts.push(`${app.activeDaysPerWeek}d/wk`);
+        if (parts.length > 0) advDesc = parts.join(' · ');
+      }
+
       tr.innerHTML = `
         <td>
           <div class="appliance-name-cell">
             <span class="appliance-main-name">
               ${this.escapeHtml(app.name)}
               ${isHighLoad ? '<span class="badge badge-burgundy" style="margin-left: 0.35rem; font-size: 0.65rem;">High Load</span>' : ''}
-              ${hasAdv ? '<span class="badge badge-cooling" style="margin-left: 0.35rem; font-size: 0.65rem;" title="Advanced usage profile active">Advanced</span>' : ''}
+              ${hasAdv ? `<span class="badge badge-cooling" style="margin-left: 0.35rem; font-size: 0.65rem;" title="${this.escapeHtml(advDesc || 'Advanced usage profile active')}">Advanced</span>` : ''}
             </span>
             <span class="appliance-sub-qty">Qty: ${Number(app.quantity) || 1} unit${(Number(app.quantity) || 1) > 1 ? 's' : ''}</span>
           </div>
@@ -712,6 +750,7 @@ const WattWatchAppliances = {
         <td>
           ${Number(app.dailyHours) || 0} hrs / day
           <div style="font-size: 0.72rem; color: var(--text-secondary);">${Number(app.operatingDays) || 30} days/mo</div>
+          ${advDesc ? `<div style="font-size: 0.70rem; color: var(--royal-blue); margin-top: 0.15rem;" title="${this.escapeHtml(advDesc)}">${this.escapeHtml(advDesc)}</div>` : ''}
         </td>
         <td>
           <span class="kwh-val">${WattWatchCalculations.formatKwh(app.monthlyKwh)}</span>

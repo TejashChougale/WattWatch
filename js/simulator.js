@@ -411,7 +411,7 @@ const WattWatchSimulator = {
         </td>
         <td>
           ${slabs.length > 1
-            ? `<button type="button" class="btn btn-secondary btn-icon btn-sm" data-action="remove-slab" data-index="${idx}" title="Remove Tier" style="color: #A92639;">&times;</button>`
+            ? `<button type="button" class="btn btn-secondary btn-icon btn-sm" data-action="remove-slab" data-index="${idx}" title="Remove Tier" aria-label="Remove Slab Tier ${idx + 1}" style="color: #A92639;">&times;</button>`
             : '<span style="color: var(--text-secondary);">—</span>'
           }
         </td>

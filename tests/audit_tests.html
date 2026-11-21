@@ -112,8 +112,22 @@
 
     <div id="overviewComparisonContent"></div>
     <span id="overviewComparisonBadge"></span>
+    <div class="insights-tabs" role="tablist" aria-label="Insights Timescale">
+      <button type="button" class="insights-tab active" data-timeframe="daily" role="tab" aria-selected="true" id="tabDailyInsights" aria-controls="overviewInsightsContent">Daily</button>
+      <button type="button" class="insights-tab" data-timeframe="weekly" role="tab" aria-selected="false" id="tabWeeklyInsights" aria-controls="overviewInsightsContent">Weekly</button>
+      <button type="button" class="insights-tab" data-timeframe="monthly" role="tab" aria-selected="false" id="tabMonthlyInsights" aria-controls="overviewInsightsContent">Monthly</button>
+    </div>
     <div id="overviewInsightsContent"></div>
     <div id="overviewApplianceComparisonContent"></div>
+    <div class="filter-pills-row" id="categoryFilters" role="tablist" aria-label="Filter appliances by category">
+      <button type="button" class="filter-pill active" data-category="All" role="tab" aria-selected="true">All Categories</button>
+      <button type="button" class="filter-pill" data-category="Cooling" role="tab" aria-selected="false">Cooling</button>
+      <button type="button" class="filter-pill" data-category="Lighting" role="tab" aria-selected="false">Lighting</button>
+      <button type="button" class="filter-pill" data-category="Kitchen" role="tab" aria-selected="false">Kitchen</button>
+      <button type="button" class="filter-pill" data-category="Entertainment" role="tab" aria-selected="false">Entertainment</button>
+      <button type="button" class="filter-pill" data-category="Computing" role="tab" aria-selected="false">Computing</button>
+      <button type="button" class="filter-pill" data-category="Other" role="tab" aria-selected="false">Other</button>
+    </div>
     <span id="applianceFilterCount"></span>
     <select id="reportPeriodSelect"><option value="current">Current</option></select>
     <div id="reportPreviewArea"></div>
@@ -176,6 +190,7 @@
           <input id="modalDutyCycle">
           <input id="modalStandbyWatts">
         </div>
+        <div id="modalPreviewAssumptions"></div>
         <button type="submit" id="modalSubmitBtn"></button>
       </form>
     </div>
@@ -215,21 +230,24 @@
     <div id="reportModal" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="reportModalTitle" aria-hidden="true">
       <h3 id="reportModalTitle"></h3>
     </div>
+    <div id="chart-fixtures">
+      <div style="position: relative;"><canvas id="overviewTrendChart"></canvas></div>
+      <div style="position: relative;"><canvas id="overviewCategoryChart"></canvas></div>
+      <div style="position: relative;"><canvas id="analyticsTimelineChart"></canvas></div>
+      <div style="position: relative;"><canvas id="analyticsApplianceRankChart"></canvas></div>
+      <div style="position: relative;"><canvas id="analyticsCategoryShareChart"></canvas></div>
+      <div style="position: relative;"><canvas id="analyticsCarbonChart"></canvas></div>
+      <div style="position: relative;"><canvas id="historyTrendChart"></canvas></div>
+      <div style="position: relative;"><canvas id="historyComparisonChart"></canvas></div>
+    </div>
   </div>
 
   <!-- Load Application Modules -->
+  <script src="../js/chart.umd.min.js"></script>
+  <script src="../js/charts.js"></script>
   <script src="../js/calculations.js"></script>
   <script src="../js/storage.js"></script>
   <script src="../js/recommendations.js"></script>
-  <script>
-    // Lightweight test harness mocks for Chart.js and chart rendering
-    window.WattWatchCharts = {
-      renderOverviewCharts: () => {},
-      renderAnalyticsCharts: () => {},
-      renderHistoryTrendChart: () => {},
-      renderComparisonChart: () => {}
-    };
-  </script>
   <script src="../js/appliances.js"></script>
   <script src="../js/history.js"></script>
   <script src="../js/simulator.js"></script>
@@ -4027,6 +4045,224 @@
           for (let i = 0; i < localStorage.length; i++) {
             const k = localStorage.key(i);
             if (k && k.startsWith(phase2NsPrefix)) {
+              keysToRemove.push(k);
+            }
+          }
+          keysToRemove.forEach(k => localStorage.removeItem(k));
+        }
+      }
+
+      // ==========================================
+      // SECTION 48: Phase 3 Core Stability & Energy Accuracy Upgrade
+      // ==========================================
+      {
+        const origNs = WattWatchStorage.testNamespace;
+        const phase3Ns = 'wattwatch_audit_test_p3_';
+        WattWatchStorage.setTestNamespace(phase3Ns);
+
+        try {
+          // 1. Chart Lifecycle, Empty States, and Overlay Removal
+          const compCanvas = document.getElementById('historyComparisonChart');
+          assert(compCanvas !== null, 'Comparison chart canvas exists in DOM');
+
+          // A: Passing null to renderComparisonChart destroys any previous instance and renders empty state overlay
+          WattWatchCharts.renderComparisonChart(null);
+          assert(WattWatchCharts.instances.comparisonChart === null, 'renderComparisonChart(null) leaves chart instance null');
+          const compOverlay = compCanvas ? compCanvas.parentElement.querySelector('.canvas-empty-state-overlay') : null;
+          assert(compOverlay !== null && compOverlay.style.display !== 'none', 'renderComparisonChart(null) displays empty state overlay');
+          assert(compOverlay && compOverlay.textContent.includes('compare'), 'renderComparisonChart(null) displays comparison guidance message');
+
+          // B: Passing valid comparison object clears empty state overlay and creates chart
+          const mockComp = {
+            periodLabelA: 'Jan 2026',
+            periodLabelB: 'Feb 2026',
+            kwhA: 150,
+            costA: 1200,
+            kwhB: 180,
+            costB: 1440
+          };
+          WattWatchCharts.renderComparisonChart(mockComp);
+          assert(WattWatchCharts.instances.comparisonChart !== null, 'renderComparisonChart with valid data creates chart instance');
+          assert(compOverlay.style.display === 'none', 'renderComparisonChart with valid data hides empty state overlay');
+
+          // C: Destroy chart cleans up instance
+          WattWatchCharts.destroyChart('comparisonChart');
+          assert(WattWatchCharts.instances.comparisonChart === null, 'destroyChart("comparisonChart") clears instance to null');
+
+          // D: Overview trend empty state when appliances empty
+          const trendCanvas = document.getElementById('overviewTrendChart');
+          WattWatchCharts.renderOverviewTrendChart({ appliances: [], totalDailyKwh: 0 });
+          assert(WattWatchCharts.instances.overviewTrend === null, 'Overview trend instance is null when appliances list is empty');
+          const trendOverlay = trendCanvas ? trendCanvas.parentElement.querySelector('.canvas-empty-state-overlay') : null;
+          assert(trendOverlay !== null && trendOverlay.style.display !== 'none', 'Overview trend displays empty state overlay when appliances are empty');
+
+          // 2. Accessibility & ARIA tablist states
+          const categoryFilters = document.getElementById('categoryFilters');
+          assert(categoryFilters && categoryFilters.getAttribute('role') === 'tablist', '#categoryFilters has role="tablist"');
+          const pills = categoryFilters ? Array.from(categoryFilters.querySelectorAll('.filter-pill')) : [];
+          assert(pills.length >= 6, '#categoryFilters contains at least 6 category filter pills');
+
+          // Check that every pill has role="tab" and aria-selected
+          const allHaveRoleTab = pills.every(p => p.getAttribute('role') === 'tab');
+          assert(allHaveRoleTab, 'Every category filter pill has role="tab"');
+
+          // Check initial active pill
+          const activePill = pills.find(p => p.classList.contains('active'));
+          assert(activePill && activePill.getAttribute('aria-selected') === 'true', 'Active category pill has aria-selected="true"');
+
+          // Simulate clicking a non-active pill
+          const coolingPill = pills.find(p => p.getAttribute('data-category') === 'Cooling');
+          if (coolingPill) {
+            coolingPill.click();
+            assert(coolingPill.getAttribute('aria-selected') === 'true', 'Clicked Cooling pill has aria-selected="true"');
+            assert(activePill.getAttribute('aria-selected') === 'false', 'Previously active pill has aria-selected="false"');
+            // Restore All
+            const allPill = pills.find(p => p.getAttribute('data-category') === 'All');
+            if (allPill) allPill.click();
+          }
+
+          // Keyboard arrow navigation on tablist
+          const dailyTab = document.getElementById('tabDailyInsights');
+          const weeklyTab = document.getElementById('tabWeeklyInsights');
+          const monthlyTab = document.getElementById('tabMonthlyInsights');
+          assert(dailyTab && dailyTab.getAttribute('role') === 'tab', '#tabDailyInsights has role="tab"');
+          assert(weeklyTab && weeklyTab.getAttribute('role') === 'tab', '#tabWeeklyInsights has role="tab"');
+          assert(monthlyTab && monthlyTab.getAttribute('role') === 'tab', '#tabMonthlyInsights has role="tab"');
+
+          dailyTab.focus();
+          dailyTab.click();
+          assert(dailyTab.getAttribute('aria-selected') === 'true', 'Daily tab selected');
+
+          // Dispatch ArrowRight keydown
+          const rightArrowEvent = new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true });
+          dailyTab.dispatchEvent(rightArrowEvent);
+          assert(weeklyTab.getAttribute('aria-selected') === 'true', 'ArrowRight from Daily tab switches to and activates Weekly tab');
+
+          const endKeyEvent = new KeyboardEvent('keydown', { key: 'End', bubbles: true, cancelable: true });
+          weeklyTab.dispatchEvent(endKeyEvent);
+          assert(monthlyTab.getAttribute('aria-selected') === 'true', 'End key switches to and activates Monthly tab');
+
+          const homeKeyEvent = new KeyboardEvent('keydown', { key: 'Home', bubbles: true, cancelable: true });
+          monthlyTab.dispatchEvent(homeKeyEvent);
+          assert(dailyTab.getAttribute('aria-selected') === 'true', 'Home key switches back to Daily tab');
+
+          // Verify remove-slab button accessibility
+          WattWatchSimulator.populateTariffSandbox();
+          const removeSlabBtn = document.querySelector('button[data-action="remove-slab"]');
+          if (removeSlabBtn) {
+            assert(removeSlabBtn.hasAttribute('aria-label') && removeSlabBtn.getAttribute('aria-label').includes('Remove Slab Tier'), 'Remove slab button has descriptive aria-label');
+          }
+
+          // 3. Storage Exception & Corrupted Data Resilience
+          // Verify that getAppliances, getSettings, and getHistory do not throw even if storage access fails
+          const realGetItem = localStorage.getItem;
+          try {
+            localStorage.getItem = function() { throw new DOMException('Access is denied', 'SecurityError'); };
+            const fallbackApps = WattWatchStorage.getAppliances();
+            assert(Array.isArray(fallbackApps) && fallbackApps.length === 0, 'getAppliances returns safe empty array when localStorage throws SecurityError');
+            const fallbackSettings = WattWatchStorage.getSettings();
+            assert(typeof fallbackSettings === 'object' && fallbackSettings.electricityRate === 8.00, 'getSettings returns safe default settings when localStorage throws SecurityError');
+            const fallbackHistory = WattWatchStorage.getHistory();
+            assert(Array.isArray(fallbackHistory) && fallbackHistory.length === 0, 'getHistory returns safe empty array when localStorage throws SecurityError');
+          } finally {
+            localStorage.getItem = realGetItem;
+          }
+
+          // 4. Advanced Usage Modeling & Assumption Explanations
+          const testApplianceAdv = {
+            id: 'app_adv_test_1',
+            name: 'Inverter AC Living Room',
+            category: 'Cooling',
+            powerWatts: 1500,
+            quantity: 1,
+            dailyHours: 8,
+            operatingDays: 30,
+            dutyCyclePercent: 60,
+            standbyWatts: 5,
+            weekdayHours: 6,
+            weekendHours: 10,
+            activeDaysPerWeek: 7
+          };
+
+          const advMetrics = WattWatchCalculations.calculateApplianceMetrics(testApplianceAdv);
+          assert(advMetrics.isValid === true, 'calculateApplianceMetrics marks advanced appliance profile valid');
+          assert(advMetrics.hasAdvancedProfile === true, 'hasAdvancedProfile is true for advanced appliance');
+          assert(advMetrics.dutyMultiplier === 0.6, 'dutyMultiplier is 0.6 for 60% duty cycle');
+          assert(advMetrics.standbyWatts === 5, 'standbyWatts is 5');
+          // Effective daily hours = (5*6 + 2*10) / 7 = 50 / 7 = 7.142857
+          assert(Math.abs(advMetrics.effectiveDailyHours - (50 / 7)) < 0.001, 'effectiveDailyHours accounts for weekday/weekend blend');
+          assert(advMetrics.standbyMonthlyKwh > 0, 'standbyMonthlyKwh is calculated accurately for non-active hours');
+          assert(Math.abs(advMetrics.monthlyKwh - (advMetrics.activeMonthlyKwh + advMetrics.standbyMonthlyKwh)) < 0.0001, 'Total monthly kWh is exactly active kWh + standby kWh without double counting');
+
+          // Test live modal preview assumptions display
+          WattWatchAppliances.openModal();
+          const powerInput = document.getElementById('modalPowerWatts');
+          const hoursInput = document.getElementById('modalDailyHours');
+          const dcInput = document.getElementById('modalDutyCycle');
+          const sbInput = document.getElementById('modalStandbyWatts');
+          if (powerInput) powerInput.value = '1500';
+          if (hoursInput) hoursInput.value = '8';
+          if (dcInput) dcInput.value = '60';
+          if (sbInput) sbInput.value = '5';
+          WattWatchAppliances.updateModalLivePreview();
+
+          const assumptionsEl = document.getElementById('modalPreviewAssumptions');
+          assert(assumptionsEl !== null, '#modalPreviewAssumptions exists in DOM');
+          assert(assumptionsEl && assumptionsEl.style.display !== 'none', '#modalPreviewAssumptions is displayed when advanced fields populated');
+          assert(assumptionsEl && assumptionsEl.textContent.includes('60% duty cycle') && assumptionsEl.textContent.includes('5W standby'), '#modalPreviewAssumptions details duty cycle and standby assumptions');
+          WattWatchAppliances.closeModal();
+
+          // 5. Zero-Appliance Budget Pacing & Month Lengths
+          // A: 31-day month target with 0 appliances
+          const pacing31 = WattWatchCalculations.calculateDailyPacing(0, 3100, 0, { electricityRate: 8.0, tariffModel: 'flat' }, 31);
+          assert(pacing31.isValid === true && pacing31.hasBudget === true, 'Daily pacing is valid with 0 appliances and valid budget');
+          assert(Math.abs(pacing31.dailyBudgetInr - 100.0) < 0.01, '31-day month daily budget target is 3100 / 31 = 100/day');
+          assert(pacing31.dailyEstimatedCost === 0, '0 appliances produces 0 daily estimated cost');
+          assert(pacing31.pacingStatus === 'under', '0 appliances paces comfortably under budget');
+          assert(!isNaN(pacing31.dailyAllowedKwh) && Math.abs(pacing31.dailyAllowedKwh - (3100 / 8.0 / 31)) < 0.01, 'dailyAllowedKwh calculated correctly under flat tariff');
+          assert(!pacing31.explanation.includes('NaN'), 'Explanation contains no NaN');
+
+          // B: 28-day February
+          const pacing28 = WattWatchCalculations.calculateDailyPacing(0, 2800, 0, { electricityRate: 8.0, tariffModel: 'flat' }, 28);
+          assert(Math.abs(pacing28.dailyBudgetInr - 100.0) < 0.01, '28-day February daily budget target is 2800 / 28 = 100/day');
+
+          // C: Leap year 29-day February
+          const pacing29 = WattWatchCalculations.calculateDailyPacing(0, 2900, 0, { electricityRate: 8.0, tariffModel: 'flat' }, 29);
+          assert(Math.abs(pacing29.dailyBudgetInr - 100.0) < 0.01, '29-day leap year February daily budget target is 2900 / 29 = 100/day');
+
+          // D: Bill forecast with zero budget
+          const forecastNoBudget = WattWatchCalculations.calculateBillForecast(0, 0, 0, { electricityRate: 8.0 });
+          assert(forecastNoBudget.hasBudget === false, '0 budget correctly reports hasBudget === false');
+          assert(forecastNoBudget.forecastState === 'unset', '0 budget sets forecastState to unset');
+
+          // 6. Household Presets verification
+          const presets = WattWatchStorage.getSamplePresets();
+          assert(presets.length === 3, 'WattWatchStorage.getSamplePresets returns 3 household presets');
+          const p1 = presets.find(p => p.id === 'studio_1bhk');
+          const p2 = presets.find(p => p.id === 'family_2bhk');
+          const p3 = presets.find(p => p.id === 'wfh_setup');
+          assert(p1 && p1.name === '1 BHK Studio', '1 BHK Studio preset exists');
+          assert(p2 && p2.name === '2 BHK Family Home', '2 BHK Family Home preset exists');
+          assert(p3 && p3.name === 'Work-from-Home Setup', 'Work-from-Home Setup preset exists');
+
+          // Load 1 BHK Studio
+          const loaded1bhk = WattWatchStorage.loadSampleHousehold('studio_1bhk');
+          assert(loaded1bhk.length === p1.applianceCount, 'Loading 1 BHK Studio loads exactly expected appliance count');
+          assert(WattWatchStorage.getAppliances().length === p1.applianceCount, '1 BHK Studio appliances persisted in storage');
+
+          // Load WFH Setup
+          const loadedWfh = WattWatchStorage.loadSampleHousehold('wfh_setup');
+          assert(loadedWfh.length === p3.applianceCount, 'Loading WFH Setup loads exactly expected appliance count');
+          assert(WattWatchStorage.getAppliances().length === p3.applianceCount, 'WFH Setup appliances persisted in storage');
+
+        } finally {
+          WattWatchStorage.setTestNamespace(origNs);
+
+          // Clean up test namespace keys
+          const keysToRemove = [];
+          for (let i = 0; i < localStorage.length; i++) {
+            const k = localStorage.key(i);
+            if (k && k.startsWith(phase3Ns)) {
               keysToRemove.push(k);
             }
           }

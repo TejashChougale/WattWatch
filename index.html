@@ -630,13 +630,13 @@
           <!-- Category Filter Pills & Count Indicator -->
           <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.75rem; margin-bottom: 1.25rem;">
             <div class="filter-pills-row" id="categoryFilters" role="tablist" aria-label="Filter appliances by category" style="margin-bottom: 0;">
-              <button type="button" class="filter-pill active" data-category="All">All Categories</button>
-              <button type="button" class="filter-pill" data-category="Cooling">Cooling</button>
-              <button type="button" class="filter-pill" data-category="Lighting">Lighting</button>
-              <button type="button" class="filter-pill" data-category="Kitchen">Kitchen</button>
-              <button type="button" class="filter-pill" data-category="Entertainment">Entertainment</button>
-              <button type="button" class="filter-pill" data-category="Computing">Computing</button>
-              <button type="button" class="filter-pill" data-category="Other">Other</button>
+              <button type="button" class="filter-pill active" data-category="All" role="tab" aria-selected="true">All Categories</button>
+              <button type="button" class="filter-pill" data-category="Cooling" role="tab" aria-selected="false">Cooling</button>
+              <button type="button" class="filter-pill" data-category="Lighting" role="tab" aria-selected="false">Lighting</button>
+              <button type="button" class="filter-pill" data-category="Kitchen" role="tab" aria-selected="false">Kitchen</button>
+              <button type="button" class="filter-pill" data-category="Entertainment" role="tab" aria-selected="false">Entertainment</button>
+              <button type="button" class="filter-pill" data-category="Computing" role="tab" aria-selected="false">Computing</button>
+              <button type="button" class="filter-pill" data-category="Other" role="tab" aria-selected="false">Other</button>
             </div>
             <span id="applianceFilterCount" class="badge badge-outline" style="font-size: 0.78rem; font-weight: 600; padding: 0.35rem 0.75rem; border: 1px solid var(--border-card);">Showing 0 appliances</span>
           </div>
@@ -1773,6 +1773,7 @@
               <span class="calc-preview-label">Monthly Est. Cost</span>
               <span class="calc-preview-val highlight-cost" id="previewMonthlyCost">₹0.00</span>
             </div>
+            <div id="modalPreviewAssumptions" class="calc-preview-assumptions" style="grid-column: 1 / -1; font-size: 0.75rem; color: var(--text-secondary); margin-top: 0.35rem; text-align: center; display: none;"></div>
           </div>
 
         </div>

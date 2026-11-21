@@ -912,18 +912,18 @@ const WattWatchStorage = {
       return validated;
     } catch (e) {
       console.error('[WattWatch Storage] Error reading appliances:', e);
-      const raw = localStorage.getItem(key);
-      if (raw) {
-        const backupKey = `wattwatch_corrupted_${Date.now()}_${key}`;
-        try {
+      try {
+        const raw = localStorage.getItem(key);
+        if (raw) {
+          const backupKey = `wattwatch_corrupted_${Date.now()}_${key}`;
           localStorage.setItem(backupKey, raw);
           const item = { key, backupKey, timestamp: Date.now() };
           this.corruptedState = item;
           if (!Array.isArray(this.corruptedItems)) this.corruptedItems = [];
           this.corruptedItems.push(item);
           console.warn(`[WattWatch Storage] Preserved raw corrupted appliances data in "${backupKey}".`);
-        } catch (bErr) { /* ignore quota */ }
-      }
+        }
+      } catch (bErr) { /* ignore storage access or quota errors */ }
       return [];
     }
   },
@@ -966,18 +966,18 @@ const WattWatchStorage = {
       return { ...DEFAULT_SETTINGS, ...parsed };
     } catch (e) {
       console.error('[WattWatch Storage] Error reading settings:', e);
-      const raw = localStorage.getItem(key);
-      if (raw) {
-        const backupKey = `wattwatch_corrupted_${Date.now()}_${key}`;
-        try {
+      try {
+        const raw = localStorage.getItem(key);
+        if (raw) {
+          const backupKey = `wattwatch_corrupted_${Date.now()}_${key}`;
           localStorage.setItem(backupKey, raw);
           const item = { key, backupKey, timestamp: Date.now() };
           this.corruptedState = item;
           if (!Array.isArray(this.corruptedItems)) this.corruptedItems = [];
           this.corruptedItems.push(item);
           console.warn(`[WattWatch Storage] Preserved raw corrupted settings data in "${backupKey}".`);
-        } catch (bErr) { /* ignore quota */ }
-      }
+        }
+      } catch (bErr) { /* ignore storage access or quota errors */ }
       return { ...DEFAULT_SETTINGS };
     }
   },
@@ -1117,18 +1117,18 @@ const WattWatchStorage = {
       return validated;
     } catch (e) {
       console.error('[WattWatch Storage] Error reading history:', e);
-      const raw = localStorage.getItem(key);
-      if (raw) {
-        const backupKey = `wattwatch_corrupted_${Date.now()}_${key}`;
-        try {
+      try {
+        const raw = localStorage.getItem(key);
+        if (raw) {
+          const backupKey = `wattwatch_corrupted_${Date.now()}_${key}`;
           localStorage.setItem(backupKey, raw);
           const item = { key, backupKey, timestamp: Date.now() };
           this.corruptedState = item;
           if (!Array.isArray(this.corruptedItems)) this.corruptedItems = [];
           this.corruptedItems.push(item);
           console.warn(`[WattWatch Storage] Preserved raw corrupted history data in "${backupKey}".`);
-        } catch (bErr) { /* ignore quota */ }
-      }
+        }
+      } catch (bErr) { /* ignore storage access or quota errors */ }
       return [];
     }
   },

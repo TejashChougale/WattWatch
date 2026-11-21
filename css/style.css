@@ -242,7 +242,12 @@ textarea:focus-visible,
 .filter-pill:focus-visible,
 .theme-option-card:focus-visible,
 .nav-item:focus-visible,
-.auth-tab-btn:focus-visible {
+.nav-item-link:focus-visible,
+.auth-tab-btn:focus-visible,
+[role="tab"]:focus-visible,
+.toast-close:focus-visible,
+.password-toggle-btn:focus-visible,
+.mobile-menu-toggle:focus-visible {
   outline: 2px solid var(--border-focus);
   outline-offset: 2px;
 }

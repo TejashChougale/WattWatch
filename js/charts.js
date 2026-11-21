@@ -88,6 +88,8 @@ const WattWatchCharts = {
       return;
     }
 
+    this.clearEmptyState(canvas);
+
     const colors = this.getThemeColors();
     const ctx = canvas.getContext('2d');
 
@@ -195,6 +197,8 @@ const WattWatchCharts = {
       return;
     }
 
+    this.clearEmptyState(canvas);
+
     const labels = activeCategories.map(c => c.category);
     const dataKwh = activeCategories.map(c => Number(c.kwh.toFixed(2)));
     const bgColors = activeCategories.map((_, idx) => colors.categoryPalette[idx % colors.categoryPalette.length]);
@@ -280,6 +284,8 @@ const WattWatchCharts = {
       this.renderEmptyStateOnCanvas(canvas, 'Add appliances to generate analytics projection');
       return;
     }
+
+    this.clearEmptyState(canvas);
 
     const colors = this.getThemeColors();
     const ctx = canvas.getContext('2d');
@@ -395,6 +401,8 @@ const WattWatchCharts = {
       return;
     }
 
+    this.clearEmptyState(canvas);
+
     const colors = this.getThemeColors();
     const ctx = canvas.getContext('2d');
 
@@ -480,6 +488,8 @@ const WattWatchCharts = {
       return;
     }
 
+    this.clearEmptyState(canvas);
+
     const colors = this.getThemeColors();
     const ctx = canvas.getContext('2d');
 
@@ -553,6 +563,8 @@ const WattWatchCharts = {
       this.renderEmptyStateOnCanvas(canvas, 'Configure emission factor in Settings to view carbon breakdown');
       return;
     }
+
+    this.clearEmptyState(canvas);
 
     const colors = this.getThemeColors();
     const ctx = canvas.getContext('2d');
@@ -636,6 +648,8 @@ const WattWatchCharts = {
       return;
     }
 
+    this.clearEmptyState(canvas);
+
     const colors = this.getThemeColors();
     const ctx = canvas.getContext('2d');
 
@@ -716,7 +730,12 @@ const WattWatchCharts = {
 
     this.destroyChart('comparisonChart');
 
-    if (!comp) return;
+    if (!comp) {
+      this.renderEmptyStateOnCanvas(canvas, 'Select two billing periods above to compare consumption and costs');
+      return;
+    }
+
+    this.clearEmptyState(canvas);
 
     const colors = this.getThemeColors();
     const ctx = canvas.getContext('2d');

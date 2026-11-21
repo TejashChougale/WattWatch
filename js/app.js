@@ -163,12 +163,12 @@ const WattWatchApp = {
    * Binds timescale segmented controls on the Overview dashboard
    */
   bindOverviewControls() {
-    const tabs = document.querySelectorAll('.insights-tab');
-    tabs.forEach(tab => {
-      tab.addEventListener('click', (e) => {
-        const tf = e.currentTarget.getAttribute('data-timeframe');
+    document.addEventListener('click', (e) => {
+      const tab = e.target.closest('.insights-tab');
+      if (tab) {
+        const tf = tab.getAttribute('data-timeframe');
         if (tf) this.setInsightsTimeframe(tf);
-      });
+      }
     });
   },
 
@@ -1581,6 +1581,41 @@ const WattWatchApp = {
    */
   bindModalKeyboards() {
     window.addEventListener('keydown', (e) => {
+      // ARIA Tablist keyboard navigation (ArrowRight, ArrowLeft, ArrowDown, ArrowUp, Home, End)
+      if (['ArrowRight', 'ArrowLeft', 'ArrowDown', 'ArrowUp', 'Home', 'End'].includes(e.key)) {
+        const activeEl = (e.target && e.target.getAttribute && e.target.getAttribute('role') === 'tab') ? e.target : document.activeElement;
+        if (activeEl && activeEl.getAttribute('role') === 'tab') {
+          const tablist = activeEl.closest('[role="tablist"]');
+          if (tablist) {
+            const tabs = Array.from(tablist.querySelectorAll('[role="tab"]:not([disabled])')).filter(t => {
+              const style = window.getComputedStyle(t);
+              return style.display !== 'none' && style.visibility !== 'hidden';
+            });
+            if (tabs.length > 1) {
+              const curIdx = tabs.indexOf(activeEl);
+              if (curIdx !== -1) {
+                let targetIdx = -1;
+                if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
+                  targetIdx = (curIdx + 1) % tabs.length;
+                } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
+                  targetIdx = (curIdx - 1 + tabs.length) % tabs.length;
+                } else if (e.key === 'Home') {
+                  targetIdx = 0;
+                } else if (e.key === 'End') {
+                  targetIdx = tabs.length - 1;
+                }
+                if (targetIdx !== -1) {
+                  e.preventDefault();
+                  tabs[targetIdx].focus();
+                  tabs[targetIdx].click();
+                  return;
+                }
+              }
+            }
+          }
+        }
+      }
+
       if (e.key === 'Escape') {
         const privacyModal = document.getElementById('privacyModal');
         if (privacyModal && privacyModal.classList.contains('is-open')) {
