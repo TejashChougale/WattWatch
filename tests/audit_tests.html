@@ -132,6 +132,8 @@
       <input type="number" id="calcFlatRateInput" value="8.00">
       <input type="number" id="calcFixedCharges" value="50.00">
       <input type="number" id="calcTaxPercent" value="5.00">
+      <input type="number" id="calcFreeUnits" value="0">
+      <input type="number" id="calcBillCredit" value="0">
     </div>
     <button type="button" id="btnRemoveAllAppliances"></button>
     <div id="applianceEmptyState" style="display: none;">
@@ -166,9 +168,50 @@
         <input id="modalDailyHours">
         <input id="modalOperatingDays">
         <select id="modalPresetSelect"></select>
+        <button type="button" id="btnToggleAdvancedAppliance" aria-expanded="false" aria-controls="applianceAdvancedFields"></button>
+        <div id="applianceAdvancedFields" class="hidden">
+          <input id="modalWeekdayHours">
+          <input id="modalWeekendHours">
+          <input id="modalActiveDaysPerWeek">
+          <input id="modalDutyCycle">
+          <input id="modalStandbyWatts">
+        </div>
         <button type="submit" id="modalSubmitBtn"></button>
       </form>
     </div>
+    <div id="actualMeterTrackerCard">
+      <input type="date" id="meterCycleStart">
+      <input type="date" id="meterCycleEnd">
+      <input type="number" id="meterStartReading">
+      <input type="number" id="meterCurrentReading">
+      <input type="number" id="meterActualCost">
+      <input type="text" id="meterNotes">
+      <div id="meterComparisonSummary"></div>
+      <div id="meterCycleProgressFill"></div>
+      <span id="meterCycleDaysBadge"></span>
+      <button id="btnSaveMeterReading"></button>
+    </div>
+    <div id="whatIfScenariosCard">
+      <div id="whatIfScenariosList"></div>
+    </div>
+    <div id="csvPreviewModal" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="csvPreviewTitle" aria-hidden="true">
+      <h3 id="csvPreviewTitle"></h3>
+      <button type="button" id="btnCloseCsvModal"></button>
+      <div id="csvSummaryBanner"></div>
+      <div id="csvErrorsBox" style="display: none;"></div>
+      <div id="csvTableWrap">
+        <table>
+          <tbody id="csvPreviewTableBody"></tbody>
+        </table>
+      </div>
+      <input type="radio" name="csvImportAction" value="merge" id="csvModeMerge" checked>
+      <input type="radio" name="csvImportAction" value="replace" id="csvModeReplace">
+      <button type="button" id="btnCancelCsvImport"></button>
+      <button type="button" id="btnConfirmCsvImport"></button>
+    </div>
+    <input type="file" id="csvApplianceFileInput" style="display: none;">
+    <button id="btnImportAppliancesCSV"></button>
+    <button id="btnImportAppliancesCSVToolbar"></button>
     <div id="reportModal" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="reportModalTitle" aria-hidden="true">
       <h3 id="reportModalTitle"></h3>
     </div>
@@ -3496,6 +3539,494 @@
           for (let i = 0; i < localStorage.length; i++) {
             const k = localStorage.key(i);
             if (k && k.startsWith(phase1NsPrefix)) {
+              keysToRemove.push(k);
+            }
+          }
+          keysToRemove.forEach(k => localStorage.removeItem(k));
+        }
+      }
+
+      // 47. Phase 2 Feature Verifications (Budget Pacing for Zero Appliances, Meter & Utility Tracking, Real-World Tariff Engine with Lifeline Units & Subsidies, Advanced Appliance Profiles, Dynamic What-If Scenarios, and RFC 4180 CSV Import Engine)
+      {
+        const phase2NsPrefix = 'wattwatch_audit_test_p2_';
+        const origNs = WattWatchStorage.getTestNamespace();
+        const origConfirm = WattWatchApp.openConfirmDialog;
+        const origToast = WattWatchApp.showToast;
+        let p2ToastCalls = [];
+        WattWatchApp.showToast = (msg, type, title) => { p2ToastCalls.push({ msg, type, title }); };
+
+        try {
+          WattWatchStorage.setTestNamespace(phase2NsPrefix);
+
+          // A. Budget & Pacing Tracker / Zero-Appliance Default State
+          const aprDays = 30; // April has 30 days
+          const flatSettings = { budgetInr: 2500, electricityRate: 8.0, tariffModel: 'flat' };
+          const zeroPacing = WattWatchCalculations.calculateDailyPacing(0, 2500, 0, flatSettings, aprDays);
+          assert(zeroPacing.isValid === true, 'calculateDailyPacing returns valid for zero bill and positive budget');
+          assertAlmostEqual(zeroPacing.dailyBudgetInr, 83.33, 'calculateDailyPacing calculates non-zero daily budget target when 0 appliances configured');
+          assert(zeroPacing.dailyAllowedKwh > 0, 'calculateDailyPacing provides valid positive allowed daily kWh target even with 0 appliances');
+          assert(zeroPacing.dailyEstimatedKwh === 0, 'calculateDailyPacing reports 0 daily kWh consumption when inventory is empty');
+          assert(zeroPacing.pacingStatus === 'under', 'calculateDailyPacing reports under status for zero inventory under positive budget');
+          assert(zeroPacing.remainingBudget === 2500, 'calculateDailyPacing projects full budget surplus for zero appliances under zero-fixed-charge flat tariff');
+          assert(typeof zeroPacing.explanation === 'string' && zeroPacing.explanation.includes('No active appliances in inventory'), 'calculateDailyPacing explanation contains zero-inventory guidance');
+
+          const zeroForecast = WattWatchCalculations.calculateBillForecast(0, 2500, 0, flatSettings, aprDays);
+          assert(zeroForecast.isValid === true, 'calculateBillForecast returns valid for zero bill');
+          assert(zeroForecast.forecastState === 'safe', 'calculateBillForecast reports safe status for zero inventory');
+          assert(zeroForecast.remaining === 2500, 'calculateBillForecast projects full budget headroom for zero appliances');
+          assert(typeof zeroForecast.explanation === 'string' && zeroForecast.explanation.includes('No appliances currently configured'), 'calculateBillForecast provides clear empty inventory explanation');
+
+          // Active inventory transitions cleanly from zero inventory
+          const activePacing = WattWatchCalculations.calculateDailyPacing(360, 2500, 45, flatSettings, aprDays);
+          assert(activePacing.dailyEstimatedKwh === 1.5, 'calculateDailyPacing calculates exact daily kWh for active inventory');
+          assert(activePacing.dailyEstimatedCost === 12.0, 'calculateDailyPacing calculates exact daily cost for active inventory');
+          assert(activePacing.pacingStatus === 'under', 'calculateDailyPacing accurately assesses under-budget status for active inventory');
+
+          // B. Real-World Tariff Support (Lifeline Units / Free Allowance & Subsidies / Bill Credits)
+          // Input sanitization & validation
+          assert(WattWatchCalculations.validateFreeUnits(100) === 100, 'validateFreeUnits accepts valid positive integer');
+          assert(WattWatchCalculations.validateFreeUnits('50.5') === 50.5, 'validateFreeUnits parses string numbers');
+          assert(isNaN(WattWatchCalculations.validateFreeUnits(-20)), 'validateFreeUnits rejects negative values with NaN');
+          assert(isNaN(WattWatchCalculations.validateFreeUnits(NaN)), 'validateFreeUnits returns NaN for NaN input');
+          assert(WattWatchCalculations.validateFreeUnits('', 0) === 0, 'validateFreeUnits handles empty string with default');
+
+          assert(WattWatchCalculations.validateBillCredit(250) === 250, 'validateBillCredit accepts valid credit in rupees');
+          assert(WattWatchCalculations.validateBillCredit('150.75') === 150.75, 'validateBillCredit parses string floats');
+          assert(isNaN(WattWatchCalculations.validateBillCredit(-50)), 'validateBillCredit rejects negative values with NaN');
+          assert(WattWatchCalculations.validateBillCredit(undefined, 0) === 0, 'validateBillCredit handles undefined safely with default');
+
+          // Flat Rate + Free Units (Tier 0 Lifeline Allowance)
+          const flatFreeCfg = {
+            tariffModel: 'flat',
+            electricityRate: 8.0,
+            freeUnits: 100,
+            fixedCharges: 50,
+            additionalTaxPercent: 10,
+            billCreditInr: 0
+          };
+          const tariffFree1 = WattWatchCalculations.calculateAdvancedTariff(150, flatFreeCfg);
+          assert(tariffFree1.freeUnits === 100, 'calculateAdvancedTariff reflects configured free units');
+          assert(tariffFree1.freeUnitsApplied === 100, 'calculateAdvancedTariff applies full 100 free units when usage is 150 kWh');
+          assert(tariffFree1.billableKwh === 50, 'calculateAdvancedTariff bills only 50 kWh when usage is 150 kWh with 100 free units');
+          assertAlmostEqual(tariffFree1.energyCharges, 400.0, 'calculateAdvancedTariff calculates energy charge strictly on billable units (50 * ₹8 = ₹400)');
+          assertAlmostEqual(tariffFree1.totalCost, 495.0, 'calculateAdvancedTariff computes gross total cost ((400+50)*1.10 = ₹495)');
+
+          const tariffFree2 = WattWatchCalculations.calculateAdvancedTariff(60, flatFreeCfg);
+          assert(tariffFree2.freeUnitsApplied === 60, 'calculateAdvancedTariff caps freeUnitsApplied to actual usage (60 kWh)');
+          assert(tariffFree2.billableKwh === 0, 'calculateAdvancedTariff reports 0 billable kWh when consumption is within free allowance');
+          assert(tariffFree2.energyCharges === 0, 'calculateAdvancedTariff reports ₹0 energy charge when within free allowance');
+          assertAlmostEqual(tariffFree2.totalCost, 55.0, 'calculateAdvancedTariff bills only fixed charges and taxes when energy is 100% free (50*1.10 = ₹55)');
+
+          // Progressive Slab + Free Units
+          const slabFreeCfg = {
+            tariffModel: 'slab',
+            slabConfig: [
+              { upTo: 100, rate: 3.0 },
+              { upTo: 250, rate: 6.0 },
+              { upTo: null, rate: 9.0 }
+            ],
+            freeUnits: 50,
+            fixedCharges: 0,
+            additionalTaxPercent: 0,
+            billCreditInr: 0
+          };
+          const tariffSlabFree = WattWatchCalculations.calculateAdvancedTariff(200, slabFreeCfg);
+          assert(tariffSlabFree.freeUnitsApplied === 50, 'calculateAdvancedTariff applies 50 free units before applying slabs');
+          assert(tariffSlabFree.billableKwh === 150, 'calculateAdvancedTariff calculates 150 billable units for progressive slab');
+          assertAlmostEqual(tariffSlabFree.slabBreakdown[0].units, 50, 'Tier 0 reflects 50 free units allowance');
+          assertAlmostEqual(tariffSlabFree.slabBreakdown[0].cost, 0, 'Tier 0 free allowance costs ₹0');
+          assertAlmostEqual(tariffSlabFree.slabBreakdown[1].units, 100, 'Slab 1 receives first 100 billable units');
+          assertAlmostEqual(tariffSlabFree.slabBreakdown[1].cost, 300, 'Slab 1 costs 100 * ₹3.0 = ₹300');
+          assertAlmostEqual(tariffSlabFree.slabBreakdown[2].units, 50, 'Slab 2 receives remaining 50 billable units');
+          assertAlmostEqual(tariffSlabFree.slabBreakdown[2].cost, 300, 'Slab 2 costs 50 * ₹6.0 = ₹300');
+          assertAlmostEqual(tariffSlabFree.totalCost, 600, 'Total cost for slab with free units equals ₹600');
+
+          // Government Subsidy / Bill Credit in ₹
+          const subsidyCfg = {
+            tariffModel: 'flat',
+            electricityRate: 7.0,
+            freeUnits: 0,
+            fixedCharges: 100,
+            additionalTaxPercent: 5,
+            billCreditInr: 200
+          };
+          const tariffSub1 = WattWatchCalculations.calculateAdvancedTariff(100, subsidyCfg);
+          assertAlmostEqual(tariffSub1.grossCost, 840, 'calculateAdvancedTariff calculates gross bill before subsidy (700+100 + 5% tax = ₹840)');
+          assert(tariffSub1.subsidyApplied === 200, 'calculateAdvancedTariff applies full subsidy credit of ₹200');
+          assertAlmostEqual(tariffSub1.totalCost, 640, 'calculateAdvancedTariff subtracts subsidy from gross bill (840 - 200 = ₹640)');
+
+          // Subsidy exceeding gross bill clamps to ₹0
+          const tariffSubOver = WattWatchCalculations.calculateAdvancedTariff(10, subsidyCfg);
+          assertAlmostEqual(tariffSubOver.grossCost, 178.5, 'calculateAdvancedTariff calculates gross cost for 10 kWh (70+100 + 5% = ₹178.50)');
+          assertAlmostEqual(tariffSubOver.subsidyApplied, 178.5, 'calculateAdvancedTariff clamps subsidy applied to gross cost');
+          assert(tariffSubOver.totalCost === 0, 'calculateAdvancedTariff clamps net payable totalCost to ₹0 (never negative)');
+
+          // Comprehensive Combined Real-World Tariff
+          const fullTariffCfg = {
+            tariffModel: 'slab',
+            slabConfig: [
+              { upTo: 100, rate: 3.5 },
+              { upTo: 200, rate: 5.5 },
+              { upTo: 400, rate: 8.0 },
+              { upTo: null, rate: 10.5 }
+            ],
+            freeUnits: 60,
+            fixedCharges: 120,
+            additionalTaxPercent: 8,
+            billCreditInr: 180
+          };
+          const fullCalc = WattWatchCalculations.calculateAdvancedTariff(310, fullTariffCfg);
+          assert(fullCalc.freeUnitsApplied === 60, 'Combined tariff applies 60 free units');
+          assert(fullCalc.billableKwh === 250, 'Combined tariff calculates 250 billable kWh');
+          assertAlmostEqual(fullCalc.energyCharges, 1300, 'Combined tariff calculates energy charge across 3 slabs (350+550+400 = ₹1300)');
+          assertAlmostEqual(fullCalc.grossCost, 1533.60, 'Combined tariff calculates gross cost ((1300+120)*1.08 = ₹1533.60)');
+          assert(fullCalc.subsidyApplied === 180, 'Combined tariff applies full subsidy of ₹180');
+          assertAlmostEqual(fullCalc.totalCost, 1353.60, 'Combined tariff produces exact net payable (1533.60 - 180 = ₹1353.60)');
+
+          // Budget Inversion Roundtrips with Subsidies and Free Units
+          const invertedKwh = WattWatchCalculations.calculateAllowedKwhForBudget(1353.60, fullTariffCfg);
+          assertAlmostEqual(invertedKwh, 310, 'calculateAllowedKwhForBudget inverts combined slab + free units + subsidy budget accurately', 0.05);
+          const roundtripCalc = WattWatchCalculations.calculateAdvancedTariff(invertedKwh, fullTariffCfg);
+          assertAlmostEqual(roundtripCalc.totalCost, 1353.60, 'calculateAllowedKwhForBudget roundtrips perfectly with calculateAdvancedTariff under combined tariff', 0.1);
+
+          // C. Actual Meter & Billing Cycle Tracking
+          // Billing cycle pacing & calendar calculations
+          const pacingNormal = WattWatchCalculations.calculateBillingCyclePacing('2026-03-01', '2026-03-31', '2026-03-16');
+          assert(pacingNormal.isValid === true, 'calculateBillingCyclePacing validates standard date range');
+          assert(pacingNormal.totalDays === 31, 'calculateBillingCyclePacing calculates 31 days for March cycle');
+          assert(pacingNormal.elapsedDays === 15, 'calculateBillingCyclePacing calculates 15 elapsed days');
+          assert(pacingNormal.remainingDays === 16, 'calculateBillingCyclePacing calculates 16 remaining days');
+          assertAlmostEqual(pacingNormal.progressPercent, 48.39, 'calculateBillingCyclePacing calculates progress percentage', 0.5);
+          assert(pacingNormal.isComplete === false, 'calculateBillingCyclePacing identifies mid-cycle state');
+
+          // Leap year cycle
+          const pacingLeap = WattWatchCalculations.calculateBillingCyclePacing('2024-02-01', '2024-02-29', new Date(2024, 1, 15));
+          assert(pacingLeap.totalDays === 29, 'calculateBillingCyclePacing accurately handles February leap year (29 days)');
+
+          // Completed cycle
+          const pacingPast = WattWatchCalculations.calculateBillingCyclePacing('2026-01-01', '2026-01-31', new Date(2026, 2, 1));
+          assert(pacingPast.isComplete === true, 'calculateBillingCyclePacing marks past cycle as complete');
+          assert(pacingPast.progressPercent === 100, 'calculateBillingCyclePacing caps completed progress at 100%');
+          assert(pacingPast.remainingDays === 0, 'calculateBillingCyclePacing reports 0 remaining days for completed cycle');
+
+          // Storage of meter tracking record
+          const testMeterData = {
+            cycleStartDate: '2026-03-01',
+            cycleEndDate: '2026-03-31',
+            startReading: 12500,
+            currentReading: 12780,
+            actualUnits: 280,
+            actualCost: 2240,
+            notes: 'March meter verification'
+          };
+          assert(WattWatchStorage.saveMeterTracking(testMeterData) === true, 'saveMeterTracking saves valid meter tracking data');
+          const retrievedMeter = WattWatchStorage.getMeterTracking();
+          assert(retrievedMeter !== null, 'getMeterTracking retrieves saved record');
+          assert(retrievedMeter.startReading === 12500, 'getMeterTracking preserves startReading');
+          assert(retrievedMeter.currentReading === 12780, 'getMeterTracking preserves currentReading');
+          assert(retrievedMeter.actualUnits === 280, 'getMeterTracking preserves actualUnits');
+          assert(retrievedMeter.actualCost === 2240, 'getMeterTracking preserves actualCost');
+          assert(retrievedMeter.notes === 'March meter verification', 'getMeterTracking preserves notes');
+
+          // Snapshot with actual readings attached
+          const snapWithActual = {
+            id: 'snap_p2_actual_test',
+            period: '2026-03',
+            totalKwh: 300,
+            totalCost: 2400,
+            actualKwh: 280,
+            actualCost: 2240,
+            cycleStartDate: '2026-03-01',
+            cycleEndDate: '2026-03-31',
+            meterReadingStart: 12500,
+            meterReadingEnd: 12780,
+            createdAt: Date.now()
+          };
+          assert(WattWatchStorage.validateSnapshot(snapWithActual).valid === true, 'validateSnapshot accepts snapshot with actual meter readings');
+          assert(WattWatchStorage.saveSnapshot(snapWithActual) === true, 'saveSnapshot saves snapshot with actual utility readings');
+          const savedSnap = WattWatchStorage.getHistory().find(s => s.id === 'snap_p2_actual_test');
+          assert(savedSnap && savedSnap.actualKwh === 280 && savedSnap.actualCost === 2240, 'getHistory preserves actualKwh and actualCost');
+          assert(savedSnap.meterReadingStart === 12500 && savedSnap.meterReadingEnd === 12780, 'getHistory preserves meter readings');
+
+          // Backward-compatibility of snapshot without actual readings
+          const snapLegacy = {
+            id: 'snap_p2_legacy_test',
+            period: '2026-02',
+            totalKwh: 250,
+            totalCost: 2000,
+            createdAt: Date.now()
+          };
+          assert(WattWatchStorage.validateSnapshot(snapLegacy).valid === true, 'validateSnapshot maintains backward compatibility for legacy snapshots without actual readings');
+
+          // D. Realistic Appliance Usage (Advanced Profiles)
+          // 1. Standard appliance backward compatibility
+          const standardApp = { powerWatts: 200, quantity: 1, dailyHours: 5, operatingDays: 30 };
+          const standardMetrics = WattWatchCalculations.calculateApplianceMetrics(standardApp);
+          assertAlmostEqual(standardMetrics.effectiveDailyHours, 5.0, 'calculateApplianceMetrics preserves standard daily hours');
+          assertAlmostEqual(standardMetrics.activeMonthlyKwh, 30.0, 'calculateApplianceMetrics calculates 30 kWh for standard appliance');
+          assert(standardMetrics.standbyMonthlyKwh === 0, 'calculateApplianceMetrics sets 0 standby kWh for standard appliance');
+          assertAlmostEqual(standardMetrics.monthlyKwh, 30.0, 'calculateApplianceMetrics monthlyKwh matches active kWh for standard appliance');
+
+          // 2. Weekday vs Weekend Split
+          const splitApp = { powerWatts: 1000, quantity: 1, dailyHours: 6, weekdayHours: 8, weekendHours: 1, operatingDays: 30 };
+          const splitMetrics = WattWatchCalculations.calculateApplianceMetrics(splitApp);
+          assertAlmostEqual(splitMetrics.effectiveDailyHours, 6.0, 'calculateApplianceMetrics calculates weighted daily hours ((8*5 + 1*2)/7 = 6.0 hrs)');
+          assertAlmostEqual(splitMetrics.activeMonthlyKwh, 180.0, 'calculateApplianceMetrics calculates 180 kWh based on weekday/weekend split');
+
+          // 3. Active Days Per Week
+          const activeDaysApp = { powerWatts: 500, quantity: 1, dailyHours: 7, activeDaysPerWeek: 4, operatingDays: 30 };
+          const activeDaysMetrics = WattWatchCalculations.calculateApplianceMetrics(activeDaysApp);
+          assert(activeDaysMetrics.operatingDays === 17, 'calculateApplianceMetrics calculates 17 operating days for 4 active days per week (4/7 * 30)');
+          assertAlmostEqual(activeDaysMetrics.monthlyKwh, 59.5, 'calculateApplianceMetrics calculates 59.5 kWh for 4 active days per week');
+
+          // 4. Inverter / Duty Cycle Modulation
+          const dutyApp = { powerWatts: 1500, quantity: 1, dailyHours: 8, dutyCyclePercent: 60, operatingDays: 30 };
+          const dutyMetrics = WattWatchCalculations.calculateApplianceMetrics(dutyApp);
+          assertAlmostEqual(dutyMetrics.activeMonthlyKwh, 216.0, 'calculateApplianceMetrics calculates 216 kWh with 60% duty cycle modulation (1500*0.6*8*30/1000)');
+
+          // 5. Standby Power Consumption
+          const standbyApp = { powerWatts: 150, quantity: 1, dailyHours: 4, standbyWatts: 20, operatingDays: 30 };
+          const standbyMetrics = WattWatchCalculations.calculateApplianceMetrics(standbyApp);
+          assertAlmostEqual(standbyMetrics.activeMonthlyKwh, 18.0, 'calculateApplianceMetrics calculates 18 kWh active consumption');
+          assertAlmostEqual(standbyMetrics.standbyMonthlyKwh, 12.0, 'calculateApplianceMetrics calculates 12 kWh standby consumption (20W * 20h * 30 / 1000)');
+          assertAlmostEqual(standbyMetrics.monthlyKwh, 30.0, 'calculateApplianceMetrics adds active and standby energy (18 + 12 = 30 kWh)');
+
+          // Storage validation and sanitization of advanced fields
+          const validatedApp = WattWatchStorage.validateAppliance({
+            id: 'app_p2_valid',
+            name: 'Advanced Smart TV',
+            category: 'Entertainment',
+            powerWatts: 120,
+            quantity: 1,
+            dailyHours: 4,
+            operatingDays: 30,
+            weekdayHours: 3,
+            weekendHours: 6,
+            activeDaysPerWeek: 6,
+            dutyCyclePercent: 90,
+            standbyWatts: 15
+          });
+          assert(validatedApp && validatedApp.valid === true, 'validateAppliance accepts valid advanced fields');
+          assert(validatedApp.sanitized.weekdayHours === 3 && validatedApp.sanitized.weekendHours === 6, 'validateAppliance preserves weekday and weekend hours');
+          assert(validatedApp.sanitized.activeDaysPerWeek === 6, 'validateAppliance preserves activeDaysPerWeek');
+          assert(validatedApp.sanitized.dutyCyclePercent === 90, 'validateAppliance preserves dutyCyclePercent');
+          assert(validatedApp.sanitized.standbyWatts === 15, 'validateAppliance preserves standbyWatts');
+
+          // Strict rejection of out-of-bounds advanced fields
+          const oobWeekdayApp = WattWatchStorage.validateAppliance({
+            id: 'app_p2_oob1',
+            name: 'OOB Weekday Appliance',
+            category: 'Kitchen',
+            powerWatts: 800,
+            quantity: 1,
+            dailyHours: 2,
+            operatingDays: 30,
+            weekdayHours: 30 // exceeds 24
+          });
+          assert(oobWeekdayApp && oobWeekdayApp.valid === false, 'validateAppliance rejects weekdayHours > 24');
+
+          const oobStandbyApp = WattWatchStorage.validateAppliance({
+            id: 'app_p2_oob2',
+            name: 'OOB Standby Appliance',
+            category: 'Entertainment',
+            powerWatts: 100,
+            quantity: 1,
+            dailyHours: 4,
+            operatingDays: 30,
+            standbyWatts: -10 // negative
+          });
+          assert(oobStandbyApp && oobStandbyApp.valid === false, 'validateAppliance rejects negative standbyWatts');
+
+          const oobDutyApp = WattWatchStorage.validateAppliance({
+            id: 'app_p2_oob3',
+            name: 'OOB Duty Appliance',
+            category: 'Cooling',
+            powerWatts: 1500,
+            quantity: 1,
+            dailyHours: 8,
+            operatingDays: 30,
+            dutyCyclePercent: 150 // exceeds 100%
+          });
+          assert(oobDutyApp && oobDutyApp.valid === false, 'validateAppliance rejects dutyCyclePercent > 100');
+
+          const oobActiveDaysApp = WattWatchStorage.validateAppliance({
+            id: 'app_p2_oob4',
+            name: 'OOB Active Days Appliance',
+            category: 'Lighting',
+            powerWatts: 20,
+            quantity: 1,
+            dailyHours: 5,
+            operatingDays: 30,
+            activeDaysPerWeek: 10 // exceeds 7
+          });
+          assert(oobActiveDaysApp && oobActiveDaysApp.valid === false, 'validateAppliance rejects activeDaysPerWeek > 7');
+
+          // E. Smarter Recommendations & What-If Scenarios
+          const scenarioApps = [
+            { id: 'app_top_ac', name: 'Master Bedroom AC', category: 'Cooling', powerWatts: 1500, quantity: 1, dailyHours: 8, operatingDays: 30 },
+            { id: 'app_refrig', name: 'Double Door Refrigerator', category: 'Kitchen', powerWatts: 250, quantity: 1, dailyHours: 24, operatingDays: 30 },
+            { id: 'app_smart_tv', name: 'Home Theater TV', category: 'Entertainment', powerWatts: 150, quantity: 1, dailyHours: 6, operatingDays: 30, standbyWatts: 20 },
+            { id: 'app_incand_lamps', name: 'Decorative Halogen Lamps', category: 'Lighting', powerWatts: 60, quantity: 4, dailyHours: 6, operatingDays: 30 }
+          ];
+          const whatIfResult = WattWatchRecommendations.generateWhatIfScenarios(scenarioApps, 8.0);
+          assert(Array.isArray(whatIfResult.scenarios) && whatIfResult.scenarios.length >= 3, 'generateWhatIfScenarios generates multiple targeted what-if scenarios');
+
+          const acScenario = whatIfResult.scenarios.find(s => s.id.includes('whatif_runtime_'));
+          assert(acScenario !== undefined, 'generateWhatIfScenarios produces runtime reduction scenario for top-consuming AC');
+          assert(acScenario && acScenario.savedKwhMonthly > 0, 'Runtime reduction scenario projects positive monthly kWh savings');
+          assert(acScenario && acScenario.savedCostMonthly > 0, 'Runtime reduction scenario projects positive monthly INR savings');
+          assert(acScenario && acScenario.annualSavingsCost === acScenario.savedCostMonthly * 12, 'Scenario projects accurate annual INR savings (12x monthly)');
+
+          const standbyScenario = whatIfResult.scenarios.find(s => s.id.includes('standby'));
+          assert(standbyScenario !== undefined, 'generateWhatIfScenarios produces phantom standby elimination scenario');
+          assert(standbyScenario && standbyScenario.savedKwhMonthly > 0, 'Phantom standby scenario projects positive energy savings');
+
+          const lightingScenario = whatIfResult.scenarios.find(s => s.id.includes('whatif_led_'));
+          assert(lightingScenario !== undefined, 'generateWhatIfScenarios produces LED retrofit scenario for lighting');
+
+          // Empty inventory safety
+          const emptyWhatIf = WattWatchRecommendations.generateWhatIfScenarios([], 8.0);
+          assert(Array.isArray(emptyWhatIf.scenarios) && emptyWhatIf.scenarios.length === 0, 'generateWhatIfScenarios handles empty inventory safely');
+
+          // F. RFC 4180 CSV Import Engine & Data Management
+          // 1. Basic standard CSV
+          const basicCsv = [
+            'Name,Category,Power (Watts),Quantity,Daily Hours,Operating Days',
+            'Microwave Oven,Kitchen,1200,1,0.5,30',
+            'Study Lamp,Lighting,12,2,4,30'
+          ].join('\r\n');
+          const basicParse = WattWatchStorage.parseAppliancesCSV(basicCsv);
+          assert(basicParse.success === true, 'parseAppliancesCSV succeeds for valid standard CSV');
+          assert(basicParse.validRecords.length === 2, 'parseAppliancesCSV extracts 2 valid appliances');
+          assert(basicParse.errors.length === 0, 'parseAppliancesCSV reports 0 errors for clean CSV');
+          assert(basicParse.validRecords[0].name === 'Microwave Oven' && basicParse.validRecords[0].powerWatts === 1200, 'parseAppliancesCSV parses first appliance fields accurately');
+
+          // 2. CSV with quotes, commas inside fields, and escaped quotes
+          const complexCsv = [
+            'Name,Category,Power (Watts),Quantity,Daily Hours,Operating Days',
+            '"Kitchen Mixer, Grinder",Kitchen,600,1,0.5,20',
+            '"Living Room ""OLED"" TV",Entertainment,110,1,5,30'
+          ].join('\n');
+          const complexParse = WattWatchStorage.parseAppliancesCSV(complexCsv);
+          assert(complexParse.success === true, 'parseAppliancesCSV handles commas inside quotes and escaped quotes');
+          assert(complexParse.validRecords[0].name === 'Kitchen Mixer, Grinder', 'parseAppliancesCSV preserves embedded comma in quoted name');
+          assert(complexParse.validRecords[1].name === 'Living Room "OLED" TV', 'parseAppliancesCSV unescapes double quotes correctly');
+
+          // 3. Advanced fields in CSV
+          const advancedCsv = [
+            'Name,Category,Power (Watts),Quantity,Daily Hours,Operating Days,Weekday Hours,Weekend Hours,Active Days Per Week,Duty Cycle (%),Standby Power (Watts)',
+            'Bedroom AC,Cooling,1500,1,8,30,6,10,7,60,12'
+          ].join('\r\n');
+          const advParse = WattWatchStorage.parseAppliancesCSV(advancedCsv);
+          assert(advParse.success === true, 'parseAppliancesCSV succeeds for CSV with advanced columns');
+          assert(advParse.validRecords[0].weekdayHours === 6 && advParse.validRecords[0].weekendHours === 10, 'parseAppliancesCSV parses weekday and weekend hours');
+          assert(advParse.validRecords[0].dutyCyclePercent === 60, 'parseAppliancesCSV parses duty cycle percent');
+          assert(advParse.validRecords[0].standbyWatts === 12, 'parseAppliancesCSV parses standby watts');
+
+          // 4. UTF-8 BOM handling
+          const bomCsv = '\uFEFFName,Category,Power (Watts),Quantity,Daily Hours,Operating Days\nToaster,Kitchen,800,1,0.2,30';
+          const bomParse = WattWatchStorage.parseAppliancesCSV(bomCsv);
+          assert(bomParse.success === true, 'parseAppliancesCSV strips UTF-8 BOM cleanly');
+          assert(bomParse.validRecords[0].name === 'Toaster', 'parseAppliancesCSV parses appliance name following BOM');
+
+          // 5. Missing required headers
+          const badHeadersCsv = 'Title,Type,Consumption\nFan,Cooling,75';
+          const badHeadersParse = WattWatchStorage.parseAppliancesCSV(badHeadersCsv);
+          assert(badHeadersParse.success === false, 'parseAppliancesCSV rejects CSV with missing required headers');
+          assert(badHeadersParse.errors.length > 0, 'parseAppliancesCSV provides descriptive header errors');
+
+          // 6. Row-level errors and invalid rows
+          const rowErrorsCsv = [
+            'Name,Category,Power (Watts),Quantity,Daily Hours,Operating Days',
+            'Valid Radio,Entertainment,20,1,2,30',
+            ',Kitchen,500,1,2,30', // missing name
+            'Negative Watts,Cooling,-100,1,2,30', // negative watts
+            'Excess Hours,Lighting,10,1,26,30' // hours > 24
+          ].join('\n');
+          const rowErrParse = WattWatchStorage.parseAppliancesCSV(rowErrorsCsv);
+          assert(rowErrParse.success === false, 'parseAppliancesCSV reports non-success when rows contain errors');
+          assert(rowErrParse.validRecords.length === 1, 'parseAppliancesCSV returns only the valid row');
+          assert(rowErrParse.errors.length === 3, 'parseAppliancesCSV records all 3 row-level errors with line numbers');
+          assert(rowErrParse.errors[0].includes('Row 3'), 'parseAppliancesCSV includes line number for missing name error');
+
+          // G. UI Component & Accessibility Safeguards
+          const csvModalEl = document.getElementById('csvPreviewModal');
+          assert(csvModalEl !== null, 'csvPreviewModal exists in DOM');
+          assert(csvModalEl && csvModalEl.getAttribute('role') === 'dialog', 'csvPreviewModal has role="dialog"');
+          assert(csvModalEl && csvModalEl.getAttribute('aria-modal') === 'true', 'csvPreviewModal has aria-modal="true"');
+
+          const meterCardEl = document.getElementById('actualMeterTrackerCard');
+          assert(meterCardEl !== null, 'actualMeterTrackerCard exists in DOM');
+          assert(document.getElementById('meterCycleStart') !== null, 'meterCycleStart input exists in DOM');
+          assert(document.getElementById('meterCycleEnd') !== null, 'meterCycleEnd input exists in DOM');
+          assert(document.getElementById('meterStartReading') !== null, 'meterStartReading input exists in DOM');
+          assert(document.getElementById('meterCurrentReading') !== null, 'meterCurrentReading input exists in DOM');
+          assert(document.getElementById('meterActualCost') !== null, 'meterActualCost input exists in DOM');
+
+          const btnAdvToggle = document.getElementById('btnToggleAdvancedAppliance');
+          assert(btnAdvToggle !== null, 'btnToggleAdvancedAppliance exists in DOM');
+          assert(btnAdvToggle && btnAdvToggle.hasAttribute('aria-expanded'), 'btnToggleAdvancedAppliance has aria-expanded attribute');
+          assert(btnAdvToggle && btnAdvToggle.getAttribute('aria-controls') === 'applianceAdvancedFields', 'btnToggleAdvancedAppliance links to applianceAdvancedFields');
+
+          const whatIfCard = document.getElementById('whatIfScenariosCard');
+          assert(whatIfCard !== null, 'whatIfScenariosCard exists in DOM in Recommendations view');
+
+          // H. End-to-End Workflow Verifications
+          // 1. Simulator scenario application
+          if (typeof WattWatchSimulator !== 'undefined' && acScenario) {
+            WattWatchSimulator.applyScenario(acScenario);
+            const simSelect = document.getElementById('simApplianceSelect');
+            if (simSelect) {
+              assert(simSelect.value === acScenario.applianceId, 'WattWatchSimulator.applyScenario selects target appliance in simulator');
+            }
+          }
+
+          // 2. CSV Import Workflow (Merge vs Replace)
+          const testExisting = [
+            { id: 'app_p2_exist1', name: 'Existing Fan', category: 'Cooling', powerWatts: 70, quantity: 1, dailyHours: 8, operatingDays: 30 }
+          ];
+          WattWatchStorage.saveAppliances(testExisting);
+          assert(WattWatchStorage.getAppliances().length === 1, 'Initial test inventory has 1 appliance');
+
+          // Open CSV preview with parsed appliances
+          WattWatchApp.openCsvPreviewModal(basicParse);
+          const previewBody = document.getElementById('csvPreviewTableBody');
+          assert(previewBody && previewBody.children.length === 2, 'openCsvPreviewModal populates preview table with 2 rows');
+
+          // Confirm import in merge mode
+          const mergeRadio = document.getElementById('csvModeMerge');
+          const replaceRadio = document.getElementById('csvModeReplace');
+          if (mergeRadio) mergeRadio.checked = true;
+          if (replaceRadio) replaceRadio.checked = false;
+          WattWatchApp.confirmCsvImport();
+          assert(WattWatchStorage.getAppliances().length === 3, 'confirmCsvImport in merge mode appends records without overwriting existing (1 + 2 = 3)');
+
+          // Re-open and confirm in replace mode
+          WattWatchApp.openCsvPreviewModal(basicParse);
+          if (replaceRadio) replaceRadio.checked = true;
+          if (mergeRadio) mergeRadio.checked = false;
+          WattWatchApp.confirmCsvImport();
+          assert(WattWatchStorage.getAppliances().length === 2, 'confirmCsvImport in replace mode replaces active inventory entirely');
+
+          // 3. Remove all appliances and verify zero-inventory dashboard state
+          WattWatchStorage.saveAppliances([]);
+          const zeroApps = WattWatchStorage.getAppliances();
+          assert(zeroApps.length === 0, 'Inventory emptied cleanly');
+          const zeroSummary = WattWatchCalculations.calculateHouseholdSummary([], 8.0);
+          assert(zeroSummary.isValid === true && zeroSummary.totalMonthlyKwh === 0, 'calculateHouseholdSummary handles empty inventory validly');
+          const zeroPacingCheck = WattWatchCalculations.calculateDailyPacing(0, 2500, 0, { electricityRate: 8.0, tariffModel: 'flat' }, 30);
+          assert(zeroPacingCheck.dailyBudgetInr > 0 && zeroPacingCheck.pacingStatus === 'under', 'Daily budget pacing remains active under zero inventory');
+
+        } finally {
+          WattWatchStorage.setTestNamespace(origNs);
+          WattWatchApp.openConfirmDialog = origConfirm;
+          WattWatchApp.showToast = origToast;
+
+          // Clean up test namespace keys
+          const keysToRemove = [];
+          for (let i = 0; i < localStorage.length; i++) {
+            const k = localStorage.key(i);
+            if (k && k.startsWith(phase2NsPrefix)) {
               keysToRemove.push(k);
             }
           }

@@ -278,5 +278,206 @@ const WattWatchRecommendations = {
       isEstimated: true,
       accuracyDisclaimer: 'All recommendations are calculated estimates based on configured equipment ratings and operating schedules, not guaranteed utility reductions.'
     };
+  },
+
+  /**
+   * Identifies top-consuming appliances and generates actionable what-if simulation scenarios
+   * with precise monthly and annual energy & rupee savings calculations.
+   * @param {Array} appliances
+   * @param {number|Object} rateOrSettings
+   * @returns {Object} Scenarios and ranked consumers
+   */
+  generateWhatIfScenarios(appliances = [], rateOrSettings = 8.00) {
+    if (!appliances || appliances.length === 0) {
+      return {
+        scenarios: [],
+        rankedConsumers: [],
+        isEstimated: true,
+        accuracyDisclaimer: 'Calculated estimates based on active tariff structure.'
+      };
+    }
+
+    let settings = null;
+    let fallbackRate = 8.00;
+
+    if (typeof rateOrSettings === 'object' && rateOrSettings !== null) {
+      settings = rateOrSettings;
+      fallbackRate = WattWatchCalculations.validateTariffRate(settings.electricityRate, 8.00);
+    } else {
+      fallbackRate = WattWatchCalculations.validateTariffRate(rateOrSettings, 8.00);
+      settings = { tariffModel: 'flat', electricityRate: fallbackRate };
+    }
+
+    const summary = WattWatchCalculations.calculateHouseholdSummary(appliances, settings);
+    const enriched = (summary && summary.appliances) ? [...summary.appliances] : [];
+    const totalMonthlyKwh = summary.totalMonthlyKwh || 0;
+    const isSlab = settings.tariffModel === 'slab';
+
+    // Rank appliances by monthly kWh descending
+    enriched.sort((a, b) => (b.monthlyKwh || 0) - (a.monthlyKwh || 0));
+
+    const computeMonetarySavings = (savedKwh) => {
+      if (!savedKwh || savedKwh <= 0 || isNaN(savedKwh)) return 0;
+      if (isSlab && settings) {
+        const curKwh = Math.max(0, totalMonthlyKwh);
+        const postKwh = Math.max(0, curKwh - savedKwh);
+        const baseTariff = WattWatchCalculations.calculateAdvancedTariff(curKwh, settings);
+        const postTariff = WattWatchCalculations.calculateAdvancedTariff(postKwh, settings);
+        if (baseTariff && baseTariff.isValid && postTariff && postTariff.isValid) {
+          return Math.max(0, baseTariff.totalCost - postTariff.totalCost);
+        }
+      }
+      return WattWatchCalculations.calculateCost(savedKwh, fallbackRate);
+    };
+
+    const scenarios = [];
+    const topConsumers = enriched.slice(0, 4);
+
+    topConsumers.forEach((app, rankIdx) => {
+      const curKwh = app.monthlyKwh || 0;
+      const curHours = app.dailyHours || 0;
+      const power = app.powerWatts || 0;
+      const days = app.operatingDays || 30;
+      const qty = app.quantity || 1;
+
+      if (curKwh <= 0) return;
+
+      // Scenario 1: Runtime Reduction (-1 hr/day, or -0.5 hr if hours <= 2)
+      if (curHours >= 1.0) {
+        const trimHours = curHours > 2.0 ? 1.0 : 0.5;
+        const targetHours = Math.max(0.5, curHours - trimHours);
+        const savedKwh = Math.min(curKwh, Math.max(0, WattWatchCalculations.calculateMonthlyKwh(power, qty, trimHours, days)));
+        const savedCost = computeMonetarySavings(savedKwh);
+
+        if (savedKwh > 0.5) {
+          scenarios.push({
+            id: `whatif_runtime_${app.id}`,
+            applianceId: app.id,
+            applianceName: app.name,
+            rank: rankIdx + 1,
+            category: app.category,
+            title: `Trim ${app.name} by ${trimHours} hr/day`,
+            badge: 'Runtime Reduction',
+            badgeClass: 'badge-burgundy',
+            description: `Operating for ${targetHours}h instead of ${curHours}h daily reduces consumption while maintaining regular household convenience.`,
+            currentMonthlyKwh: curKwh,
+            savedKwhMonthly: savedKwh,
+            savedCostMonthly: savedCost,
+            annualSavingsCost: savedCost * 12,
+            targetWatts: power,
+            targetHours: targetHours,
+            targetDays: days,
+            targetQty: qty,
+            isEstimated: true
+          });
+        }
+      }
+
+      // Scenario 2: Temperature / Duty Optimization (for Cooling / AC)
+      if (app.category === 'Cooling' && power >= 750) {
+        // Shifting from 20C to 24C saves approx 12-18% of compressor duty
+        const savedKwh = Math.min(curKwh, curKwh * 0.15);
+        const savedCost = computeMonetarySavings(savedKwh);
+        const targetWatts = Math.round(power * 0.85);
+
+        scenarios.push({
+          id: `whatif_eco_${app.id}`,
+          applianceId: app.id,
+          applianceName: app.name,
+          rank: rankIdx + 1,
+          category: app.category,
+          title: `Set ${app.name} to 24°C Eco Thermostat`,
+          badge: 'Thermal Optimization',
+          badgeClass: 'badge-gold',
+          description: `BEE benchmarks show each degree above 20°C saves ~6% compressor electricity. Setting 24°C cuts thermal load by ~15%.`,
+          currentMonthlyKwh: curKwh,
+          savedKwhMonthly: savedKwh,
+          savedCostMonthly: savedCost,
+          annualSavingsCost: savedCost * 12,
+          targetWatts: targetWatts,
+          targetHours: curHours,
+          targetDays: days,
+          targetQty: qty,
+          isEstimated: true
+        });
+      }
+
+      // Scenario 3: Phantom Standby Elimination (for TV, PCs, Audio, or standbyWatts > 0)
+      if ((app.category === 'Entertainment' || app.category === 'Computing' || (app.standbyWatts && app.standbyWatts > 0)) && curKwh > 10) {
+        const standbyW = (app.standbyWatts && app.standbyWatts > 0) ? app.standbyWatts : 12;
+        const idleHours = Math.max(4, 24 - curHours);
+        const savedKwh = Math.min(curKwh, (standbyW * idleHours * 30 * qty) / 1000);
+        const savedCost = computeMonetarySavings(savedKwh);
+
+        if (savedKwh > 0.5) {
+          scenarios.push({
+            id: `whatif_standby_${app.id}`,
+            applianceId: app.id,
+            applianceName: app.name,
+            rank: rankIdx + 1,
+            category: app.category,
+            title: `Eliminate Standby Phantom Draw on ${app.name}`,
+            badge: 'Zero Phantom Load',
+            badgeClass: 'badge-blue',
+            description: `Powering down from the wall socket or using a smart strip cuts continuous ~${standbyW}W parasitic standby draw during idle hours.`,
+            currentMonthlyKwh: curKwh,
+            savedKwhMonthly: savedKwh,
+            savedCostMonthly: savedCost,
+            annualSavingsCost: savedCost * 12,
+            targetWatts: power,
+            targetHours: curHours,
+            targetDays: days,
+            targetQty: qty,
+            isEstimated: true
+          });
+        }
+      }
+
+      // Scenario 4: High Wattage Lighting Modernization
+      if (app.category === 'Lighting' && power >= 25) {
+        const targetWatts = 9;
+        const savedKwh = Math.min(curKwh, WattWatchCalculations.calculateMonthlyKwh(power - targetWatts, qty, curHours, days));
+        const savedCost = computeMonetarySavings(savedKwh);
+
+        scenarios.push({
+          id: `whatif_led_${app.id}`,
+          applianceId: app.id,
+          applianceName: app.name,
+          rank: rankIdx + 1,
+          category: app.category,
+          title: `Retrofit ${app.name} with 9W High-Efficiency LED`,
+          badge: 'Hardware Modernization',
+          badgeClass: 'badge-cooling',
+          description: `Replace legacy bulbs with modern 9W architectural LEDs offering identical illumination with ~${((power - targetWatts) / power * 100).toFixed(0)}% lower wattage.`,
+          currentMonthlyKwh: curKwh,
+          savedKwhMonthly: savedKwh,
+          savedCostMonthly: savedCost,
+          annualSavingsCost: savedCost * 12,
+          targetWatts: targetWatts,
+          targetHours: curHours,
+          targetDays: days,
+          targetQty: qty,
+          isEstimated: true
+        });
+      }
+    });
+
+    // Sort scenarios by highest monthly cost savings
+    scenarios.sort((a, b) => b.savedCostMonthly - a.savedCostMonthly);
+
+    return {
+      scenarios,
+      rankedConsumers: topConsumers.map((a, i) => ({
+        rank: i + 1,
+        id: a.id,
+        name: a.name,
+        category: a.category,
+        monthlyKwh: a.monthlyKwh,
+        monthlyCost: a.monthlyCost,
+        sharePercentage: a.sharePercentage
+      })),
+      isEstimated: true,
+      accuracyDisclaimer: 'Calculated estimates based on active household tariff structure.'
+    };
   }
 };

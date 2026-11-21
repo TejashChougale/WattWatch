@@ -79,13 +79,29 @@ const WattWatchAppliances = {
     }
 
     // Modal Live Preview Input Triggers
-    const modalInputs = ['modalPowerWatts', 'modalQuantity', 'modalDailyHours', 'modalOperatingDays'];
+    const modalInputs = [
+      'modalPowerWatts', 'modalQuantity', 'modalDailyHours', 'modalOperatingDays',
+      'modalWeekdayHours', 'modalWeekendHours', 'modalActiveDaysWeek', 'modalDutyCycle', 'modalStandbyWatts'
+    ];
     modalInputs.forEach(id => {
       const el = document.getElementById(id);
       if (el) {
         el.addEventListener('input', () => this.updateModalLivePreview());
       }
     });
+
+    // Advanced Usage Profile Toggle Button
+    const btnToggleAdv = document.getElementById('btnToggleAdvancedAppliance');
+    const advContainer = document.getElementById('applianceAdvancedFields');
+    const advChevron = document.getElementById('advancedApplianceChevron');
+    if (btnToggleAdv && advContainer) {
+      btnToggleAdv.addEventListener('click', () => {
+        const isCollapsed = advContainer.style.display === 'none' || !advContainer.style.display;
+        advContainer.style.display = isCollapsed ? 'block' : 'none';
+        btnToggleAdv.setAttribute('aria-expanded', isCollapsed ? 'true' : 'false');
+        if (advChevron) advChevron.textContent = isCollapsed ? '▴' : '▾';
+      });
+    }
 
     // Preset selection change in modal
     const presetSelect = document.getElementById('modalPresetSelect');
@@ -178,6 +194,12 @@ const WattWatchAppliances = {
     const rawDays = document.getElementById('modalOperatingDays')?.value;
     const days = (rawDays !== undefined && rawDays !== null && rawDays.trim() !== '') ? Number(rawDays) : NaN;
 
+    const rawWd = document.getElementById('modalWeekdayHours')?.value;
+    const rawWe = document.getElementById('modalWeekendHours')?.value;
+    const rawAdw = document.getElementById('modalActiveDaysWeek')?.value;
+    const rawDc = document.getElementById('modalDutyCycle')?.value;
+    const rawSb = document.getElementById('modalStandbyWatts')?.value;
+
     const settings = WattWatchStorage.getSettings();
     let rate = 8.00;
     if (settings.tariffModel === 'slab') {
@@ -191,8 +213,27 @@ const WattWatchAppliances = {
         : 8.00;
     }
 
-    const dailyKwh = WattWatchCalculations.calculateDailyKwh(power, qty, hours);
-    const monthlyKwh = WattWatchCalculations.calculateMonthlyKwh(power, qty, hours, days);
+    const candidate = {
+      powerWatts: power,
+      quantity: qty,
+      dailyHours: hours,
+      operatingDays: days
+    };
+    if (rawWd !== undefined && rawWd !== null && rawWd.trim() !== '') candidate.weekdayHours = Number(rawWd);
+    if (rawWe !== undefined && rawWe !== null && rawWe.trim() !== '') candidate.weekendHours = Number(rawWe);
+    if (rawAdw !== undefined && rawAdw !== null && rawAdw.trim() !== '') candidate.activeDaysPerWeek = Number(rawAdw);
+    if (rawDc !== undefined && rawDc !== null && rawDc.trim() !== '') candidate.dutyCyclePercent = Number(rawDc);
+    if (rawSb !== undefined && rawSb !== null && rawSb.trim() !== '') candidate.standbyWatts = Number(rawSb);
+
+    let dailyKwh, monthlyKwh;
+    if (typeof WattWatchCalculations !== 'undefined' && typeof WattWatchCalculations.calculateApplianceMetrics === 'function') {
+      const metrics = WattWatchCalculations.calculateApplianceMetrics(candidate);
+      dailyKwh = metrics.dailyKwh;
+      monthlyKwh = (days && days !== 30 && Number.isFinite(days)) ? (dailyKwh * days) : metrics.monthlyKwh;
+    } else {
+      dailyKwh = WattWatchCalculations.calculateDailyKwh(power, qty, hours);
+      monthlyKwh = WattWatchCalculations.calculateMonthlyKwh(power, qty, hours, days);
+    }
     const monthlyCost = WattWatchCalculations.calculateCost(monthlyKwh, rate);
 
     const elDaily = document.getElementById('previewDailyKwh');
@@ -282,6 +323,28 @@ const WattWatchAppliances = {
       operatingDays: rawDays
     };
 
+    const wdInput = document.getElementById('modalWeekdayHours');
+    const weInput = document.getElementById('modalWeekendHours');
+    const adwInput = document.getElementById('modalActiveDaysWeek');
+    const dcInput = document.getElementById('modalDutyCycle');
+    const sbInput = document.getElementById('modalStandbyWatts');
+
+    if (wdInput && wdInput.value !== undefined && wdInput.value !== null && wdInput.value.trim() !== '') {
+      candidate.weekdayHours = Number(wdInput.value);
+    }
+    if (weInput && weInput.value !== undefined && weInput.value !== null && weInput.value.trim() !== '') {
+      candidate.weekendHours = Number(weInput.value);
+    }
+    if (adwInput && adwInput.value !== undefined && adwInput.value !== null && adwInput.value.trim() !== '') {
+      candidate.activeDaysPerWeek = Number(adwInput.value);
+    }
+    if (dcInput && dcInput.value !== undefined && dcInput.value !== null && dcInput.value.trim() !== '') {
+      candidate.dutyCyclePercent = Number(dcInput.value);
+    }
+    if (sbInput && sbInput.value !== undefined && sbInput.value !== null && sbInput.value.trim() !== '') {
+      candidate.standbyWatts = Number(sbInput.value);
+    }
+
     const validated = WattWatchStorage.validateAppliance(candidate);
     if (!validated.valid) {
       this.showFieldError('modalApplianceName', validated.error);
@@ -346,6 +409,30 @@ const WattWatchAppliances = {
       const daysEl = document.getElementById('modalOperatingDays');
       if (daysEl) daysEl.value = existing.operatingDays;
 
+      const wdEl = document.getElementById('modalWeekdayHours');
+      const weEl = document.getElementById('modalWeekendHours');
+      const adwEl = document.getElementById('modalActiveDaysWeek');
+      const dcEl = document.getElementById('modalDutyCycle');
+      const sbEl = document.getElementById('modalStandbyWatts');
+
+      if (wdEl) wdEl.value = existing.weekdayHours !== undefined ? existing.weekdayHours : '';
+      if (weEl) weEl.value = existing.weekendHours !== undefined ? existing.weekendHours : '';
+      if (adwEl) adwEl.value = existing.activeDaysPerWeek !== undefined ? existing.activeDaysPerWeek : '';
+      if (dcEl) dcEl.value = existing.dutyCyclePercent !== undefined ? existing.dutyCyclePercent : '';
+      if (sbEl) sbEl.value = existing.standbyWatts !== undefined ? existing.standbyWatts : '';
+
+      const hasAdv = (existing.weekdayHours !== undefined) || (existing.weekendHours !== undefined) ||
+        (existing.activeDaysPerWeek !== undefined && existing.activeDaysPerWeek < 7) ||
+        (existing.dutyCyclePercent !== undefined && existing.dutyCyclePercent < 100) ||
+        (existing.standbyWatts !== undefined && existing.standbyWatts > 0);
+
+      const advContainer = document.getElementById('applianceAdvancedFields');
+      const btnToggleAdv = document.getElementById('btnToggleAdvancedAppliance');
+      const advChevron = document.getElementById('advancedApplianceChevron');
+      if (advContainer) advContainer.style.display = hasAdv ? 'block' : 'none';
+      if (btnToggleAdv) btnToggleAdv.setAttribute('aria-expanded', hasAdv ? 'true' : 'false');
+      if (advChevron) advChevron.textContent = hasAdv ? '▴' : '▾';
+
       if (presetSelect) presetSelect.value = '';
     } else {
       if (titleEl) titleEl.textContent = 'Add New Appliance';
@@ -359,6 +446,25 @@ const WattWatchAppliances = {
       if (opDays) opDays.value = '30';
       const dailyHrs = document.getElementById('modalDailyHours');
       if (dailyHrs) dailyHrs.value = '4';
+
+      const wdEl = document.getElementById('modalWeekdayHours');
+      const weEl = document.getElementById('modalWeekendHours');
+      const adwEl = document.getElementById('modalActiveDaysWeek');
+      const dcEl = document.getElementById('modalDutyCycle');
+      const sbEl = document.getElementById('modalStandbyWatts');
+      if (wdEl) wdEl.value = '';
+      if (weEl) weEl.value = '';
+      if (adwEl) adwEl.value = '';
+      if (dcEl) dcEl.value = '';
+      if (sbEl) sbEl.value = '';
+
+      const advContainer = document.getElementById('applianceAdvancedFields');
+      const btnToggleAdv = document.getElementById('btnToggleAdvancedAppliance');
+      const advChevron = document.getElementById('advancedApplianceChevron');
+      if (advContainer) advContainer.style.display = 'none';
+      if (btnToggleAdv) btnToggleAdv.setAttribute('aria-expanded', 'false');
+      if (advChevron) advChevron.textContent = '▾';
+
       if (presetSelect) presetSelect.value = '';
     }
 
@@ -581,6 +687,10 @@ const WattWatchAppliances = {
       const safeCat = this.escapeHtml(app.category || 'Other');
       const badgeClass = `badge-${encodeURIComponent(String(app.category || 'other').toLowerCase().replace(/[^a-z0-9]/g, ''))}`;
       const isHighLoad = (Number(app.sharePercentage) || 0) >= 20;
+      const hasAdv = (app.dutyCyclePercent !== undefined && app.dutyCyclePercent < 100) ||
+        (app.standbyWatts !== undefined && app.standbyWatts > 0) ||
+        (app.weekdayHours !== undefined && app.weekendHours !== undefined && app.weekdayHours !== app.weekendHours) ||
+        (app.activeDaysPerWeek !== undefined && app.activeDaysPerWeek < 7);
 
       tr.innerHTML = `
         <td>
@@ -588,6 +698,7 @@ const WattWatchAppliances = {
             <span class="appliance-main-name">
               ${this.escapeHtml(app.name)}
               ${isHighLoad ? '<span class="badge badge-burgundy" style="margin-left: 0.35rem; font-size: 0.65rem;">High Load</span>' : ''}
+              ${hasAdv ? '<span class="badge badge-cooling" style="margin-left: 0.35rem; font-size: 0.65rem;" title="Advanced usage profile active">Advanced</span>' : ''}
             </span>
             <span class="appliance-sub-qty">Qty: ${Number(app.quantity) || 1} unit${(Number(app.quantity) || 1) > 1 ? 's' : ''}</span>
           </div>
