@@ -1270,6 +1270,12 @@ const WattWatchApp = {
         const file = e.target.files?.[0];
         if (!file) return;
 
+        if (file.size > 5 * 1024 * 1024) {
+          this.showToast('Backup file exceeds the 5 MB limit. Please select a valid WattWatch backup.', 'error', 'Import Error');
+          fileInput.value = '';
+          return;
+        }
+
         const reader = new FileReader();
         reader.onload = (event) => {
           const rawText = event.target.result;

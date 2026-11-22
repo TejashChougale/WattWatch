@@ -4270,6 +4270,529 @@
         }
       }
 
+      // SECTION 49: Phase 4 Data Portability, Performance, Error Resilience & Cache Validation
+      {
+        const origNs = WattWatchStorage.testNamespace;
+        const phase4Ns = 'wattwatch_audit_test_phase4_';
+        WattWatchStorage.setTestNamespace(phase4Ns);
+
+        try {
+          // 1. JSON Export Schema & Metadata
+          WattWatchStorage.clearAllData();
+          WattWatchStorage.saveMeterTracking({
+            cycleStartDate: '2026-11-01',
+            cycleEndDate: '2026-11-30',
+            startReading: 1200,
+            currentReading: 1450,
+            actualCost: 2000
+          });
+          const testExportStr = WattWatchStorage.exportDataJSON();
+          const parsedExport = JSON.parse(testExportStr);
+
+          assert(parsedExport.version === '2.0', 'JSON export version is 2.0');
+          assert(parsedExport.backupVersion === '2.0', 'JSON export backupVersion is 2.0');
+          assert(typeof parsedExport.timestamp === 'number' && parsedExport.timestamp > 0, 'JSON export timestamp is valid numeric timestamp');
+          assert(typeof parsedExport.exportedAt === 'string' && parsedExport.exportedAt.includes('T'), 'JSON export exportedAt is ISO date string');
+          assert(parsedExport.generator === 'WattWatch Energy Analytics', 'JSON export generator signature is WattWatch Energy Analytics');
+          assert(parsedExport.accountType === 'guest', 'JSON export accountType is guest in unauthenticated mode');
+          assert(Array.isArray(parsedExport.appliances), 'JSON export appliances is array');
+          assert(Array.isArray(parsedExport.history), 'JSON export history is array');
+          assert(typeof parsedExport.settings === 'object' && parsedExport.settings !== null, 'JSON export settings is object');
+          assert(parsedExport.meterTracking && parsedExport.meterTracking.startReading === 1200, 'JSON export preserves active meterTracking data');
+
+          // 2. Strict JSON Restore Validation
+          // A: Oversized payload (> 5MB)
+          const oversizedPayload = ' ' + testExportStr + ' '.repeat(5 * 1024 * 1024);
+          const resOversized = WattWatchStorage.importDataJSON(oversizedPayload);
+          assert(resOversized.success === false, 'importDataJSON rejects oversized payload (>5MB)');
+          assert(resOversized.error && resOversized.error.includes('maximum allowed size'), 'importDataJSON error identifies maximum allowed size');
+
+          // B: Non-object root
+          assert(WattWatchStorage.importDataJSON('[]').success === false, 'importDataJSON rejects array root');
+          assert(WattWatchStorage.importDataJSON('"test"').success === false, 'importDataJSON rejects string root');
+          assert(WattWatchStorage.importDataJSON('null').success === false, 'importDataJSON rejects null root');
+          assert(WattWatchStorage.importDataJSON('').success === false, 'importDataJSON rejects empty string');
+
+          // C: Unsupported versions
+          const resUnsupported = WattWatchStorage.importDataJSON(JSON.stringify({ version: '3.0', appliances: [] }));
+          assert(resUnsupported.success === false && resUnsupported.error.includes('Unsupported backup version'), 'importDataJSON rejects unsupported version (3.0)');
+
+          // D: Exceeded item limits (> 500 appliances, > 200 history)
+          const hugeAppliances = Array.from({ length: 501 }, (_, i) => ({
+            id: `app_${i}`,
+            name: `App ${i}`,
+            category: 'Cooling',
+            powerWatts: 100,
+            dailyHours: 2,
+            operatingDays: 30,
+            quantity: 1
+          }));
+          const resHuge = WattWatchStorage.importDataJSON(JSON.stringify({ version: '2.0', appliances: hugeAppliances }));
+          assert(resHuge.success === false && resHuge.error.includes('too many appliances'), 'importDataJSON rejects payload with > 500 appliances');
+
+          // 3. In-Memory Caching & Cache Invalidation
+          WattWatchStorage.clearAllData();
+          // Prime cache
+          const initialApps = WattWatchStorage.getAppliances();
+          assert(Array.isArray(initialApps) && initialApps.length === 0, 'Initial appliances is empty');
+          assert(WattWatchStorage._cachedAppliances !== null, 'In-memory appliance cache is populated after read');
+
+          const fakeApps = [{ id: 'app_direct', name: 'Direct App', category: 'Lighting', powerWatts: 50, dailyHours: 4, operatingDays: 30, quantity: 1, createdAt: Date.now() }];
+          WattWatchStorage.saveAppliances(fakeApps);
+          assert(WattWatchStorage._cachedAppliances === null, 'saveAppliances invalidates in-memory appliances cache');
+
+          // Prime cache again with saved data
+          const read1 = WattWatchStorage.getAppliances();
+          assert(read1.length === 1 && read1[0].name === 'Direct App', 'getAppliances returns saved appliances');
+
+          // Spy on JSON.parse to verify subsequent read uses in-memory cache without re-parsing
+          const origJsonParse = JSON.parse;
+          let parseCalls = 0;
+          JSON.parse = function(...args) {
+            parseCalls++;
+            return origJsonParse.apply(this, args);
+          };
+          try {
+            const cachedRead = WattWatchStorage.getAppliances();
+            assert(cachedRead.length === 1 && cachedRead[0].name === 'Direct App', 'getAppliances returns valid array from cache');
+            assert(parseCalls === 0, 'getAppliances returns cached result without invoking JSON.parse again');
+          } finally {
+            JSON.parse = origJsonParse;
+          }
+
+          // Test settings cache
+          WattWatchStorage.getSettings();
+          assert(WattWatchStorage._cachedSettings !== null, 'In-memory settings cache is populated after read');
+          WattWatchStorage.saveSettings({ electricityRate: 9.50 });
+          assert(WattWatchStorage._cachedSettings === null, 'saveSettings invalidates in-memory settings cache');
+          assert(WattWatchStorage.getSettings().electricityRate === 9.50, 'getSettings returns fresh settings after cache invalidation');
+
+          // Test history cache
+          WattWatchStorage.getHistory();
+          assert(WattWatchStorage._cachedHistory !== null, 'In-memory history cache is populated after read');
+          WattWatchStorage.saveHistory([{
+            id: 'snap_cache_test',
+            period: '2026-10',
+            totalKwh: 250,
+            totalCost: 2000,
+            createdAt: Date.now()
+          }]);
+          assert(WattWatchStorage._cachedHistory === null, 'saveHistory invalidates in-memory history cache');
+          assert(WattWatchStorage.getHistory().length === 1, 'getHistory returns fresh history after cache invalidation');
+
+          // Test clearAllData invalidates cache
+          WattWatchStorage.clearAllData();
+          assert(WattWatchStorage._cachedAppliances === null, 'clearAllData invalidates appliances cache');
+          assert(WattWatchStorage._cachedSettings === null, 'clearAllData invalidates settings cache');
+          assert(WattWatchStorage._cachedHistory === null, 'clearAllData invalidates history cache');
+
+          // 4. Safe Firestore Profile Snapshot Handling
+          // Check that undefined/null snapshot data does not crash
+          const mockEmptySnap = { exists: () => true, data: () => null };
+          assert(mockEmptySnap.exists() && (!mockEmptySnap.data() || typeof mockEmptySnap.data() !== 'object'), 'Null snapshot data guard identifies null data safely');
+          const mockValidSnap = { exists: () => true, data: () => ({ displayName: 'Energy Master' }) };
+          assert(mockValidSnap.exists() && mockValidSnap.data() && mockValidSnap.data().displayName === 'Energy Master', 'Valid snapshot data guard accesses displayName safely');
+
+          // 5. DOM Caching Verification in WattWatchAppliances
+          const domElements = WattWatchAppliances._getModalElements();
+          assert(typeof domElements === 'object' && domElements !== null, 'WattWatchAppliances._getModalElements() returns cached elements map');
+          const domElements2 = WattWatchAppliances._getModalElements();
+          assert(domElements === domElements2, 'WattWatchAppliances._getModalElements() reuses cached element references');
+
+          // 6. Transactional Rollback with Meter Tracking
+          WattWatchStorage.saveAppliances([{ id: 'app_pre_roll', name: 'Pre Rollback App', category: 'Cooling', powerWatts: 100, dailyHours: 2, operatingDays: 30, quantity: 1, createdAt: Date.now() }]);
+          WattWatchStorage.saveMeterTracking({ startReading: 500, currentReading: 650, actualCost: 1200 });
+
+          const importPayloadValid = JSON.stringify({
+            version: '2.0',
+            appliances: [{ id: 'app_new_roll', name: 'New Rollback App', category: 'Kitchen', powerWatts: 200, dailyHours: 1, operatingDays: 30, quantity: 1, createdAt: Date.now() }],
+            history: [{ id: 'snap_fail', period: '2026-08', totalKwh: 300, totalCost: 2400, createdAt: Date.now() }],
+            meterTracking: { startReading: 900, currentReading: 1100, actualCost: 1600 }
+          });
+
+          // Simulate QuotaExceededError when saving history
+          const realSetItem = localStorage.setItem;
+          try {
+            const histKeyToFail = WattWatchStorage._getKey('HISTORY');
+            localStorage.setItem = function(k, v) {
+              if (k === histKeyToFail) {
+                throw new DOMException('Quota exceeded', 'QuotaExceededError');
+              }
+              realSetItem.call(localStorage, k, v);
+            };
+
+            const rollRes = WattWatchStorage.importDataJSON(importPayloadValid, { mode: 'replace' });
+            assert(rollRes.success === false, 'importDataJSON reports failure when storage write fails');
+            assert(rollRes.restored === true, 'importDataJSON reports pre-import state was fully restored');
+          } finally {
+            localStorage.setItem = realSetItem;
+          }
+
+          // Verify state after rollback
+          const postRollApps = WattWatchStorage.getAppliances();
+          assert(postRollApps.length === 1 && postRollApps[0].id === 'app_pre_roll', 'Appliances were restored to pre-import state');
+          const postRollMeter = WattWatchStorage.getMeterTracking();
+          assert(postRollMeter && postRollMeter.startReading === 500, 'Meter tracking was restored to pre-import state');
+
+          // 7. Meter Tracking Validation & Integrity Checks
+          // 7A: Rejection of invalid types
+          assert(WattWatchStorage.validateMeterTracking(null).valid === false, 'validateMeterTracking rejects null');
+          assert(WattWatchStorage.validateMeterTracking('invalid').valid === false, 'validateMeterTracking rejects string');
+          assert(WattWatchStorage.validateMeterTracking([1, 2, 3]).valid === false, 'validateMeterTracking rejects array');
+          assert(WattWatchStorage.validateMeterTracking(true).valid === false, 'validateMeterTracking rejects boolean');
+
+          // 7B: Rejection of negative or non-finite numbers
+          assert(WattWatchStorage.validateMeterTracking({ startReading: -50 }).valid === false, 'validateMeterTracking rejects negative startReading');
+          assert(WattWatchStorage.validateMeterTracking({ currentReading: -10 }).valid === false, 'validateMeterTracking rejects negative currentReading');
+          assert(WattWatchStorage.validateMeterTracking({ actualUnits: -1 }).valid === false, 'validateMeterTracking rejects negative actualUnits');
+          assert(WattWatchStorage.validateMeterTracking({ actualCost: -500 }).valid === false, 'validateMeterTracking rejects negative actualCost');
+          assert(WattWatchStorage.validateMeterTracking({ startReading: NaN }).valid === false, 'validateMeterTracking rejects NaN startReading');
+          assert(WattWatchStorage.validateMeterTracking({ currentReading: Infinity }).valid === false, 'validateMeterTracking rejects Infinity currentReading');
+          assert(WattWatchStorage.validateMeterTracking({ actualCost: 'abc' }).valid === false, 'validateMeterTracking rejects non-numeric string actualCost');
+          assert(WattWatchStorage.validateMeterTracking({ startReading: true }).valid === false, 'validateMeterTracking rejects boolean startReading');
+
+          // 7C: Rejection of inverted readings
+          const resInverted = WattWatchStorage.validateMeterTracking({ startReading: 1500, currentReading: 1200 });
+          assert(resInverted.valid === false, 'validateMeterTracking rejects currentReading < startReading');
+          assert(resInverted.error && resInverted.error.includes('lower than start meter reading'), 'validateMeterTracking error message explains inverted readings');
+
+          // 7D: Strict date format, calendar validity, and range validation
+          assert(WattWatchStorage.validateMeterTracking({ cycleStartDate: 'bad-date' }).valid === false, 'validateMeterTracking rejects invalid cycleStartDate format');
+          assert(WattWatchStorage.validateMeterTracking({ cycleEndDate: 'bad-date' }).valid === false, 'validateMeterTracking rejects invalid cycleEndDate format');
+          assert(WattWatchStorage.validateMeterTracking({ cycleStartDate: '2026/05/01' }).valid === false, 'validateMeterTracking rejects slashes in date');
+          assert(WattWatchStorage.validateMeterTracking({ cycleStartDate: '01-05-2026' }).valid === false, 'validateMeterTracking rejects DD-MM-YYYY format');
+          assert(WattWatchStorage.validateMeterTracking({ cycleStartDate: '2026-05-01-extra' }).valid === false, 'validateMeterTracking rejects trailing date characters');
+          assert(WattWatchStorage.validateMeterTracking({ cycleStartDate: '2026-5-1' }).valid === false, 'validateMeterTracking rejects non-padded month/day');
+
+          // Impossible calendar dates
+          assert(WattWatchStorage.validateMeterTracking({ cycleStartDate: '2026-02-30' }).valid === false, 'validateMeterTracking rejects impossible date 2026-02-30');
+          assert(WattWatchStorage.validateMeterTracking({ cycleStartDate: '2026-04-31' }).valid === false, 'validateMeterTracking rejects impossible date 2026-04-31 (30 days in April)');
+          assert(WattWatchStorage.validateMeterTracking({ cycleStartDate: '2026-11-31' }).valid === false, 'validateMeterTracking rejects impossible date 2026-11-31 (30 days in Nov)');
+          assert(WattWatchStorage.validateMeterTracking({ cycleStartDate: '2025-02-29' }).valid === false, 'validateMeterTracking rejects Feb 29 in non-leap year (2025)');
+          assert(WattWatchStorage.validateMeterTracking({ cycleStartDate: '2024-02-29' }).valid === true, 'validateMeterTracking accepts Feb 29 in leap year (2024)');
+          assert(WattWatchStorage.validateMeterTracking({ cycleStartDate: '2026-13-01' }).valid === false, 'validateMeterTracking rejects invalid month 13');
+          assert(WattWatchStorage.validateMeterTracking({ cycleStartDate: '2026-00-15' }).valid === false, 'validateMeterTracking rejects invalid month 0');
+          assert(WattWatchStorage.validateMeterTracking({ cycleStartDate: '2026-05-00' }).valid === false, 'validateMeterTracking rejects invalid day 0');
+          assert(WattWatchStorage.validateMeterTracking({ cycleStartDate: '2026-05-32' }).valid === false, 'validateMeterTracking rejects invalid day 32');
+
+          // Date relationship
+          const resInvertedDates = WattWatchStorage.validateMeterTracking({ cycleStartDate: '2026-05-30', cycleEndDate: '2026-05-01' });
+          assert(resInvertedDates.valid === false, 'validateMeterTracking rejects cycleEndDate earlier than cycleStartDate');
+          const resSameDayDates = WattWatchStorage.validateMeterTracking({ cycleStartDate: '2026-05-15', cycleEndDate: '2026-05-15' });
+          assert(resSameDayDates.valid === true, 'validateMeterTracking accepts same-day start and end dates');
+
+          // 7E: Valid meter tracking and computed units
+          const validMeterCheck = WattWatchStorage.validateMeterTracking({
+            cycleStartDate: '2026-06-01',
+            cycleEndDate: '2026-06-30',
+            startReading: 10000,
+            currentReading: 10320,
+            actualCost: 2560,
+            notes: 'A'.repeat(600)
+          });
+          assert(validMeterCheck.valid === true, 'validateMeterTracking accepts valid meter tracking data');
+          assert(validMeterCheck.sanitized.actualUnits === 320, 'validateMeterTracking computes actualUnits from readings');
+          assert(validMeterCheck.sanitized.notes.length === 500, 'validateMeterTracking truncates notes to 500 characters');
+
+          // 7F: saveMeterTracking rejects invalid data
+          assert(WattWatchStorage.saveMeterTracking({ startReading: -50 }) === false, 'saveMeterTracking returns false on negative reading');
+          assert(WattWatchStorage.saveMeterTracking({ startReading: 2000, currentReading: 1000 }) === false, 'saveMeterTracking returns false on inverted readings');
+
+          // 8. JSON Import Meter Validation & Rollback Defense
+          // 8A: Import rejects invalid meterTracking in backup payload before any write
+          WattWatchStorage.clearAllData();
+          WattWatchStorage.saveAppliances([{ id: 'app_safe_1', name: 'Safe App 1', category: 'Lighting', powerWatts: 40, dailyHours: 4, operatingDays: 30, quantity: 1, createdAt: Date.now() }]);
+          WattWatchStorage.saveSettings({ electricityRate: 8.50 });
+          WattWatchStorage.saveTheme('dark');
+          WattWatchStorage.saveMeterTracking({ startReading: 1000, currentReading: 1200, actualCost: 1500 });
+
+          const badMeterImportPayload = JSON.stringify({
+            version: '2.0',
+            appliances: [{ id: 'app_bad_meter', name: 'Bad Meter App', category: 'Kitchen', powerWatts: 500, dailyHours: 1, operatingDays: 30, quantity: 1, createdAt: Date.now() }],
+            meterTracking: { startReading: 5000, currentReading: 4000 } // Inverted readings!
+          });
+
+          const resBadMeterImport = WattWatchStorage.importDataJSON(badMeterImportPayload, { mode: 'replace' });
+          assert(resBadMeterImport.success === false, 'importDataJSON rejects payload with inverted meter readings');
+          assert(resBadMeterImport.error && resBadMeterImport.error.includes('Invalid meter tracking data'), 'importDataJSON error identifies invalid meter tracking data');
+
+          // Verify pre-import data completely untouched
+          const appsAfterBadImport = WattWatchStorage.getAppliances();
+          assert(appsAfterBadImport.length === 1 && appsAfterBadImport[0].id === 'app_safe_1', 'Existing appliances preserved when meter validation fails');
+          const meterAfterBadImport = WattWatchStorage.getMeterTracking();
+          assert(meterAfterBadImport && meterAfterBadImport.startReading === 1000, 'Existing meter tracking preserved when meter validation fails');
+
+          // 8B: Import rollback when meter-storage write fails restores all 5 keys
+          WattWatchStorage.clearAllData();
+          WattWatchStorage.saveAppliances([{ id: 'app_5k_roll', name: 'App 5 Key', category: 'Cooling', powerWatts: 1500, dailyHours: 5, operatingDays: 30, quantity: 1, createdAt: Date.now() }]);
+          WattWatchStorage.saveHistory([{ id: 'snap_5k_roll', period: '2026-09', totalKwh: 350, totalCost: 2800, createdAt: Date.now() }]);
+          WattWatchStorage.saveSettings({ electricityRate: 9.00, budgetInr: 3000 });
+          WattWatchStorage.saveTheme('dark');
+          WattWatchStorage.saveMeterTracking({
+            cycleStartDate: '2026-09-01',
+            cycleEndDate: '2026-09-30',
+            startReading: 8000,
+            currentReading: 8350,
+            actualCost: 2800,
+            notes: 'Original 5-key meter'
+          });
+
+          const importPayloadMeterFail = JSON.stringify({
+            version: '2.0',
+            appliances: [{ id: 'app_incoming', name: 'Incoming App', category: 'Entertainment', powerWatts: 100, dailyHours: 3, operatingDays: 30, quantity: 1, createdAt: Date.now() }],
+            history: [{ id: 'snap_incoming', period: '2026-10', totalKwh: 200, totalCost: 1600, createdAt: Date.now() }],
+            settings: { electricityRate: 7.50, budgetInr: 2000, theme: 'light' },
+            meterTracking: { startReading: 9000, currentReading: 9250, actualCost: 2000 }
+          });
+
+          const realSetItem2 = localStorage.setItem;
+          try {
+            let failedOnce = false;
+            const meterKeyToFail = WattWatchStorage._getKey('METER');
+            localStorage.setItem = function(k, v) {
+              if (k === meterKeyToFail && !failedOnce) {
+                failedOnce = true;
+                throw new DOMException('Storage quota exceeded on meter key', 'QuotaExceededError');
+              }
+              realSetItem2.call(localStorage, k, v);
+            };
+
+            const meterRollRes = WattWatchStorage.importDataJSON(importPayloadMeterFail, { mode: 'replace' });
+            assert(meterRollRes.success === false, 'importDataJSON returns success: false when meter write fails');
+            assert(meterRollRes.restored === true, 'importDataJSON reports full 5-key restoration on meter write failure');
+          } finally {
+            localStorage.setItem = realSetItem2;
+          }
+
+          // Verify all 5 keys were restored to exact pre-import state
+          const restored5kApps = WattWatchStorage.getAppliances();
+          assert(restored5kApps.length === 1 && restored5kApps[0].id === 'app_5k_roll', 'Rollback restores appliances after meter write failure');
+
+          const restored5kHist = WattWatchStorage.getHistory();
+          assert(restored5kHist.length === 1 && restored5kHist[0].id === 'snap_5k_roll', 'Rollback restores history after meter write failure');
+
+          const restored5kSett = WattWatchStorage.getSettings();
+          assert(restored5kSett.electricityRate === 9.00 && restored5kSett.budgetInr === 3000, 'Rollback restores settings after meter write failure');
+
+          const restored5kTheme = WattWatchStorage.getTheme();
+          assert(restored5kTheme === 'dark', 'Rollback restores theme after meter write failure');
+
+          const restored5kMeter = WattWatchStorage.getMeterTracking();
+          assert(restored5kMeter && restored5kMeter.startReading === 8000 && restored5kMeter.notes === 'Original 5-key meter', 'Rollback restores meter tracking after meter write failure');
+
+          // 8C: Import failure when restoration also fails reports restored: false
+          const realSetItem3 = localStorage.setItem;
+          try {
+            const meterKeyToFail = WattWatchStorage._getKey('METER');
+            localStorage.setItem = function(k, v) {
+              if (k === meterKeyToFail) {
+                throw new DOMException('Permanent storage write failure', 'QuotaExceededError');
+              }
+              realSetItem3.call(localStorage, k, v);
+            };
+
+            const permFailRes = WattWatchStorage.importDataJSON(importPayloadMeterFail, { mode: 'replace' });
+            assert(permFailRes.success === false, 'importDataJSON reports success: false on permanent write failure');
+            assert(permFailRes.restored === false, 'importDataJSON reports restored: false when restoration also encounters write error');
+          } finally {
+            localStorage.setItem = realSetItem3;
+          }
+
+          // 8D: Rollback verification when original keys were absent before import
+          WattWatchStorage.clearAllData();
+          // In an empty storage state, appliances, history and meter keys are absent (null)
+          const meterKeyAbsent = WattWatchStorage._getKey('METER');
+          const histKeyAbsent = WattWatchStorage._getKey('HISTORY');
+          assert(localStorage.getItem(meterKeyAbsent) === null, 'Meter key initially absent');
+          assert(localStorage.getItem(histKeyAbsent) === null, 'History key initially absent');
+
+          const payloadTriggerFail = JSON.stringify({
+            version: '2.0',
+            appliances: [{ id: 'app_absent_test', name: 'App Absent', category: 'Computing', powerWatts: 80, dailyHours: 4, operatingDays: 30, quantity: 1, createdAt: Date.now() }],
+            meterTracking: { startReading: 100, currentReading: 200, actualCost: 300 }
+          });
+
+          const realSetItemAbsent = localStorage.setItem;
+          try {
+            let failedOnceAbsent = false;
+            localStorage.setItem = function(k, v) {
+              if (k === meterKeyAbsent && !failedOnceAbsent) {
+                failedOnceAbsent = true;
+                throw new DOMException('Trigger rollback', 'QuotaExceededError');
+              }
+              realSetItemAbsent.call(localStorage, k, v);
+            };
+
+            const absentRollRes = WattWatchStorage.importDataJSON(payloadTriggerFail, { mode: 'replace' });
+            assert(absentRollRes.success === false, 'importDataJSON reports false when rollback triggered from absent keys');
+            assert(absentRollRes.restored === true, 'Rollback verifies successfully when restoring absent keys');
+            assert(localStorage.getItem(meterKeyAbsent) === null, 'Absent meter key verified removed and absent after rollback');
+          } finally {
+            localStorage.setItem = realSetItemAbsent;
+          }
+
+          // 8E: Restoration verification mismatch detection
+          WattWatchStorage.clearAllData();
+          WattWatchStorage.saveAppliances([{ id: 'app_mismatch', name: 'Mismatch App', category: 'Lighting', powerWatts: 20, dailyHours: 2, operatingDays: 30, quantity: 1, createdAt: Date.now() }]);
+          const realGetItem = localStorage.getItem;
+          const realSetItemMismatch = localStorage.setItem;
+          try {
+            const appKeyMismatch = WattWatchStorage._getKey('APPLIANCES');
+            const meterKeyMismatch = WattWatchStorage._getKey('METER');
+            let failedOnceMismatch = false;
+            let restorePhase = false;
+
+            localStorage.setItem = function(k, v) {
+              if (k === meterKeyMismatch && !failedOnceMismatch) {
+                failedOnceMismatch = true;
+                restorePhase = true;
+                throw new DOMException('Fail write', 'QuotaExceededError');
+              }
+              realSetItemMismatch.call(localStorage, k, v);
+            };
+
+            // Simulate storage corruption or mismatch on getItem during restoration
+            localStorage.getItem = function(k) {
+              if (restorePhase && k === appKeyMismatch) {
+                return 'corrupted_mismatch_string';
+              }
+              return realGetItem.call(localStorage, k);
+            };
+
+            // Run import, triggering failure and restore phase
+            const mismatchRes = WattWatchStorage.importDataJSON(payloadTriggerFail, { mode: 'replace' });
+            assert(mismatchRes.success === false, 'importDataJSON returns success: false on verification mismatch');
+            assert(mismatchRes.restored === false, 'importDataJSON reports restored: false when key verification mismatches');
+            assert(Array.isArray(mismatchRes.failedRestorations) && mismatchRes.failedRestorations.includes('appliances'), 'failedRestorations accurately identifies appliances verification mismatch');
+          } finally {
+            localStorage.setItem = realSetItemMismatch;
+            localStorage.getItem = realGetItem;
+          }
+
+          // 8F: Failure to restore an individual key during rollback
+          WattWatchStorage.clearAllData();
+          WattWatchStorage.saveSettings({ electricityRate: 11.00 });
+          const realSetItemKeyFail = localStorage.setItem;
+          try {
+            const meterKeyKF = WattWatchStorage._getKey('METER');
+            const settKeyKF = WattWatchStorage._getKey('SETTINGS');
+            let triggerError = true;
+
+            localStorage.setItem = function(k, v) {
+              if (k === meterKeyKF && triggerError) {
+                triggerError = false;
+                throw new DOMException('Trigger rollback', 'QuotaExceededError');
+              }
+              if (k === settKeyKF && !triggerError) {
+                // Throw specifically when trying to restore settings during rollback
+                throw new DOMException('Cannot restore settings key', 'QuotaExceededError');
+              }
+              realSetItemKeyFail.call(localStorage, k, v);
+            };
+
+            const keyFailRes = WattWatchStorage.importDataJSON(payloadTriggerFail, { mode: 'replace' });
+            assert(keyFailRes.success === false, 'importDataJSON returns success: false when key restore throws');
+            assert(keyFailRes.restored === false, 'importDataJSON reports restored: false when settings key fails to restore');
+            assert(keyFailRes.failedRestorations.includes('settings'), 'failedRestorations lists settings when its restoration throws');
+          } finally {
+            localStorage.setItem = realSetItemKeyFail;
+          }
+
+          // 9. Guest and Authenticated Account Isolation & Strict Protection
+          WattWatchStorage.clearAllData();
+
+          // 9A: Guest backup imported into Authenticated account rejected before write
+          WattWatchStorage.setActiveUser('user_beta_888');
+          WattWatchStorage.saveAppliances([{ id: 'app_user_auth_1', name: 'Auth User App', category: 'Cooling', powerWatts: 2000, dailyHours: 4, operatingDays: 30, quantity: 1, createdAt: Date.now() }]);
+
+          const guestBackupPayload = JSON.stringify({
+            version: '2.0',
+            accountType: 'guest',
+            appliances: [{ id: 'app_guest_inc', name: 'Guest Incoming App', category: 'Kitchen', powerWatts: 800, dailyHours: 1, operatingDays: 30, quantity: 1, createdAt: Date.now() }]
+          });
+
+          const resAuthImportsGuest = WattWatchStorage.importDataJSON(guestBackupPayload, { mode: 'replace' });
+          assert(resAuthImportsGuest.success === false, 'importDataJSON rejects guest backup into authenticated account');
+          assert(resAuthImportsGuest.error && resAuthImportsGuest.error.includes('Account type mismatch'), 'Error message specifies Account type mismatch for guest into auth');
+          assert(WattWatchStorage.getAppliances()[0].id === 'app_user_auth_1', 'Authenticated user appliances preserved when guest import rejected');
+          assert(WattWatchStorage.getActiveUser() === 'user_beta_888', 'activeUserId remains unchanged after rejected import');
+
+          // 9B: Authenticated backup imported into Guest session rejected before write
+          WattWatchStorage.setActiveUser(null);
+          WattWatchStorage.saveAppliances([{ id: 'app_guest_base', name: 'Guest Base App', category: 'Lighting', powerWatts: 25, dailyHours: 6, operatingDays: 30, quantity: 1, createdAt: Date.now() }]);
+
+          const authBackupPayload = JSON.stringify({
+            version: '2.0',
+            accountType: 'authenticated',
+            appliances: [{ id: 'app_auth_inc', name: 'Auth Incoming App', category: 'Entertainment', powerWatts: 150, dailyHours: 2, operatingDays: 30, quantity: 1, createdAt: Date.now() }]
+          });
+
+          const resGuestImportsAuth = WattWatchStorage.importDataJSON(authBackupPayload, { mode: 'replace' });
+          assert(resGuestImportsAuth.success === false, 'importDataJSON rejects authenticated backup into guest session');
+          assert(resGuestImportsAuth.error && resGuestImportsAuth.error.includes('Account type mismatch'), 'Error message specifies Account type mismatch for auth into guest');
+          assert(WattWatchStorage.getAppliances()[0].id === 'app_guest_base', 'Guest appliances preserved when authenticated import rejected');
+          assert(WattWatchStorage.getActiveUser() === null, 'Guest session remains unauthenticated after rejected import');
+
+          // 9C: Matching account types succeed
+          // Guest session imports guest backup
+          const resGuestMatches = WattWatchStorage.importDataJSON(guestBackupPayload, { mode: 'replace' });
+          assert(resGuestMatches.success === true, 'Guest session successfully imports guest backup');
+          assert(WattWatchStorage.getAppliances()[0].id === 'app_guest_inc', 'Guest appliances updated with guest backup');
+
+          // Authenticated session imports authenticated backup
+          WattWatchStorage.setActiveUser('user_beta_888');
+          const resAuthMatches = WattWatchStorage.importDataJSON(authBackupPayload, { mode: 'replace' });
+          assert(resAuthMatches.success === true, 'Authenticated session successfully imports authenticated backup');
+          assert(WattWatchStorage.getAppliances()[0].id === 'app_auth_inc', 'Authenticated appliances updated with auth backup');
+
+          // 9D: Backward compatibility with older backups without accountType
+          const legacyBackupPayload = JSON.stringify({
+            version: '1.0',
+            appliances: [{ id: 'app_legacy_1', name: 'Legacy App', category: 'Cooling', powerWatts: 750, dailyHours: 3, operatingDays: 30, quantity: 1, createdAt: Date.now() }]
+          });
+          const resLegacyInAuth = WattWatchStorage.importDataJSON(legacyBackupPayload, { mode: 'replace' });
+          assert(resLegacyInAuth.success === true, 'Legacy backup without accountType successfully imports into authenticated account');
+
+          WattWatchStorage.setActiveUser(null);
+          const resLegacyInGuest = WattWatchStorage.importDataJSON(legacyBackupPayload, { mode: 'replace' });
+          assert(resLegacyInGuest.success === true, 'Legacy backup without accountType successfully imports into guest mode');
+
+          // 9E: Meter tracking isolation between Guest and Authenticated User
+          WattWatchStorage.clearAllData();
+          WattWatchStorage.setActiveUser(null);
+          WattWatchStorage.saveMeterTracking({ startReading: 1000, currentReading: 1100, actualCost: 800 });
+          const guestMeterKey = WattWatchStorage._getKey('METER');
+          assert(guestMeterKey === `${phase4Ns}wattwatch_meter_v1`, 'Guest meter storage key is wattwatch_meter_v1');
+
+          // Switch to authenticated user
+          WattWatchStorage.setActiveUser('user_alpha_777');
+          const userMeterKey = WattWatchStorage._getKey('METER');
+          assert(userMeterKey === `${phase4Ns}wattwatch_user_user_alpha_777_meter`, 'User meter storage key is isolated by user UID');
+          assert(WattWatchStorage.getMeterTracking() === null, 'User starts with null meter tracking (isolated from guest)');
+
+          WattWatchStorage.saveMeterTracking({ startReading: 5000, currentReading: 5400, actualCost: 3200 });
+          assert(WattWatchStorage.getMeterTracking().startReading === 5000, 'User retrieves own meter tracking');
+
+          // Switch back to guest
+          WattWatchStorage.setActiveUser(null);
+          const retrievedGuestMeter = WattWatchStorage.getMeterTracking();
+          assert(retrievedGuestMeter !== null && retrievedGuestMeter.startReading === 1000, 'Guest meter tracking remains separate and uncorrupted');
+
+        } finally {
+          WattWatchStorage.setTestNamespace(origNs);
+
+          // Clean up test namespace keys
+          const keysToRemove = [];
+          for (let i = 0; i < localStorage.length; i++) {
+            const k = localStorage.key(i);
+            if (k && k.startsWith(phase4Ns)) {
+              keysToRemove.push(k);
+            }
+          }
+          keysToRemove.forEach(k => localStorage.removeItem(k));
+        }
+      }
+
       // Restore sample household for storage
       WattWatchStorage.loadSampleHousehold();
       } catch (err) {

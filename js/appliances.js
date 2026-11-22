@@ -182,27 +182,51 @@ const WattWatchAppliances = {
     this.updateModalLivePreview();
   },
 
+  _modalElements: null,
+
+  _getModalElements() {
+    if (!this._modalElements) {
+      this._modalElements = {
+        powerWatts: document.getElementById('modalPowerWatts'),
+        quantity: document.getElementById('modalQuantity'),
+        dailyHours: document.getElementById('modalDailyHours'),
+        operatingDays: document.getElementById('modalOperatingDays'),
+        weekdayHours: document.getElementById('modalWeekdayHours'),
+        weekendHours: document.getElementById('modalWeekendHours'),
+        activeDaysWeek: document.getElementById('modalActiveDaysWeek'),
+        dutyCycle: document.getElementById('modalDutyCycle'),
+        standbyWatts: document.getElementById('modalStandbyWatts'),
+        elDaily: document.getElementById('previewDailyKwh'),
+        elMonthly: document.getElementById('previewMonthlyKwh'),
+        elCost: document.getElementById('previewMonthlyCost'),
+        elAssumptions: document.getElementById('modalPreviewAssumptions')
+      };
+    }
+    return this._modalElements;
+  },
+
   /**
    * Calculates and refreshes the live calculation preview box inside the modal
    */
   updateModalLivePreview() {
-    const rawPower = document.getElementById('modalPowerWatts')?.value;
+    const dom = this._getModalElements();
+    const rawPower = dom.powerWatts?.value;
     const power = (rawPower !== undefined && rawPower !== null && rawPower.trim() !== '') ? Number(rawPower) : NaN;
 
-    const rawQty = document.getElementById('modalQuantity')?.value;
+    const rawQty = dom.quantity?.value;
     const qty = (rawQty !== undefined && rawQty !== null && rawQty.trim() !== '') ? Number(rawQty) : NaN;
 
-    const rawHours = document.getElementById('modalDailyHours')?.value;
+    const rawHours = dom.dailyHours?.value;
     const hours = (rawHours !== undefined && rawHours !== null && rawHours.trim() !== '') ? Number(rawHours) : NaN;
 
-    const rawDays = document.getElementById('modalOperatingDays')?.value;
+    const rawDays = dom.operatingDays?.value;
     const days = (rawDays !== undefined && rawDays !== null && rawDays.trim() !== '') ? Number(rawDays) : NaN;
 
-    const rawWd = document.getElementById('modalWeekdayHours')?.value;
-    const rawWe = document.getElementById('modalWeekendHours')?.value;
-    const rawAdw = document.getElementById('modalActiveDaysWeek')?.value;
-    const rawDc = document.getElementById('modalDutyCycle')?.value;
-    const rawSb = document.getElementById('modalStandbyWatts')?.value;
+    const rawWd = dom.weekdayHours?.value;
+    const rawWe = dom.weekendHours?.value;
+    const rawAdw = dom.activeDaysWeek?.value;
+    const rawDc = dom.dutyCycle?.value;
+    const rawSb = dom.standbyWatts?.value;
 
     const settings = WattWatchStorage.getSettings();
     let rate = 8.00;
@@ -240,16 +264,11 @@ const WattWatchAppliances = {
     }
     const monthlyCost = WattWatchCalculations.calculateCost(monthlyKwh, rate);
 
-    const elDaily = document.getElementById('previewDailyKwh');
-    const elMonthly = document.getElementById('previewMonthlyKwh');
-    const elCost = document.getElementById('previewMonthlyCost');
+    if (dom.elDaily) dom.elDaily.textContent = WattWatchCalculations.formatKwh(dailyKwh);
+    if (dom.elMonthly) dom.elMonthly.textContent = WattWatchCalculations.formatKwh(monthlyKwh);
+    if (dom.elCost) dom.elCost.textContent = WattWatchCalculations.formatCurrency(monthlyCost, settings.currency);
 
-    if (elDaily) elDaily.textContent = WattWatchCalculations.formatKwh(dailyKwh);
-    if (elMonthly) elMonthly.textContent = WattWatchCalculations.formatKwh(monthlyKwh);
-    if (elCost) elCost.textContent = WattWatchCalculations.formatCurrency(monthlyCost, settings.currency);
-
-    const elAssumptions = document.getElementById('modalPreviewAssumptions');
-    if (elAssumptions) {
+    if (dom.elAssumptions) {
       const parts = [];
       if (candidate.dutyCyclePercent !== undefined && candidate.dutyCyclePercent < 100) {
         parts.push(`${candidate.dutyCyclePercent}% duty cycle`);
@@ -264,11 +283,11 @@ const WattWatchAppliances = {
         parts.push(`${candidate.activeDaysPerWeek} active days/week`);
       }
       if (parts.length > 0) {
-        elAssumptions.textContent = `Modeled with: ${parts.join(' · ')}`;
-        elAssumptions.style.display = 'block';
+        dom.elAssumptions.textContent = `Modeled with: ${parts.join(' · ')}`;
+        dom.elAssumptions.style.display = 'block';
       } else {
-        elAssumptions.textContent = '';
-        elAssumptions.style.display = 'none';
+        dom.elAssumptions.textContent = '';
+        dom.elAssumptions.style.display = 'none';
       }
     }
   },

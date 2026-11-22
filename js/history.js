@@ -481,6 +481,11 @@ const WattWatchHistory = {
       return;
     }
 
+    if (startVal && endVal && endVal < startVal) {
+      WattWatchApp.showToast('Cycle end date cannot be earlier than cycle start date.', 'error', 'Invalid Billing Cycle');
+      return;
+    }
+
     const actualUnits = (startReading !== null && currentReading !== null && currentReading >= startReading)
       ? Math.max(0, currentReading - startReading)
       : null;

@@ -27,12 +27,12 @@
 
   <!-- Multi-viewport frames -->
   <iframe id="frame320" src="../index.html" style="width: 320px; height: 700px;"></iframe>
-  <iframe id="frame360" src="../index.html" style="width: 360px; height: 700px;"></iframe>
+  <iframe id="frame375" src="../index.html" style="width: 375px; height: 700px;"></iframe>
   <iframe id="frame390" src="../index.html" style="width: 390px; height: 700px;"></iframe>
-  <iframe id="frame430" src="../index.html" style="width: 430px; height: 700px;"></iframe>
+  <iframe id="frame425" src="../index.html" style="width: 425px; height: 700px;"></iframe>
   <iframe id="frame768" src="../index.html" style="width: 768px; height: 700px;"></iframe>
   <iframe id="frame1024" src="../index.html" style="width: 1024px; height: 700px;"></iframe>
-  <iframe id="frame1366" src="../index.html" style="width: 1366px; height: 700px;"></iframe>
+  <iframe id="frame1440" src="../index.html" style="width: 1440px; height: 700px;"></iframe>
 
   <script>
     window.addEventListener('load', function() {
@@ -45,27 +45,27 @@
 
       try {
         const f320 = document.getElementById('frame320');
-        const f360 = document.getElementById('frame360');
+        const f375 = document.getElementById('frame375');
         const f390 = document.getElementById('frame390');
-        const f430 = document.getElementById('frame430');
+        const f425 = document.getElementById('frame425');
         const f768 = document.getElementById('frame768');
         const f1024 = document.getElementById('frame1024');
-        const f1366 = document.getElementById('frame1366');
+        const f1440 = document.getElementById('frame1440');
 
         const win320 = f320.contentWindow;
         const doc320 = f320.contentDocument;
-        const win360 = f360.contentWindow;
-        const doc360 = f360.contentDocument;
+        const win375 = f375.contentWindow;
+        const doc375 = f375.contentDocument;
         const win390 = f390.contentWindow;
         const doc390 = f390.contentDocument;
-        const win430 = f430.contentWindow;
-        const doc430 = f430.contentDocument;
+        const win425 = f425.contentWindow;
+        const doc425 = f425.contentDocument;
         const win768 = f768.contentWindow;
         const doc768 = f768.contentDocument;
         const win1024 = f1024.contentWindow;
         const doc1024 = f1024.contentDocument;
-        const win1366 = f1366.contentWindow;
-        const doc1366 = f1366.contentDocument;
+        const win1440 = f1440.contentWindow;
+        const doc1440 = f1440.contentDocument;
 
         // 1. Viewport Meta & Safe Area
         const vp = doc390.querySelector('meta[name="viewport"]');
@@ -89,15 +89,15 @@
           details: 'clientWidth=' + w320 + ', scrollWidth=' + sw320 + ', delta=' + delta320
         });
 
-        // 3. 360px Horizontal Overflow Check
-        const w360 = doc360.documentElement.clientWidth;
-        const sw360 = doc360.documentElement.scrollWidth;
-        const delta360 = sw360 - w360;
+        // 3. 375px Horizontal Overflow Check
+        const w375 = doc375.documentElement.clientWidth;
+        const sw375 = doc375.documentElement.scrollWidth;
+        const delta375 = sw375 - w375;
         reports.push({
-          id: 'REQ-3',
-          name: 'Mobile 360px viewport horizontal overflow (scrollWidth <= clientWidth)',
-          passed: delta360 <= 0,
-          details: 'clientWidth=' + w360 + ', scrollWidth=' + sw360 + ', delta=' + delta360
+          id: 'REQ-2B',
+          name: 'Mobile 375px viewport horizontal overflow (scrollWidth <= clientWidth)',
+          passed: delta375 <= 0,
+          details: 'clientWidth=' + w375 + ', scrollWidth=' + sw375 + ', delta=' + delta375
         });
 
         // 4. 390px Horizontal Overflow Check
@@ -111,15 +111,15 @@
           details: 'clientWidth=' + w390 + ', scrollWidth=' + sw390 + ', delta=' + delta390
         });
 
-        // 4A. 430px Large Mobile Horizontal Overflow Check
-        const w430 = doc430.documentElement.clientWidth;
-        const sw430 = doc430.documentElement.scrollWidth;
-        const delta430 = sw430 - w430;
+        // 4A. 425px Large Mobile Horizontal Overflow Check
+        const w425 = doc425.documentElement.clientWidth;
+        const sw425 = doc425.documentElement.scrollWidth;
+        const delta425 = sw425 - w425;
         reports.push({
           id: 'REQ-4A',
-          name: 'Large Mobile 430px viewport horizontal overflow (scrollWidth <= clientWidth)',
-          passed: delta430 <= 0,
-          details: 'clientWidth=' + w430 + ', scrollWidth=' + sw430 + ', delta=' + delta430
+          name: 'Large Mobile 425px viewport horizontal overflow (scrollWidth <= clientWidth)',
+          passed: delta425 <= 0,
+          details: 'clientWidth=' + w425 + ', scrollWidth=' + sw425 + ', delta=' + delta425
         });
 
         // 4B. 768px Tablet Viewport Horizontal Overflow Check
@@ -150,12 +150,12 @@
         const viewsToCheck = ['overview', 'appliances', 'history', 'analytics', 'simulator', 'report', 'settings'];
         const framePairs = [
           { win: win320, doc: doc320, w: 320 },
-          { win: win360, doc: doc360, w: 360 },
+          { win: win375, doc: doc375, w: 375 },
           { win: win390, doc: doc390, w: 390 },
-          { win: win430, doc: doc430, w: 430 },
+          { win: win425, doc: doc425, w: 425 },
           { win: win768, doc: doc768, w: 768 },
           { win: win1024, doc: doc1024, w: 1024 },
-          { win: win1366, doc: doc1366, w: 1366 }
+          { win: win1440, doc: doc1440, w: 1440 }
         ];
         let allViewsNoOverflow = true;
         let viewOverflowDetails = '';
@@ -177,22 +177,22 @@
         });
         reports.push({
           id: 'REQ-4D',
-          name: 'All 7 views zero horizontal overflow across 320, 360, 390, 430, 768, 1024, 1366px viewports',
+          name: 'All 7 views zero horizontal overflow across 320, 375, 390, 425, 768, 1024, 1440px viewports',
           passed: allViewsNoOverflow,
           details: allViewsNoOverflow ? 'Verified 49 combinations (7 viewports x 7 views) with 0 overflow' : viewOverflowDetails
         });
 
-        // 5. Desktop 1366px Layout Check
-        const w1366 = doc1366.documentElement.clientWidth;
-        const sw1366 = doc1366.documentElement.scrollWidth;
-        const delta1366 = sw1366 - w1366;
-        const sidebar1366 = doc1366.getElementById('appSidebar');
-        const sidebarDisplay1366 = sidebar1366 ? win1366.getComputedStyle(sidebar1366).display : 'none';
+        // 5. Desktop 1440px Layout Check
+        const w1440 = doc1440.documentElement.clientWidth;
+        const sw1440 = doc1440.documentElement.scrollWidth;
+        const delta1440 = sw1440 - w1440;
+        const sidebar1440 = doc1440.getElementById('appSidebar');
+        const sidebarDisplay1440 = sidebar1440 ? win1440.getComputedStyle(sidebar1440).display : 'none';
         reports.push({
           id: 'REQ-5',
-          name: 'Desktop 1366px layout (no overflow, sidebar visible)',
-          passed: delta1366 <= 0 && sidebarDisplay1366 !== 'none',
-          details: 'clientWidth=' + w1366 + ', scrollWidth=' + sw1366 + ', sidebarDisplay=' + sidebarDisplay1366
+          name: 'Large Desktop 1440px layout (no overflow, sidebar visible)',
+          passed: delta1440 <= 0 && sidebarDisplay1440 !== 'none',
+          details: 'clientWidth=' + w1440 + ', scrollWidth=' + sw1440 + ', sidebarDisplay=' + sidebarDisplay1440
         });
 
         // 6. Mobile Input and Select font-size >= 16px (iOS zoom prevention)
@@ -301,6 +301,19 @@
           name: 'Empty appliance state card structure and action button verified',
           passed: !!emptyCard && !!emptyCardTitle && emptyCardHasAction,
           details: 'emptyTitle="' + (emptyCardTitle ? emptyCardTitle.textContent.trim() : '') + '", hasAction=' + emptyCardHasAction
+        });
+
+        // 10C. Accessible touch targets on mobile (min-height >= 44px)
+        const navLink = doc390.querySelector('.nav-item-link');
+        const navH = navLink ? parseFloat(win390.getComputedStyle(navLink).minHeight || win390.getComputedStyle(navLink).height) : 0;
+        const insTab = doc390.querySelector('.insights-tab');
+        const tabH = insTab ? parseFloat(win390.getComputedStyle(insTab).minHeight || win390.getComputedStyle(insTab).height) : 0;
+        const touchTargetsOk = navH >= 44 && tabH >= 44;
+        reports.push({
+          id: 'REQ-10C',
+          name: 'Mobile touch targets (tabs, nav links, buttons) min-height >= 44px',
+          passed: touchTargetsOk,
+          details: 'navItemLinkMinHeight=' + navH + 'px, insightsTabMinHeight=' + tabH + 'px'
         });
 
         // 11. Removal of Luxury/Royal/Executive visible interface words

@@ -312,7 +312,7 @@ const WattWatchSimulator = {
       btnApplySettings.addEventListener('click', () => this.applyTariffToSettings());
     }
 
-    // Safe delegated click listener for removing slab rows
+    // Safe delegated click and input listeners for slab table
     const slabTableBody = document.getElementById('tariffSlabsTableBody');
     if (slabTableBody) {
       slabTableBody.addEventListener('click', (e) => {
@@ -321,6 +321,11 @@ const WattWatchSimulator = {
         const idx = parseInt(btn.getAttribute('data-index'), 10);
         if (!isNaN(idx)) {
           this.removeSlabRow(idx);
+        }
+      });
+      slabTableBody.addEventListener('input', (e) => {
+        if (e.target && (e.target.classList.contains('slab-upto-input') || e.target.classList.contains('slab-rate-input'))) {
+          this.runTariffCalculation();
         }
       });
     }
@@ -417,11 +422,6 @@ const WattWatchSimulator = {
         </td>
       `;
       tbody.appendChild(tr);
-    });
-
-    // Re-bind change listeners
-    tbody.querySelectorAll('input').forEach(inp => {
-      inp.addEventListener('input', () => this.runTariffCalculation());
     });
   },
 
