@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <script>
+    window.__wattwatchLocalTestAllowed = (location.protocol === 'http:' || location.protocol === 'https:') && ['localhost', '127.0.0.1', '[::1]'].includes(location.hostname);
+  </script>
+  <title>WattWatch - JavaScript Syntax Verification</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; padding: 20px; background: #f8fafc; color: #1e293b; }
+    #summary { font-size: 16px; font-weight: bold; margin: 15px 0; padding: 12px 16px; border-radius: 8px; }
+    .pass { background: #dcfce7; color: #15803d; border: 1px solid #86efac; }
+    .fail { background: #fee2e2; color: #b91c1c; border: 1px solid #fca5a5; }
+    ul { list-style: none; padding: 0; }
+    li { margin-bottom: 8px; padding: 10px 14px; border-radius: 6px; background: #fff; border: 1px solid #e2e8f0; font-size: 14px; }
+    li.pass-item { border-left: 4px solid #22c55e; }
+    li.fail-item { border-left: 4px solid #ef4444; }
+  </style>
+</head>
+<body>
+  <h1>WattWatch JavaScript Syntax Verification</h1>
+  <div id="summary">Verifying syntax of all JavaScript files...</div>
+  <ul id="results-list"></ul>
+
+  <script>
+    const jsFiles = [
+      'app.js',
+      'appliances.js',
+      'auth.js',
+      'calculations.js',
+      'chart.umd.min.js',
+      'charts.js',
+      'firebase-config.js',
+      'history.js',
+      'recommendations.js',
+      'report.js',
+      'simulator.js',
+      'storage.js'
+    ];
+
+    async function verifyAllSyntax() {
+      const results = [];
+      for (const file of jsFiles) {
+        try {
+          const res = await fetch('../js/' + file);
+          if (!res.ok) {
+            results.push({ file, passed: false, error: `HTTP ${res.status}: ${res.statusText}` });
+            continue;
+          }
+          const code = await res.text();
+          // Check if file is an ES module (uses import/export) or classic script
+          const isModule = file === 'firebase-config.js' || /^\s*(import|export)\s/m.test(code);
+          if (isModule) {
+            // Validate module syntax by creating a module script blob.
+            // If syntax is invalid, V8 dispatches a SyntaxError event on window.
+            let moduleSyntaxErr = null;
+            const errListener = (e) => {
+              if (e.message && e.message.toLowerCase().includes('syntax')) {
+                moduleSyntaxErr = e.message;
+              }
+            };
+            window.addEventListener('error', errListener);
+
+            await new Promise((resolve) => {
+              const blob = new Blob([code], { type: 'application/javascript' });
+              const url = URL.createObjectURL(blob);
+              const script = document.createElement('script');
+              script.type = 'module';
+              script.src = url;
+              script.onload = () => { URL.revokeObjectURL(url); resolve(); };
+              script.onerror = () => { URL.revokeObjectURL(url); resolve(); };
+              document.head.appendChild(script);
+              setTimeout(() => {
+                URL.revokeObjectURL(url);
+                resolve();
+              }, 120);
+            });
+            window.removeEventListener('error', errListener);
+
+            if (moduleSyntaxErr) {
+              throw new Error(moduleSyntaxErr);
+            }
+          } else {
+            // Compile in V8 engine via new Function (strictly checks parsing and AST generation)
+            new Function(code);
+          }
+          results.push({ file, passed: true, size: code.length });
+        } catch (err) {
+          results.push({ file, passed: false, error: err.name + ': ' + err.message });
+        }
+      }
+
+      const passedCount = results.filter(r => r.passed).length;
+      const totalCount = results.length;
+      const allPassed = passedCount === totalCount;
+
+      const summaryEl = document.getElementById('summary');
+      summaryEl.className = allPassed ? 'pass' : 'fail';
+      summaryEl.textContent = `TEST_RESULTS: TOTAL=${totalCount} PASSED=${passedCount} FAILED=${totalCount - passedCount}`;
+
+      const listEl = document.getElementById('results-list');
+      results.forEach(r => {
+        const li = document.createElement('li');
+        li.className = r.passed ? 'pass-item' : 'fail-item';
+        li.textContent = r.passed
+          ? `[PASS] js/${r.file} (${r.size} bytes) - Syntax valid`
+          : `[FAIL] js/${r.file} - ${r.error}`;
+        listEl.appendChild(li);
+      });
+    }
+
+    window.addEventListener('load', verifyAllSyntax);
+  </script>
+</body>
+</html>

@@ -145,6 +145,34 @@ const WattWatchCalculations = {
   },
 
   /**
+   * Validates free monthly electricity units/kWh (lifeline quota).
+   * @param {*} units
+   * @param {number} [defaultValue=0]
+   * @returns {number} Validated free units or NaN
+   */
+  validateFreeUnits(units, defaultValue = 0) {
+    if (units === undefined || units === null || units === '') return defaultValue;
+    if (!this.isFiniteNumber(units)) return NaN;
+    const num = Number(units);
+    if (num < 0) return NaN;
+    return num;
+  },
+
+  /**
+   * Validates government subsidy or bill credit in INR.
+   * @param {*} credit
+   * @param {number} [defaultValue=0]
+   * @returns {number} Validated subsidy or NaN
+   */
+  validateBillCredit(credit, defaultValue = 0) {
+    if (credit === undefined || credit === null || credit === '') return defaultValue;
+    if (!this.isFiniteNumber(credit)) return NaN;
+    const num = Number(credit);
+    if (num < 0) return NaN;
+    return num;
+  },
+
+  /**
    * Validates any general non-negative finite numeric quantity (e.g. kWh, costs, budgets).
    * Rejects negative numbers and non-finite values.
    * @param {*} val
@@ -317,8 +345,32 @@ const WattWatchCalculations = {
       return this._createInvalidTariffResult(totalKwh, model, 'Additional tax percent must be a finite number between 0 and 100');
     }
 
+    // Free electricity units validation (lifeline quota)
+    const freeUnits = this.validateFreeUnits(safeSettings.freeUnits, 0);
+    if (isNaN(freeUnits)) {
+      return this._createInvalidTariffResult(totalKwh, model, 'Free electricity units must be a non-negative finite number');
+    }
+
+    // Government subsidy / bill credit validation
+    const billCreditInr = this.validateBillCredit(safeSettings.billCreditInr, 0);
+    if (isNaN(billCreditInr)) {
+      return this._createInvalidTariffResult(totalKwh, model, 'Subsidy or bill credit must be a non-negative finite number');
+    }
+
     let energyCharges = 0;
     const slabBreakdown = [];
+    const freeUnitsApplied = Math.min(kwh, freeUnits);
+    const billableKwh = Math.max(0, kwh - freeUnits);
+
+    if (freeUnits > 0 && kwh > 0) {
+      slabBreakdown.push({
+        tier: 0,
+        label: `Free Allowance (first ${freeUnits} kWh)`,
+        units: freeUnitsApplied,
+        rate: 0,
+        cost: 0
+      });
+    }
 
     if (model === 'slab') {
       // Do not silently fall back to flat tariff when explicitly supplied slab configuration is invalid. Return an explicit invalid result.
@@ -329,7 +381,7 @@ const WattWatchCalculations = {
 
       const validSlabs = valResult.sanitized;
 
-      let remainingKwh = kwh;
+      let remainingKwh = billableKwh;
       let lowerBound = 0;
 
       for (let i = 0; i < validSlabs.length; i++) {
@@ -354,7 +406,7 @@ const WattWatchCalculations = {
         remainingKwh = Math.max(0, remainingKwh - unitsInSlab);
 
         slabBreakdown.push({
-          tier: i + 1,
+          tier: slabBreakdown.length + 1,
           label: upperBound !== null
             ? `${i === 0 ? '0' : validSlabs[i-1]?.upTo || 0} - ${upperBound} kWh`
             : `Above ${validSlabs[i-1]?.upTo || lowerBound} kWh`,
@@ -373,7 +425,7 @@ const WattWatchCalculations = {
         energyCharges += costInExcess;
 
         slabBreakdown.push({
-          tier: validSlabs.length + 1,
+          tier: slabBreakdown.length + 1,
           label: `Excess above ${lastSlab.upTo || lowerBound} kWh`,
           units: remainingKwh,
           rate: lastRate,
@@ -383,11 +435,11 @@ const WattWatchCalculations = {
       }
     } else {
       // Standard Flat Rate model
-      energyCharges = kwh * flatRate;
+      energyCharges = billableKwh * flatRate;
       slabBreakdown.push({
-        tier: 1,
-        label: 'All consumption (Flat rate)',
-        units: kwh,
+        tier: slabBreakdown.length + 1,
+        label: freeUnits > 0 ? 'Billable consumption (Flat rate)' : 'All consumption (Flat rate)',
+        units: billableKwh,
         rate: flatRate,
         cost: energyCharges
       });
@@ -395,17 +447,25 @@ const WattWatchCalculations = {
 
     const subtotal = energyCharges + fixedCharge;
     const taxCharges = subtotal * (taxPercent / 100);
-    const totalCost = subtotal + taxCharges;
+    const grossCost = subtotal + taxCharges;
+    const subsidyApplied = Math.min(grossCost, billCreditInr);
+    const totalCost = Math.max(0, grossCost - subsidyApplied);
     const effectiveRatePerKwh = kwh > 0 ? totalCost / kwh : flatRate;
 
     return {
       isValid: true,
       model,
       totalKwh: kwh,
+      billableKwh,
+      freeUnits,
+      freeUnitsApplied,
       energyCharges,
       fixedCharge,
       taxPercent,
       taxCharges,
+      grossCost,
+      subsidy: billCreditInr,
+      subsidyApplied,
       totalCost,
       effectiveRatePerKwh,
       slabBreakdown
@@ -550,17 +610,24 @@ const WattWatchCalculations = {
 
     const taxPercent = this.validateTaxPercent(safeSettings.additionalTaxPercent, 0);
     const fixedCharge = this.validateFixedCharge(safeSettings.fixedCharges, 0);
-    if (isNaN(taxPercent) || isNaN(fixedCharge)) {
+    const freeUnits = this.validateFreeUnits(safeSettings.freeUnits, 0);
+    const billCreditInr = this.validateBillCredit(safeSettings.billCreditInr, 0);
+    if (isNaN(taxPercent) || isNaN(fixedCharge) || isNaN(freeUnits) || isNaN(billCreditInr)) {
       return NaN;
     }
 
     const taxMultiplier = 1 + (taxPercent / 100);
-    const maxSubtotal = budget / taxMultiplier;
+    // Net budget + allowable subsidy = max gross bill
+    const maxGrossBill = budget + billCreditInr;
+    const maxSubtotal = maxGrossBill / taxMultiplier;
     let availableEnergyCharges = maxSubtotal - fixedCharge;
 
     if (availableEnergyCharges <= 0) {
-      return 0;
+      const baseNetCost = Math.max(0, (fixedCharge * taxMultiplier) - billCreditInr);
+      return (baseNetCost <= budget) ? freeUnits : 0;
     }
+
+    let allowedBillableKwh = 0;
 
     if (model === 'slab') {
       const valResult = this.validateSlabConfig(safeSettings.slabConfig);
@@ -568,7 +635,6 @@ const WattWatchCalculations = {
         return NaN;
       }
       const slabs = valResult.sanitized;
-      let totalAllowedKwh = 0;
       let lowerBound = 0;
 
       for (let i = 0; i < slabs.length; i++) {
@@ -580,24 +646,24 @@ const WattWatchCalculations = {
           const capacity = Math.max(0, upperBound - lowerBound);
           lowerBound = upperBound;
           if (rate === 0) {
-            totalAllowedKwh += capacity;
+            allowedBillableKwh += capacity;
           } else {
             const costForCapacity = capacity * rate;
             if (availableEnergyCharges <= costForCapacity) {
-              totalAllowedKwh += (availableEnergyCharges / rate);
+              allowedBillableKwh += (availableEnergyCharges / rate);
               availableEnergyCharges = 0;
               break;
             } else {
-              totalAllowedKwh += capacity;
+              allowedBillableKwh += capacity;
               availableEnergyCharges -= costForCapacity;
             }
           }
         } else {
           // Open-ended top tier
           if (rate === 0) {
-            totalAllowedKwh += Infinity;
+            allowedBillableKwh += Infinity;
           } else {
-            totalAllowedKwh += (availableEnergyCharges / rate);
+            allowedBillableKwh += (availableEnergyCharges / rate);
             availableEnergyCharges = 0;
           }
           break;
@@ -608,17 +674,18 @@ const WattWatchCalculations = {
       if (availableEnergyCharges > 0 && slabs.length > 0) {
         const lastRate = slabs[slabs.length - 1].rate;
         if (lastRate > 0) {
-          totalAllowedKwh += (availableEnergyCharges / lastRate);
+          allowedBillableKwh += (availableEnergyCharges / lastRate);
           availableEnergyCharges = 0;
         }
       }
 
-      return totalAllowedKwh;
+      return freeUnits + allowedBillableKwh;
     } else {
       const rate = this.validateTariffRate(safeSettings.electricityRate, 8.00);
       if (isNaN(rate)) return NaN;
       if (rate === 0) return Infinity;
-      return availableEnergyCharges / rate;
+      allowedBillableKwh = availableEnergyCharges / rate;
+      return freeUnits + allowedBillableKwh;
     }
   },
 
@@ -686,7 +753,11 @@ const WattWatchCalculations = {
       } else {
         pacingStatus = 'under';
         pacingLabel = 'Pacing Within Budget';
-        explanation = `Configured appliance usage is pacing comfortably at ₹${dailyEstimatedCost.toFixed(2)}/day (~${dailyEstimatedKwh.toFixed(2)} kWh/day) within your daily budget allowance of ₹${dailyBudgetInr.toFixed(2)}/day (${days} days in current month). Projected month-end surplus is ₹${remainingBudget.toFixed(2)}.`;
+        if (validKwh === 0 && (!bill || bill <= (settings && settings.fixedCharges ? (Number(settings.fixedCharges) * 1.5) : 0))) {
+          explanation = `No active appliances in inventory. Your daily budget allowance is ₹${dailyBudgetInr.toFixed(2)}/day (${!isNaN(dailyAllowedKwh) ? '~' + dailyAllowedKwh.toFixed(2) + ' kWh/day max allowance' : ''} across ${days} days). Add appliances to begin tracking consumption pacing.`;
+        } else {
+          explanation = `Configured appliance usage is pacing comfortably at ₹${dailyEstimatedCost.toFixed(2)}/day (~${dailyEstimatedKwh.toFixed(2)} kWh/day) within your daily budget allowance of ₹${dailyBudgetInr.toFixed(2)}/day (${days} days in current month). Projected month-end surplus is ₹${remainingBudget.toFixed(2)}.`;
+        }
       }
     }
 
@@ -760,7 +831,11 @@ const WattWatchCalculations = {
       } else {
         forecastState = 'safe';
         forecastStateLabel = 'Comfortably Within Budget';
-        explanation = `Based on your configured appliance inventory, your estimated month-end electricity bill is ₹${bill.toFixed(2)}, which is projected to remain ₹${remaining.toFixed(2)} under your monthly budget limit of ₹${budget.toFixed(2)} (${budgetStatus.utilizationPercent.toFixed(1)}% utilized).`;
+        if (totalMonthlyKwh === 0 && (!bill || bill <= (settings && settings.fixedCharges ? (Number(settings.fixedCharges) * 1.5) : 0))) {
+          explanation = `No appliances currently configured. With your configured ₹${budget.toFixed(2)} monthly budget target, you have ₹${remaining.toFixed(2)} available headroom (₹${pacing.dailyBudgetInr.toFixed(2)}/day allowance). Add appliances to start tracking your month-end projection.`;
+        } else {
+          explanation = `Based on your configured appliance inventory, your estimated month-end electricity bill is ₹${bill.toFixed(2)}, which is projected to remain ₹${remaining.toFixed(2)} under your monthly budget limit of ₹${budget.toFixed(2)} (${budgetStatus.utilizationPercent.toFixed(1)}% utilized).`;
+        }
       }
     }
 
@@ -1105,6 +1180,138 @@ const WattWatchCalculations = {
   },
 
   /**
+   * Realistic Appliance Usage Engine:
+   * Computes active and standby energy consumption, taking into account
+   * optional weekday vs weekend operating hours, active days per week,
+   * standby power draw (phantom loads), and duty-cycle / inverter modulation.
+   * If advanced settings are omitted, defaults strictly to standard linear models.
+   * @param {Object} appliance
+   * @returns {Object} Validated metrics breakdown
+   */
+  calculateApplianceMetrics(appliance) {
+    if (!appliance || typeof appliance !== 'object' || Array.isArray(appliance)) {
+      return { isValid: false, dailyKwh: NaN, monthlyKwh: NaN };
+    }
+
+    const p = this.validatePowerWatts(appliance.powerWatts, 0);
+    const q = this.validateQuantity(appliance.quantity, true, 1);
+    const h = this.validateDailyHours(appliance.dailyHours, 0);
+    const d = this.validateOperatingDays(appliance.operatingDays, true, 30);
+
+    if (isNaN(p) || isNaN(q) || isNaN(h) || isNaN(d)) {
+      return { isValid: false, dailyKwh: NaN, monthlyKwh: NaN };
+    }
+
+    let effectiveDailyHours = h;
+    let operatingDays = d;
+    let dutyMultiplier = 1.0;
+    let standbyWatts = 0;
+    let hasAdvancedProfile = false;
+
+    // 1. Weekday vs Weekend hours
+    if (appliance.weekdayHours !== undefined && appliance.weekendHours !== undefined &&
+        appliance.weekdayHours !== null && appliance.weekendHours !== null &&
+        appliance.weekdayHours !== '') {
+      const wd = Number(appliance.weekdayHours);
+      const we = Number(appliance.weekendHours);
+      if (this.isFiniteNumber(wd) && wd >= 0 && wd <= 24 &&
+          this.isFiniteNumber(we) && we >= 0 && we <= 24) {
+        effectiveDailyHours = ((5 * wd) + (2 * we)) / 7;
+        hasAdvancedProfile = true;
+      }
+    }
+
+    // 2. Active days per week
+    if (appliance.activeDaysPerWeek !== undefined && appliance.activeDaysPerWeek !== null && appliance.activeDaysPerWeek !== '') {
+      const ad = Number(appliance.activeDaysPerWeek);
+      if (this.isFiniteNumber(ad) && ad >= 1 && ad <= 7) {
+        operatingDays = Math.min(31, Math.round((ad / 7) * 30));
+        hasAdvancedProfile = true;
+      }
+    }
+
+    // 3. Duty cycle / Inverter efficiency adjustment (1% to 100%)
+    if (appliance.dutyCyclePercent !== undefined && appliance.dutyCyclePercent !== null && appliance.dutyCyclePercent !== '') {
+      const dc = Number(appliance.dutyCyclePercent);
+      if (this.isFiniteNumber(dc) && dc > 0 && dc <= 100) {
+        dutyMultiplier = dc / 100;
+        if (dc < 100) hasAdvancedProfile = true;
+      }
+    }
+
+    // 4. Standby power consumption (Watts, 0 to 500W)
+    if (appliance.standbyWatts !== undefined && appliance.standbyWatts !== null && appliance.standbyWatts !== '') {
+      const sb = Number(appliance.standbyWatts);
+      if (this.isFiniteNumber(sb) && sb >= 0 && sb <= 500) {
+        standbyWatts = sb;
+        if (sb > 0) hasAdvancedProfile = true;
+      }
+    }
+
+    const activeMonthlyKwh = (p * dutyMultiplier * q * effectiveDailyHours * operatingDays) / 1000;
+    const idleHoursPerDay = Math.max(0, 24 - effectiveDailyHours);
+    const standbyMonthlyKwh = standbyWatts > 0 ? ((standbyWatts * q * idleHoursPerDay * operatingDays) / 1000) : 0;
+    const totalMonthlyKwh = activeMonthlyKwh + standbyMonthlyKwh;
+    const totalDailyKwh = operatingDays > 0 ? (totalMonthlyKwh / operatingDays) : 0;
+
+    return {
+      isValid: true,
+      hasAdvancedProfile,
+      powerWatts: p,
+      quantity: q,
+      effectiveDailyHours,
+      operatingDays,
+      dutyMultiplier,
+      standbyWatts,
+      activeMonthlyKwh,
+      standbyMonthlyKwh,
+      dailyKwh: totalDailyKwh,
+      monthlyKwh: totalMonthlyKwh
+    };
+  },
+
+  /**
+   * Billing Cycle Pacing & Elapsed Day Tracking:
+   * Calculates total cycle duration, elapsed days, remaining days, and percentage progress.
+   * @param {string|Date} cycleStartDate
+   * @param {string|Date} cycleEndDate
+   * @param {Date} [currentDate=new Date()]
+   * @returns {Object} Billing cycle tracking progress
+   */
+  calculateBillingCyclePacing(cycleStartDate, cycleEndDate, currentDate = new Date()) {
+    let now = new Date();
+    if (currentDate instanceof Date && !isNaN(currentDate.getTime())) {
+      now = currentDate;
+    } else if (typeof currentDate === 'string' && currentDate.trim()) {
+      const parsedNow = new Date(currentDate);
+      if (!isNaN(parsedNow.getTime())) now = parsedNow;
+    }
+    const start = (cycleStartDate) ? new Date(cycleStartDate) : new Date(now.getFullYear(), now.getMonth(), 1);
+    const end = (cycleEndDate) ? new Date(cycleEndDate) : new Date(now.getFullYear(), now.getMonth() + 1, 0);
+
+    const safeStart = !isNaN(start.getTime()) ? start : new Date(now.getFullYear(), now.getMonth(), 1);
+    const safeEnd = (!isNaN(end.getTime()) && end >= safeStart) ? end : new Date(safeStart.getFullYear(), safeStart.getMonth() + 1, 0);
+
+    const msPerDay = 1000 * 60 * 60 * 24;
+    const hasValidDates = Boolean(cycleStartDate && cycleEndDate && !isNaN(start.getTime()) && !isNaN(end.getTime()) && end >= start);
+    const totalDays = Math.max(1, Math.round((safeEnd - safeStart) / msPerDay) + 1);
+    const elapsedDays = Math.max(0, Math.min(totalDays, Math.round((now - safeStart) / msPerDay)));
+    const remainingDays = Math.max(0, totalDays - elapsedDays);
+    const progressPercent = Math.min(100, Math.max(0, (elapsedDays / totalDays) * 100));
+
+    return {
+      isValid: hasValidDates,
+      isComplete: remainingDays === 0,
+      cycleStartDate: safeStart.toISOString().split('T')[0],
+      cycleEndDate: safeEnd.toISOString().split('T')[0],
+      totalDays,
+      elapsedDays,
+      remainingDays,
+      progressPercent
+    };
+  },
+
+  /**
    * Generates enriched metrics for a single appliance
    * @param {Object} appliance
    * @param {number} ratePerKwh
@@ -1112,8 +1319,9 @@ const WattWatchCalculations = {
    */
   enrichAppliance(appliance, ratePerKwh = 8.00) {
     if (!appliance || typeof appliance !== 'object') return null;
-    const dailyKwh = this.calculateDailyKwh(appliance.powerWatts, appliance.quantity, appliance.dailyHours);
-    const monthlyKwh = this.calculateMonthlyKwh(appliance.powerWatts, appliance.quantity, appliance.dailyHours, appliance.operatingDays);
+    const metrics = this.calculateApplianceMetrics(appliance);
+    const dailyKwh = metrics.isValid ? metrics.dailyKwh : this.calculateDailyKwh(appliance.powerWatts, appliance.quantity, appliance.dailyHours);
+    const monthlyKwh = metrics.isValid ? metrics.monthlyKwh : this.calculateMonthlyKwh(appliance.powerWatts, appliance.quantity, appliance.dailyHours, appliance.operatingDays);
     const monthlyCost = this.calculateCost(monthlyKwh, ratePerKwh);
     const dailyCost = this.calculateCost(dailyKwh, ratePerKwh);
 
@@ -1122,7 +1330,8 @@ const WattWatchCalculations = {
       dailyKwh,
       monthlyKwh,
       dailyCost,
-      monthlyCost
+      monthlyCost,
+      metrics
     };
   },
 
@@ -1194,9 +1403,10 @@ const WattWatchCalculations = {
           reasons: failures
         });
       } else {
-        const dailyKwh = (p * q * h) / 1000;
-        const monthlyKwh = (p * q * h * d) / 1000;
-        validAppEntries.push({ app, p, q, h, d, dailyKwh, monthlyKwh });
+        const metrics = this.calculateApplianceMetrics(app);
+        const dailyKwh = metrics.isValid ? metrics.dailyKwh : ((p * q * h) / 1000);
+        const monthlyKwh = metrics.isValid ? metrics.monthlyKwh : ((p * q * h * d) / 1000);
+        validAppEntries.push({ app, p, q, h, d, dailyKwh, monthlyKwh, metrics });
       }
     });
 
@@ -1313,8 +1523,9 @@ const WattWatchCalculations = {
     // Second pass: enrich appliances with costs using the tariff rate (flat energy rate or slab effective rate)
     const appCostRate = isSlab ? effectiveRate : rate;
     const enrichedList = list.map(app => {
-      const dailyKwh = this.calculateDailyKwh(app.powerWatts, app.quantity, app.dailyHours);
-      const monthlyKwh = this.calculateMonthlyKwh(app.powerWatts, app.quantity, app.dailyHours, app.operatingDays);
+      const metrics = this.calculateApplianceMetrics(app);
+      const dailyKwh = metrics.isValid ? metrics.dailyKwh : this.calculateDailyKwh(app.powerWatts, app.quantity, app.dailyHours);
+      const monthlyKwh = metrics.isValid ? metrics.monthlyKwh : this.calculateMonthlyKwh(app.powerWatts, app.quantity, app.dailyHours, app.operatingDays);
       const monthlyCost = (!isNaN(monthlyKwh) && monthlyKwh >= 0) ? (monthlyKwh * appCostRate) : NaN;
       const dailyCost = (!isNaN(dailyKwh) && dailyKwh >= 0) ? (dailyKwh * appCostRate) : NaN;
 
@@ -1323,7 +1534,8 @@ const WattWatchCalculations = {
         dailyKwh,
         monthlyKwh,
         dailyCost,
-        monthlyCost
+        monthlyCost,
+        metrics
       };
     });
 

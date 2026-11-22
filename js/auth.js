@@ -167,7 +167,7 @@ const WattWatchAuth = {
               if (this.db && this.getDoc && this.doc) {
                 try {
                   const snap = await this.getDoc(this.doc(this.db, "users", user.uid));
-                  if (snap.exists() && snap.data().displayName) {
+                  if (snap.exists() && snap.data() && typeof snap.data() === 'object' && snap.data().displayName) {
                     displayName = snap.data().displayName;
                   }
                 } catch (e) {
@@ -806,7 +806,7 @@ const WattWatchAuth = {
       if (this.db && this.getDoc && this.doc) {
         try {
           const userDoc = await this.getDoc(this.doc(this.db, "users", user.uid));
-          if (userDoc.exists() && userDoc.data().displayName) {
+          if (userDoc.exists() && userDoc.data() && typeof userDoc.data() === 'object' && userDoc.data().displayName) {
             displayName = userDoc.data().displayName;
           }
         } catch (e) {

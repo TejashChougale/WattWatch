@@ -118,7 +118,7 @@
 
 /* Accessible touch targets on phones and tablets. */
 @media screen and (max-width: 768px) {
-  button, .btn, .filter-pill, .theme-toggle-btn, .mobile-menu-toggle {
+  button, .btn, .filter-pill, .theme-toggle-btn, .mobile-menu-toggle, .nav-item-link, .insights-tab, .auth-tab-btn, .btn-icon {
     min-height: 44px;
   }
 }
@@ -394,6 +394,20 @@
   #historyTable td:nth-child(6)::before { content: 'Recorded On'; font-weight: 600; color: var(--text-secondary); text-align: left; }
   #historyTableWrap td:nth-child(7)::before,
   #historyTable td:nth-child(7)::before { content: 'Actions'; font-weight: 600; color: var(--text-secondary); text-align: left; }
+
+  /* Labels for Tariff Slabs Table Columns */
+  #tariffSlabsTableBody td:nth-child(1)::before { content: 'Tier'; font-weight: 600; color: var(--text-secondary); text-align: left; }
+  #tariffSlabsTableBody td:nth-child(2)::before { content: 'Ceiling (kWh)'; font-weight: 600; color: var(--text-secondary); text-align: left; }
+  #tariffSlabsTableBody td:nth-child(3)::before { content: 'Rate (₹/kWh)'; font-weight: 600; color: var(--text-secondary); text-align: left; }
+  #tariffSlabsTableBody td:nth-child(4)::before { content: 'Action'; font-weight: 600; color: var(--text-secondary); text-align: left; }
+
+  /* Labels for CSV Preview Table Columns */
+  #csvPreviewTableBody td:nth-child(1)::before { content: 'Appliance'; font-weight: 600; color: var(--text-secondary); text-align: left; }
+  #csvPreviewTableBody td:nth-child(2)::before { content: 'Category'; font-weight: 600; color: var(--text-secondary); text-align: left; }
+  #csvPreviewTableBody td:nth-child(3)::before { content: 'Power'; font-weight: 600; color: var(--text-secondary); text-align: left; }
+  #csvPreviewTableBody td:nth-child(4)::before { content: 'Hours'; font-weight: 600; color: var(--text-secondary); text-align: left; }
+  #csvPreviewTableBody td:nth-child(5)::before { content: 'Days'; font-weight: 600; color: var(--text-secondary); text-align: left; }
+  #csvPreviewTableBody td:nth-child(6)::before { content: 'Qty'; font-weight: 600; color: var(--text-secondary); text-align: left; }
 
   .appliance-table .table-actions {
     flex-direction: row;

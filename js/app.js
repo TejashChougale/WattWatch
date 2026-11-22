@@ -163,12 +163,12 @@ const WattWatchApp = {
    * Binds timescale segmented controls on the Overview dashboard
    */
   bindOverviewControls() {
-    const tabs = document.querySelectorAll('.insights-tab');
-    tabs.forEach(tab => {
-      tab.addEventListener('click', (e) => {
-        const tf = e.currentTarget.getAttribute('data-timeframe');
+    document.addEventListener('click', (e) => {
+      const tab = e.target.closest('.insights-tab');
+      if (tab) {
+        const tf = tab.getAttribute('data-timeframe');
         if (tf) this.setInsightsTimeframe(tf);
-      });
+      }
     });
   },
 
@@ -994,6 +994,64 @@ const WattWatchApp = {
       `;
       container.appendChild(card);
     });
+
+    // Render Dynamic What-If Scenarios derived from top-consuming appliances
+    const whatIfCard = document.getElementById('whatIfScenariosCard');
+    const whatIfList = document.getElementById('whatIfScenariosList');
+    if (whatIfList) {
+      const whatIfData = (typeof WattWatchRecommendations !== 'undefined' && typeof WattWatchRecommendations.generateWhatIfScenarios === 'function')
+        ? WattWatchRecommendations.generateWhatIfScenarios(appliances, rate)
+        : null;
+
+      if (!whatIfData || !whatIfData.scenarios || whatIfData.scenarios.length === 0) {
+        if (whatIfCard) whatIfCard.style.display = 'none';
+      } else {
+        if (whatIfCard) whatIfCard.style.display = 'block';
+        whatIfList.innerHTML = '';
+        whatIfData.scenarios.forEach(sc => {
+          const card = document.createElement('div');
+          card.className = 'tip-card';
+          card.innerHTML = `
+            <div>
+              <div class="tip-card-header">
+                <div>
+                  <span class="badge ${sc.badgeClass || 'badge-gold'}">${WattWatchAppliances.escapeHtml(sc.badge || 'Scenario')}</span>
+                  <h3 class="tip-appliance-title" style="margin-top: 0.4rem;">${WattWatchAppliances.escapeHtml(sc.title)}</h3>
+                </div>
+                <span class="badge badge-outline">Rank #${sc.rank} Consumer</span>
+              </div>
+              <div class="tip-reason" style="margin-top: 0.5rem;">
+                ${WattWatchAppliances.escapeHtml(sc.description)}
+              </div>
+            </div>
+            <div class="tip-savings-row" style="margin-top: 1rem;">
+              <div>
+                <div style="font-size: 0.72rem; color: var(--text-secondary); text-transform: uppercase;">Projected Monthly Reduction</div>
+                <div class="tip-savings-pill">${WattWatchCalculations.formatCurrency(sc.savedCostMonthly)} <span style="font-size: 0.78rem; font-family: var(--font-sans); color: var(--royal-blue); font-weight: 500;">(${WattWatchCalculations.formatKwh(sc.savedKwhMonthly)})</span></div>
+              </div>
+              <div style="text-align: right;">
+                <div style="font-size: 0.72rem; color: var(--text-secondary); text-transform: uppercase;">Est. Annual Savings</div>
+                <div style="font-family: var(--font-serif); font-size: 1rem; font-weight: 600; color: var(--text-gold);">${WattWatchCalculations.formatCurrency(sc.annualSavingsCost)}</div>
+              </div>
+            </div>
+            <div style="margin-top: 0.85rem; padding-top: 0.65rem; border-top: 1px solid var(--border-subtle);">
+              <button type="button" class="btn btn-primary btn-sm" style="width: 100%;" data-action="apply-whatif" data-id="${WattWatchAppliances.escapeHtml(sc.id)}">
+                Apply to Simulator &rarr;
+              </button>
+            </div>
+          `;
+          const btn = card.querySelector('[data-action="apply-whatif"]');
+          if (btn) {
+            btn.addEventListener('click', () => {
+              if (typeof WattWatchSimulator !== 'undefined' && WattWatchSimulator.applyScenario) {
+                WattWatchSimulator.applyScenario(sc);
+              }
+            });
+          }
+          whatIfList.appendChild(card);
+        });
+      }
+    }
   },
 
   /**
@@ -1066,6 +1124,32 @@ const WattWatchApp = {
         WattWatchStorage.saveSettings({ carbonEmissionFactor: factor });
         this.refreshAll();
         this.showToast(factor !== null ? `Grid carbon factor set to ${factor} kg CO₂e/kWh` : 'Carbon factor disabled', 'info', 'Carbon Setting');
+      });
+    }
+
+    // Free Units Allowance Input
+    const freeUnitsInput = document.getElementById('settingsFreeUnits');
+    if (freeUnitsInput) {
+      freeUnitsInput.addEventListener('change', (e) => {
+        const val = (typeof WattWatchCalculations !== 'undefined')
+          ? WattWatchCalculations.validateFreeUnits(e.target.value, 0)
+          : Math.max(0, parseFloat(e.target.value) || 0);
+        WattWatchStorage.saveSettings({ freeUnits: val });
+        this.refreshAll();
+        this.showToast(`Lifeline allowance updated to ${val} kWh/month`, 'success', 'Tariff Saved');
+      });
+    }
+
+    // Government Subsidy / Bill Credit Input
+    const billCreditInput = document.getElementById('settingsBillCredit');
+    if (billCreditInput) {
+      billCreditInput.addEventListener('change', (e) => {
+        const val = (typeof WattWatchCalculations !== 'undefined')
+          ? WattWatchCalculations.validateBillCredit(e.target.value, 0)
+          : Math.max(0, parseFloat(e.target.value) || 0);
+        WattWatchStorage.saveSettings({ billCreditInr: val });
+        this.refreshAll();
+        this.showToast(`Government subsidy / bill credit set to ₹${val.toFixed(2)}`, 'success', 'Tariff Saved');
       });
     }
 
@@ -1186,6 +1270,12 @@ const WattWatchApp = {
         const file = e.target.files?.[0];
         if (!file) return;
 
+        if (file.size > 5 * 1024 * 1024) {
+          this.showToast('Backup file exceeds the 5 MB limit. Please select a valid WattWatch backup.', 'error', 'Import Error');
+          fileInput.value = '';
+          return;
+        }
+
         const reader = new FileReader();
         reader.onload = (event) => {
           const rawText = event.target.result;
@@ -1263,6 +1353,159 @@ const WattWatchApp = {
         });
       });
     }
+
+    // CSV Appliances Import Trigger & Input
+    const csvFileInput = document.getElementById('csvApplianceFileInput');
+    const btnImportCsv = document.getElementById('btnImportAppliancesCSV');
+    const btnImportCsvTb = document.getElementById('btnImportAppliancesCSVToolbar');
+
+    const triggerCsvPick = () => {
+      if (csvFileInput) csvFileInput.click();
+    };
+    if (btnImportCsv) btnImportCsv.addEventListener('click', triggerCsvPick);
+    if (btnImportCsvTb) btnImportCsvTb.addEventListener('click', triggerCsvPick);
+
+    if (csvFileInput) {
+      csvFileInput.addEventListener('change', (e) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+
+        const reader = new FileReader();
+        reader.onload = (event) => {
+          const rawText = event.target.result;
+          const parsed = WattWatchStorage.parseAppliancesCSV(rawText);
+          this.openCsvPreviewModal(parsed);
+          csvFileInput.value = '';
+        };
+        reader.readAsText(file);
+      });
+    }
+
+    // CSV Modal buttons
+    const btnCloseCsv = document.getElementById('btnCloseCsvModal');
+    const btnCancelCsv = document.getElementById('btnCancelCsvImport');
+    const btnConfirmCsv = document.getElementById('btnConfirmCsvImport');
+    if (btnCloseCsv) btnCloseCsv.addEventListener('click', () => this.closeCsvPreviewModal());
+    if (btnCancelCsv) btnCancelCsv.addEventListener('click', () => this.closeCsvPreviewModal());
+    if (btnConfirmCsv) btnConfirmCsv.addEventListener('click', () => this.confirmCsvImport());
+  },
+
+  openCsvPreviewModal(parsedResult) {
+    this._pendingCsv = parsedResult;
+    const modal = document.getElementById('csvPreviewModal');
+    if (!modal) return;
+
+    const banner = document.getElementById('csvSummaryBanner');
+    const errBox = document.getElementById('csvErrorsBox');
+    const tableBody = document.getElementById('csvPreviewTableBody');
+    const btnConfirm = document.getElementById('btnConfirmCsvImport');
+
+    if (banner) {
+      banner.innerHTML = `
+        <div style="font-weight: 600; color: var(--text-primary); margin-bottom: 0.2rem;">
+          CSV Analysis: Found ${parsedResult.validRecords.length} valid appliance record(s) out of ${parsedResult.totalRows} data rows.
+        </div>
+        <div style="font-size: 0.78rem; color: var(--text-secondary);">
+          ${parsedResult.errors.length > 0 ? `${parsedResult.errors.length} issue(s) detected during parsing.` : 'All rows passed schema validation.'}
+        </div>
+      `;
+    }
+
+    if (errBox) {
+      if (parsedResult.errors.length > 0) {
+        errBox.style.display = 'block';
+        errBox.innerHTML = `<strong>Validation Issues (${parsedResult.errors.length}):</strong><ul style="margin: 0.35rem 0 0 1.25rem; padding: 0;">` +
+          parsedResult.errors.map(err => `<li>${WattWatchAppliances.escapeHtml(err)}</li>`).join('') +
+          `</ul>`;
+      } else {
+        errBox.style.display = 'none';
+        errBox.innerHTML = '';
+      }
+    }
+
+    if (tableBody) {
+      tableBody.innerHTML = '';
+      if (parsedResult.validRecords.length === 0) {
+        tableBody.innerHTML = '<tr><td colspan="6" style="text-align: center; color: var(--text-secondary); padding: 1rem;">No valid records to preview.</td></tr>';
+        if (btnConfirm) btnConfirm.disabled = true;
+      } else {
+        if (btnConfirm) btnConfirm.disabled = false;
+        parsedResult.validRecords.slice(0, 25).forEach(r => {
+          const tr = document.createElement('tr');
+          tr.innerHTML = `
+            <td><strong>${WattWatchAppliances.escapeHtml(r.name)}</strong></td>
+            <td><span class="badge badge-outline">${WattWatchAppliances.escapeHtml(r.category || 'Other')}</span></td>
+            <td>${r.powerWatts} W</td>
+            <td>${r.dailyHours} h/d</td>
+            <td>${r.operatingDays} d/m</td>
+            <td>${r.quantity}</td>
+          `;
+          tableBody.appendChild(tr);
+        });
+        if (parsedResult.validRecords.length > 25) {
+          const tr = document.createElement('tr');
+          tr.innerHTML = `<td colspan="6" style="text-align: center; color: var(--text-secondary); font-size: 0.78rem;">... and ${parsedResult.validRecords.length - 25} more records</td>`;
+          tableBody.appendChild(tr);
+        }
+      }
+    }
+
+    if (this.modalManager) {
+      this.modalManager.open(modal, document.activeElement);
+    } else {
+      modal.classList.add('is-open');
+      modal.setAttribute('aria-hidden', 'false');
+    }
+  },
+
+  closeCsvPreviewModal() {
+    const modal = document.getElementById('csvPreviewModal');
+    if (!modal) return;
+    if (this.modalManager) {
+      this.modalManager.close(modal);
+    } else {
+      modal.classList.remove('is-open');
+      modal.setAttribute('aria-hidden', 'true');
+    }
+    this._pendingCsv = null;
+  },
+
+  confirmCsvImport() {
+    if (!this._pendingCsv || !this._pendingCsv.validRecords || this._pendingCsv.validRecords.length === 0) {
+      this.showToast('No valid appliance records to import.', 'warning', 'Import Skipped');
+      this.closeCsvPreviewModal();
+      return;
+    }
+
+    const mode = document.querySelector('input[name="csvImportAction"]:checked')?.value || 'merge';
+    const validRecords = this._pendingCsv.validRecords;
+
+    if (mode === 'replace') {
+      WattWatchStorage.saveAppliances(validRecords);
+      this.showToast(`Replaced active inventory with ${validRecords.length} appliances from CSV.`, 'success', 'Import Successful');
+    } else {
+      const existing = WattWatchStorage.getAppliances();
+      let added = 0;
+      let updated = 0;
+
+      validRecords.forEach(newItem => {
+        const normName = newItem.name.toLowerCase().trim();
+        const matchIdx = existing.findIndex(e => e.name.toLowerCase().trim() === normName && Number(e.powerWatts) === Number(newItem.powerWatts));
+        if (matchIdx !== -1) {
+          existing[matchIdx] = { ...existing[matchIdx], ...newItem };
+          updated++;
+        } else {
+          existing.push(newItem);
+          added++;
+        }
+      });
+
+      WattWatchStorage.saveAppliances(existing);
+      this.showToast(`Imported ${validRecords.length} appliances (${added} added, ${updated} merged).`, 'success', 'Import Successful');
+    }
+
+    this.closeCsvPreviewModal();
+    this.refreshAll();
   },
 
   populateSettingsFields(settings) {
@@ -1283,6 +1526,16 @@ const WattWatchApp = {
     const carbonInput = document.getElementById('settingsCarbonFactor');
     if (carbonInput && document.activeElement !== carbonInput) {
       carbonInput.value = settings.carbonEmissionFactor !== null ? Number(settings.carbonEmissionFactor).toFixed(2) : '';
+    }
+
+    const freeUnitsInput = document.getElementById('settingsFreeUnits');
+    if (freeUnitsInput && document.activeElement !== freeUnitsInput) {
+      freeUnitsInput.value = Number(settings.freeUnits || 0);
+    }
+
+    const billCreditInput = document.getElementById('settingsBillCredit');
+    if (billCreditInput && document.activeElement !== billCreditInput) {
+      billCreditInput.value = Number(settings.billCreditInr || 0);
     }
 
     // Active Tariff Mode Banner updates
@@ -1334,6 +1587,41 @@ const WattWatchApp = {
    */
   bindModalKeyboards() {
     window.addEventListener('keydown', (e) => {
+      // ARIA Tablist keyboard navigation (ArrowRight, ArrowLeft, ArrowDown, ArrowUp, Home, End)
+      if (['ArrowRight', 'ArrowLeft', 'ArrowDown', 'ArrowUp', 'Home', 'End'].includes(e.key)) {
+        const activeEl = (e.target && e.target.getAttribute && e.target.getAttribute('role') === 'tab') ? e.target : document.activeElement;
+        if (activeEl && activeEl.getAttribute('role') === 'tab') {
+          const tablist = activeEl.closest('[role="tablist"]');
+          if (tablist) {
+            const tabs = Array.from(tablist.querySelectorAll('[role="tab"]:not([disabled])')).filter(t => {
+              const style = window.getComputedStyle(t);
+              return style.display !== 'none' && style.visibility !== 'hidden';
+            });
+            if (tabs.length > 1) {
+              const curIdx = tabs.indexOf(activeEl);
+              if (curIdx !== -1) {
+                let targetIdx = -1;
+                if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
+                  targetIdx = (curIdx + 1) % tabs.length;
+                } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
+                  targetIdx = (curIdx - 1 + tabs.length) % tabs.length;
+                } else if (e.key === 'Home') {
+                  targetIdx = 0;
+                } else if (e.key === 'End') {
+                  targetIdx = tabs.length - 1;
+                }
+                if (targetIdx !== -1) {
+                  e.preventDefault();
+                  tabs[targetIdx].focus();
+                  tabs[targetIdx].click();
+                  return;
+                }
+              }
+            }
+          }
+        }
+      }
+
       if (e.key === 'Escape') {
         const privacyModal = document.getElementById('privacyModal');
         if (privacyModal && privacyModal.classList.contains('is-open')) {
@@ -1344,6 +1632,7 @@ const WattWatchApp = {
         WattWatchHistory.closeDetailsModal();
         WattWatchReport.closeReportModal();
         this.closeConfirmDialog();
+        this.closeCsvPreviewModal();
         if (typeof WattWatchAuth !== 'undefined' && WattWatchAuth.hasUserChosenSession) {
           WattWatchAuth.closeModal();
         }
@@ -1353,7 +1642,7 @@ const WattWatchApp = {
       if (e.key === 'Tab') {
         let activeModal = this.modalManager ? this.modalManager.getTopModal() : null;
         if (!activeModal) {
-          const modalIds = ['privacyModal', 'confirmModal', 'applianceModal', 'historyDetailModal', 'reportModal', 'authModal'];
+          const modalIds = ['privacyModal', 'confirmModal', 'applianceModal', 'historyDetailModal', 'reportModal', 'authModal', 'csvPreviewModal'];
           for (const id of modalIds) {
             const m = document.getElementById(id);
             if (m && m.classList.contains('is-open')) {

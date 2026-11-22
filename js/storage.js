@@ -8,7 +8,8 @@ const STORAGE_KEYS = {
   APPLIANCES: 'wattwatch_appliances_v1',
   SETTINGS: 'wattwatch_settings_v1',
   THEME: 'wattwatch_theme_v1',
-  HISTORY: 'wattwatch_history_v1'
+  HISTORY: 'wattwatch_history_v1',
+  METER: 'wattwatch_meter_v1'
 };
 
 const DEFAULT_SETTINGS = {
@@ -28,6 +29,8 @@ const DEFAULT_SETTINGS = {
   ],
   fixedCharges: 110.00, // Fixed meter/sanctioned load charge (₹/month)
   additionalTaxPercent: 5.0, // Municipal tax / electricity duty %
+  freeUnits: 0, // Free monthly electricity units quota (kWh/month)
+  billCreditInr: 0, // Government subsidy or bill credit (₹/month)
   carbonEmissionFactor: 0.82 // Grid emission factor in kg CO2e / kWh (India CEA avg; null if cleared)
 };
 
@@ -244,6 +247,24 @@ const WattWatchStorage = {
   testNamespace: null,
   corruptedState: null,
   corruptedItems: [],
+  _cachedAppliances: null,
+  _cachedAppliancesRaw: null,
+  _cachedSettings: null,
+  _cachedSettingsRaw: null,
+  _cachedHistory: null,
+  _cachedHistoryRaw: null,
+
+  /**
+   * Invalidates in-memory storage cache so future reads fetch fresh persisted records
+   */
+  invalidateCache() {
+    this._cachedAppliances = null;
+    this._cachedAppliancesRaw = null;
+    this._cachedSettings = null;
+    this._cachedSettingsRaw = null;
+    this._cachedHistory = null;
+    this._cachedHistoryRaw = null;
+  },
 
   ALLOWED_CATEGORIES: ['Cooling', 'Lighting', 'Kitchen', 'Entertainment', 'Computing', 'Other'],
 
@@ -253,6 +274,7 @@ const WattWatchStorage = {
    */
   setTestNamespace(prefix) {
     this.testNamespace = (typeof prefix === 'string' && prefix.trim().length > 0) ? prefix.trim() : null;
+    this.invalidateCache();
   },
 
   /**
@@ -288,6 +310,7 @@ const WattWatchStorage = {
   clearCorruptedData() {
     this.corruptedState = null;
     this.corruptedItems = [];
+    this.invalidateCache();
   },
 
   /**
@@ -382,6 +405,52 @@ const WattWatchStorage = {
       return { valid: false, error: 'Operating days per month must be an integer between 1 and 31 days' };
     }
 
+    // Optional Advanced Fields: Weekday / Weekend hours, Active days/week, Duty Cycle, Standby power
+    let optWeekdayHours = undefined;
+    if (app.weekdayHours !== undefined && app.weekdayHours !== null && app.weekdayHours !== '') {
+      const wdh = Number(app.weekdayHours);
+      if (typeof app.weekdayHours === 'boolean' || isNaN(wdh) || !Number.isFinite(wdh) || wdh < 0 || wdh > 24) {
+        return { valid: false, error: 'Weekday usage hours must be between 0 and 24' };
+      }
+      optWeekdayHours = wdh;
+    }
+
+    let optWeekendHours = undefined;
+    if (app.weekendHours !== undefined && app.weekendHours !== null && app.weekendHours !== '') {
+      const weh = Number(app.weekendHours);
+      if (typeof app.weekendHours === 'boolean' || isNaN(weh) || !Number.isFinite(weh) || weh < 0 || weh > 24) {
+        return { valid: false, error: 'Weekend usage hours must be between 0 and 24' };
+      }
+      optWeekendHours = weh;
+    }
+
+    let optActiveDaysWeek = undefined;
+    if (app.activeDaysPerWeek !== undefined && app.activeDaysPerWeek !== null && app.activeDaysPerWeek !== '') {
+      const adw = Number(app.activeDaysPerWeek);
+      if (typeof app.activeDaysPerWeek === 'boolean' || isNaN(adw) || !Number.isFinite(adw) || adw < 1 || adw > 7) {
+        return { valid: false, error: 'Active days per week must be between 1 and 7' };
+      }
+      optActiveDaysWeek = Math.round(adw);
+    }
+
+    let optDutyCycle = undefined;
+    if (app.dutyCyclePercent !== undefined && app.dutyCyclePercent !== null && app.dutyCyclePercent !== '') {
+      const dc = Number(app.dutyCyclePercent);
+      if (typeof app.dutyCyclePercent === 'boolean' || isNaN(dc) || !Number.isFinite(dc) || dc <= 0 || dc > 100) {
+        return { valid: false, error: 'Duty cycle must be between 1% and 100%' };
+      }
+      optDutyCycle = dc;
+    }
+
+    let optStandbyWatts = undefined;
+    if (app.standbyWatts !== undefined && app.standbyWatts !== null && app.standbyWatts !== '') {
+      const sbw = Number(app.standbyWatts);
+      if (typeof app.standbyWatts === 'boolean' || isNaN(sbw) || !Number.isFinite(sbw) || sbw < 0 || sbw > 500) {
+        return { valid: false, error: 'Standby power must be between 0 and 500 Watts' };
+      }
+      optStandbyWatts = sbw;
+    }
+
     // Safe ID
     let id = typeof app.id === 'string' && app.id.trim() ? app.id.trim() : null;
     if (!id || /[^a-zA-Z0-9_\-]/.test(id)) {
@@ -407,6 +476,13 @@ const WattWatchStorage = {
       operatingDays: numDays,
       createdAt
     };
+
+    // Attach validated optional advanced profile fields if provided
+    if (optWeekdayHours !== undefined) sanitized.weekdayHours = optWeekdayHours;
+    if (optWeekendHours !== undefined) sanitized.weekendHours = optWeekendHours;
+    if (optActiveDaysWeek !== undefined) sanitized.activeDaysPerWeek = optActiveDaysWeek;
+    if (optDutyCycle !== undefined) sanitized.dutyCyclePercent = optDutyCycle;
+    if (optStandbyWatts !== undefined) sanitized.standbyWatts = optStandbyWatts;
 
     // Preserve optional calculation metrics if present (e.g. from historical snapshots)
     if (app.monthlyCost !== undefined && !isNaN(Number(app.monthlyCost))) {
@@ -447,6 +523,7 @@ const WattWatchStorage = {
    */
   setActiveUser(uid) {
     this.activeUserId = (typeof uid === 'string' && uid.trim().length > 0) ? uid.trim() : null;
+    this.invalidateCache();
   },
 
   /**
@@ -754,6 +831,10 @@ const WattWatchStorage = {
         };
       }
 
+      if (this.activeUserId === uid) {
+        this.invalidateCache();
+      }
+
       // Note: Guest records in localStorage are left 100% intact and untouched.
 
       return {
@@ -812,7 +893,14 @@ const WattWatchStorage = {
     const key = this._getKey('APPLIANCES');
     try {
       const data = localStorage.getItem(key);
-      if (!data) return [];
+      if (data === this._cachedAppliancesRaw && this._cachedAppliances !== null) {
+        return this._cachedAppliances.map(a => ({ ...a }));
+      }
+      if (!data) {
+        this._cachedAppliances = [];
+        this._cachedAppliancesRaw = data;
+        return [];
+      }
       const parsed = JSON.parse(data);
       if (!Array.isArray(parsed)) {
         throw new Error('Stored appliances payload is not an array');
@@ -853,21 +941,24 @@ const WattWatchStorage = {
           }
         }
       }
-      return validated;
+      this._cachedAppliances = validated;
+      this._cachedAppliancesRaw = data;
+      return validated.map(a => ({ ...a }));
     } catch (e) {
+      this.invalidateCache();
       console.error('[WattWatch Storage] Error reading appliances:', e);
-      const raw = localStorage.getItem(key);
-      if (raw) {
-        const backupKey = `wattwatch_corrupted_${Date.now()}_${key}`;
-        try {
+      try {
+        const raw = localStorage.getItem(key);
+        if (raw) {
+          const backupKey = `wattwatch_corrupted_${Date.now()}_${key}`;
           localStorage.setItem(backupKey, raw);
           const item = { key, backupKey, timestamp: Date.now() };
           this.corruptedState = item;
           if (!Array.isArray(this.corruptedItems)) this.corruptedItems = [];
           this.corruptedItems.push(item);
           console.warn(`[WattWatch Storage] Preserved raw corrupted appliances data in "${backupKey}".`);
-        } catch (bErr) { /* ignore quota */ }
-      }
+        }
+      } catch (bErr) { /* ignore storage access or quota errors */ }
       return [];
     }
   },
@@ -887,6 +978,7 @@ const WattWatchStorage = {
         return false;
       }
       localStorage.setItem(this._getKey('APPLIANCES'), JSON.stringify(appliances));
+      this.invalidateCache();
       return true;
     } catch (e) {
       console.error('[WattWatch Storage] Error saving appliances:', e);
@@ -902,26 +994,36 @@ const WattWatchStorage = {
     const key = this._getKey('SETTINGS');
     try {
       const data = localStorage.getItem(key);
-      if (!data) return { ...DEFAULT_SETTINGS };
+      if (data === this._cachedSettingsRaw && this._cachedSettings !== null) {
+        return { ...this._cachedSettings };
+      }
+      if (!data) {
+        this._cachedSettings = { ...DEFAULT_SETTINGS };
+        this._cachedSettingsRaw = data;
+        return { ...DEFAULT_SETTINGS };
+      }
       const parsed = JSON.parse(data);
       if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
         throw new Error('Stored settings payload is not a valid object');
       }
-      return { ...DEFAULT_SETTINGS, ...parsed };
+      this._cachedSettings = { ...DEFAULT_SETTINGS, ...parsed };
+      this._cachedSettingsRaw = data;
+      return { ...this._cachedSettings };
     } catch (e) {
+      this.invalidateCache();
       console.error('[WattWatch Storage] Error reading settings:', e);
-      const raw = localStorage.getItem(key);
-      if (raw) {
-        const backupKey = `wattwatch_corrupted_${Date.now()}_${key}`;
-        try {
+      try {
+        const raw = localStorage.getItem(key);
+        if (raw) {
+          const backupKey = `wattwatch_corrupted_${Date.now()}_${key}`;
           localStorage.setItem(backupKey, raw);
           const item = { key, backupKey, timestamp: Date.now() };
           this.corruptedState = item;
           if (!Array.isArray(this.corruptedItems)) this.corruptedItems = [];
           this.corruptedItems.push(item);
           console.warn(`[WattWatch Storage] Preserved raw corrupted settings data in "${backupKey}".`);
-        } catch (bErr) { /* ignore quota */ }
-      }
+        }
+      } catch (bErr) { /* ignore storage access or quota errors */ }
       return { ...DEFAULT_SETTINGS };
     }
   },
@@ -947,7 +1049,16 @@ const WattWatchStorage = {
         }
         merged.slabConfig = valSlab.sanitized;
       }
+      if (settings.freeUnits !== undefined) {
+        const fu = Number(settings.freeUnits);
+        merged.freeUnits = (!isNaN(fu) && fu >= 0) ? fu : 0;
+      }
+      if (settings.billCreditInr !== undefined) {
+        const bc = Number(settings.billCreditInr);
+        merged.billCreditInr = (!isNaN(bc) && bc >= 0) ? bc : 0;
+      }
       localStorage.setItem(this._getKey('SETTINGS'), JSON.stringify(merged));
+      this.invalidateCache();
       return true;
     } catch (e) {
       console.error('[WattWatch Storage] Error saving settings:', e);
@@ -988,7 +1099,14 @@ const WattWatchStorage = {
     const key = this._getKey('HISTORY');
     try {
       const data = localStorage.getItem(key);
-      if (!data) return [];
+      if (data === this._cachedHistoryRaw && this._cachedHistory !== null) {
+        return this._cachedHistory.map(h => ({ ...h }));
+      }
+      if (!data) {
+        this._cachedHistory = [];
+        this._cachedHistoryRaw = data;
+        return [];
+      }
       const parsed = JSON.parse(data);
       if (!Array.isArray(parsed)) {
         throw new Error('Stored history payload is not an array');
@@ -1038,27 +1156,36 @@ const WattWatchStorage = {
             totalUnits: snap.totalUnits !== undefined ? Number(snap.totalUnits) : sanitizedSnapApps.reduce((acc, a) => acc + (a.quantity || 1), 0),
             appliancesSnapshot: sanitizedSnapApps,
             createdAt: createdAt,
-            notes: typeof snap.notes === 'string' ? snap.notes : ''
+            notes: typeof snap.notes === 'string' ? snap.notes : '',
+            actualKwh: (snap.actualKwh !== undefined && snap.actualKwh !== null && !isNaN(Number(snap.actualKwh))) ? Number(snap.actualKwh) : null,
+            actualCost: (snap.actualCost !== undefined && snap.actualCost !== null && !isNaN(Number(snap.actualCost))) ? Number(snap.actualCost) : null,
+            cycleStartDate: typeof snap.cycleStartDate === 'string' ? snap.cycleStartDate : null,
+            cycleEndDate: typeof snap.cycleEndDate === 'string' ? snap.cycleEndDate : null,
+            meterReadingStart: (snap.meterReadingStart !== undefined && snap.meterReadingStart !== null && !isNaN(Number(snap.meterReadingStart))) ? Number(snap.meterReadingStart) : null,
+            meterReadingEnd: (snap.meterReadingEnd !== undefined && snap.meterReadingEnd !== null && !isNaN(Number(snap.meterReadingEnd))) ? Number(snap.meterReadingEnd) : null
           });
         } else {
           console.warn('[WattWatch Storage] Skipping invalid stored snapshot record:', v.error, snap);
         }
       }
-      return validated;
+      this._cachedHistory = validated;
+      this._cachedHistoryRaw = data;
+      return validated.map(h => ({ ...h }));
     } catch (e) {
+      this.invalidateCache();
       console.error('[WattWatch Storage] Error reading history:', e);
-      const raw = localStorage.getItem(key);
-      if (raw) {
-        const backupKey = `wattwatch_corrupted_${Date.now()}_${key}`;
-        try {
+      try {
+        const raw = localStorage.getItem(key);
+        if (raw) {
+          const backupKey = `wattwatch_corrupted_${Date.now()}_${key}`;
           localStorage.setItem(backupKey, raw);
           const item = { key, backupKey, timestamp: Date.now() };
           this.corruptedState = item;
           if (!Array.isArray(this.corruptedItems)) this.corruptedItems = [];
           this.corruptedItems.push(item);
           console.warn(`[WattWatch Storage] Preserved raw corrupted history data in "${backupKey}".`);
-        } catch (bErr) { /* ignore quota */ }
-      }
+        }
+      } catch (bErr) { /* ignore storage access or quota errors */ }
       return [];
     }
   },
@@ -1072,6 +1199,7 @@ const WattWatchStorage = {
     try {
       if (!Array.isArray(history)) throw new Error('History must be an array');
       localStorage.setItem(this._getKey('HISTORY'), JSON.stringify(history));
+      this.invalidateCache();
       return true;
     } catch (e) {
       console.error('[WattWatch Storage] Error saving history:', e);
@@ -1148,6 +1276,18 @@ const WattWatchStorage = {
     }
     if (snapshot.taxCharges !== undefined && !isStrictFiniteNonNegative(snapshot.taxCharges)) {
       return { valid: false, error: 'Snapshot taxCharges must be a non-negative finite number' };
+    }
+    if (snapshot.actualKwh !== undefined && snapshot.actualKwh !== null && snapshot.actualKwh !== '' && !isStrictFiniteNonNegative(snapshot.actualKwh)) {
+      return { valid: false, error: 'Snapshot actualKwh must be a non-negative finite number' };
+    }
+    if (snapshot.actualCost !== undefined && snapshot.actualCost !== null && snapshot.actualCost !== '' && !isStrictFiniteNonNegative(snapshot.actualCost)) {
+      return { valid: false, error: 'Snapshot actualCost must be a non-negative finite number' };
+    }
+    if (snapshot.meterReadingStart !== undefined && snapshot.meterReadingStart !== null && snapshot.meterReadingStart !== '' && !isStrictFiniteNonNegative(snapshot.meterReadingStart)) {
+      return { valid: false, error: 'Snapshot meterReadingStart must be a non-negative finite number' };
+    }
+    if (snapshot.meterReadingEnd !== undefined && snapshot.meterReadingEnd !== null && snapshot.meterReadingEnd !== '' && !isStrictFiniteNonNegative(snapshot.meterReadingEnd)) {
+      return { valid: false, error: 'Snapshot meterReadingEnd must be a non-negative finite number' };
     }
 
     if (snapshot.createdAt !== undefined && snapshot.createdAt !== null) {
@@ -1262,11 +1402,15 @@ const WattWatchStorage = {
     currentSettings.theme = this.getTheme();
     const exportPayload = {
       version: '2.0',
+      backupVersion: '2.0',
+      timestamp: Date.now(),
       exportedAt: new Date().toISOString(),
       generator: 'WattWatch Energy Analytics',
+      accountType: this.activeUserId ? 'authenticated' : 'guest',
       settings: currentSettings,
       appliances: this.getAppliances(),
-      history: this.getHistory()
+      history: this.getHistory(),
+      meterTracking: this.getMeterTracking() || null
     };
     return JSON.stringify(exportPayload, null, 2);
   },
@@ -1303,19 +1447,65 @@ const WattWatchStorage = {
    */
   importDataJSON(jsonString, options = { mode: 'merge' }) {
     try {
-      let parsed = JSON.parse(jsonString);
+      if (typeof jsonString !== 'string' || !jsonString.trim()) {
+        return { success: false, error: 'JSON payload is empty or invalid' };
+      }
 
-      if (!parsed || typeof parsed !== 'object') {
-        return { success: false, error: 'Invalid JSON format' };
+      if (jsonString.length > 5 * 1024 * 1024) {
+        return { success: false, error: 'Backup data exceeds maximum allowed size (5 MB)' };
+      }
+
+      let parsed = null;
+      try {
+        parsed = JSON.parse(jsonString);
+      } catch (parseErr) {
+        return { success: false, error: 'Invalid JSON format: ' + parseErr.message };
+      }
+
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        return { success: false, error: 'Invalid backup structure: root must be a JSON object' };
       }
 
       // Check version support
-      if (parsed.version && parsed.version !== '1.0' && parsed.version !== '2.0') {
-        return { success: false, error: `Unsupported backup version: ${parsed.version}` };
+      const ver = parsed.backupVersion || parsed.version;
+      if (ver !== undefined && ver !== null && ver !== '1.0' && ver !== '2.0') {
+        return { success: false, error: `Unsupported backup version: ${ver}` };
+      }
+
+      // Check account type isolation (Guest vs Authenticated User)
+      const currentAccountType = this.activeUserId ? 'authenticated' : 'guest';
+      const backupAccountType = parsed.accountType;
+      if (backupAccountType !== undefined && backupAccountType !== null) {
+        if (backupAccountType === 'guest' && currentAccountType === 'authenticated') {
+          return {
+            success: false,
+            error: 'Account type mismatch: cannot import a Guest backup into an Authenticated account. Please sign out to import guest data.'
+          };
+        }
+        if (backupAccountType === 'authenticated' && currentAccountType === 'guest') {
+          return {
+            success: false,
+            error: 'Account type mismatch: cannot import an Authenticated account backup into Guest mode. Please sign in to import account data.'
+          };
+        }
+        if (backupAccountType !== 'guest' && backupAccountType !== 'authenticated') {
+          return {
+            success: false,
+            error: `Invalid account type in backup: "${backupAccountType}". Expected "guest" or "authenticated".`
+          };
+        }
       }
 
       if (!Array.isArray(parsed.appliances)) {
         return { success: false, error: 'File missing "appliances" list' };
+      }
+
+      if (parsed.appliances.length > 500) {
+        return { success: false, error: 'Backup contains too many appliances (max 500 allowed)' };
+      }
+
+      if (Array.isArray(parsed.history) && parsed.history.length > 200) {
+        return { success: false, error: 'Backup contains too many history snapshots (max 200 allowed)' };
       }
 
       // Strip sensitive credentials/tokens
@@ -1452,17 +1642,32 @@ const WattWatchStorage = {
         finalHistory.sort((a, b) => b.period.localeCompare(a.period));
       }
 
-      // Snapshot existing appliances, history, settings and theme before writing
+      // Validate meter tracking if present in imported payload
+      let validatedMeterTracking = null;
+      if (parsed.meterTracking !== undefined && parsed.meterTracking !== null) {
+        if (typeof parsed.meterTracking !== 'object' || Array.isArray(parsed.meterTracking)) {
+          return { success: false, error: 'Invalid meter tracking data: root meterTracking must be a JSON object' };
+        }
+        const valMeter = this.validateMeterTracking(parsed.meterTracking);
+        if (!valMeter.valid) {
+          return { success: false, error: `Invalid meter tracking data: ${valMeter.error}` };
+        }
+        validatedMeterTracking = valMeter.sanitized;
+      }
+
+      // Snapshot existing appliances, history, settings, theme, and meter tracking before writing
       const appKey = this._getKey('APPLIANCES');
       const histKey = this._getKey('HISTORY');
       const settKey = this._getKey('SETTINGS');
       const themeKey = this._getKey('THEME');
+      const meterKey = this._getKey('METER');
 
       const storageSnapshot = {
         appliances: localStorage.getItem(appKey),
         history: localStorage.getItem(histKey),
         settings: localStorage.getItem(settKey),
-        theme: localStorage.getItem(themeKey)
+        theme: localStorage.getItem(themeKey),
+        meter: localStorage.getItem(meterKey)
       };
 
       // Prepare merged or replaced settings
@@ -1548,6 +1753,17 @@ const WattWatchStorage = {
             }
           }
         }
+        if (validatedMeterTracking !== null) {
+          if (mode === 'replace' || !localStorage.getItem(meterKey)) {
+            const savedMeter = this.saveMeterTracking(validatedMeterTracking);
+            if (!savedMeter) {
+              throw new Error('Failed to save meter tracking data');
+            }
+          }
+        } else if (mode === 'replace') {
+          localStorage.removeItem(meterKey);
+        }
+        this.invalidateCache();
       } catch (writeErr) {
         console.error('[WattWatch Storage] Write failure during JSON import, attempting restoration:', writeErr);
 
@@ -1555,31 +1771,57 @@ const WattWatchStorage = {
         let restoredHist = false;
         let restoredSett = false;
         let restoredTheme = false;
+        let restoredMeter = false;
 
+        // 1. Restore & verify appliances
         try {
-          if (storageSnapshot.appliances !== null) localStorage.setItem(appKey, storageSnapshot.appliances);
-          else localStorage.removeItem(appKey);
-          restoredApps = true;
+          if (storageSnapshot.appliances !== null) {
+            localStorage.setItem(appKey, storageSnapshot.appliances);
+          } else {
+            localStorage.removeItem(appKey);
+          }
+          if (localStorage.getItem(appKey) === storageSnapshot.appliances) {
+            restoredApps = true;
+          } else {
+            console.error('[WattWatch Storage] Verification failed for restored appliances');
+          }
         } catch (rErr1) {
           console.error('[WattWatch Storage] Failed to restore appliances:', rErr1);
         }
 
+        // 2. Restore & verify history
         try {
-          if (storageSnapshot.history !== null) localStorage.setItem(histKey, storageSnapshot.history);
-          else localStorage.removeItem(histKey);
-          restoredHist = true;
+          if (storageSnapshot.history !== null) {
+            localStorage.setItem(histKey, storageSnapshot.history);
+          } else {
+            localStorage.removeItem(histKey);
+          }
+          if (localStorage.getItem(histKey) === storageSnapshot.history) {
+            restoredHist = true;
+          } else {
+            console.error('[WattWatch Storage] Verification failed for restored history');
+          }
         } catch (rErr2) {
           console.error('[WattWatch Storage] Failed to restore history:', rErr2);
         }
 
+        // 3. Restore & verify settings
         try {
-          if (storageSnapshot.settings !== null) localStorage.setItem(settKey, storageSnapshot.settings);
-          else localStorage.removeItem(settKey);
-          restoredSett = true;
+          if (storageSnapshot.settings !== null) {
+            localStorage.setItem(settKey, storageSnapshot.settings);
+          } else {
+            localStorage.removeItem(settKey);
+          }
+          if (localStorage.getItem(settKey) === storageSnapshot.settings) {
+            restoredSett = true;
+          } else {
+            console.error('[WattWatch Storage] Verification failed for restored settings');
+          }
         } catch (rErr3) {
           console.error('[WattWatch Storage] Failed to restore settings:', rErr3);
         }
 
+        // 4. Restore & verify theme
         try {
           if (storageSnapshot.theme !== null) {
             localStorage.setItem(themeKey, storageSnapshot.theme);
@@ -1588,19 +1830,55 @@ const WattWatchStorage = {
             }
           } else {
             localStorage.removeItem(themeKey);
+            if (typeof document !== 'undefined' && document.documentElement) {
+              document.documentElement.removeAttribute('data-theme');
+            }
           }
-          restoredTheme = true;
+          if (localStorage.getItem(themeKey) === storageSnapshot.theme) {
+            restoredTheme = true;
+          } else {
+            console.error('[WattWatch Storage] Verification failed for restored theme');
+          }
         } catch (rErr4) {
           console.error('[WattWatch Storage] Failed to restore theme:', rErr4);
         }
 
-        const fullRestoration = restoredApps && restoredHist && restoredSett && restoredTheme;
+        // 5. Restore & verify meter tracking
+        try {
+          if (storageSnapshot.meter !== null) {
+            localStorage.setItem(meterKey, storageSnapshot.meter);
+          } else {
+            localStorage.removeItem(meterKey);
+          }
+          if (localStorage.getItem(meterKey) === storageSnapshot.meter) {
+            restoredMeter = true;
+          } else {
+            console.error('[WattWatch Storage] Verification failed for restored meter tracking');
+          }
+        } catch (rErr5) {
+          console.error('[WattWatch Storage] Failed to restore meter:', rErr5);
+        }
+
+        this.invalidateCache();
+        const fullRestoration = restoredApps && restoredHist && restoredSett && restoredTheme && restoredMeter;
+
+        const failedRestorations = [];
+        if (!restoredApps) failedRestorations.push('appliances');
+        if (!restoredHist) failedRestorations.push('history');
+        if (!restoredSett) failedRestorations.push('settings');
+        if (!restoredTheme) failedRestorations.push('theme');
+        if (!restoredMeter) failedRestorations.push('meter tracking');
 
         return {
           success: false,
           restored: fullRestoration,
           restorationSucceeded: fullRestoration,
-          error: `Storage write failure: ${writeErr.message}. ${fullRestoration ? 'Pre-import state was successfully restored.' : 'Warning: Restoration failed or was incomplete.'}`
+          failedRestorations: failedRestorations,
+          error: `Storage write failure: ${writeErr.message}. ${
+            fullRestoration
+              ? 'Pre-import state was successfully restored across all 5 storage keys.'
+              : `Warning: Restoration failed or was incomplete for: ${failedRestorations.join(', ')}.`
+          }`
         };
       }
 
@@ -1968,6 +2246,370 @@ const WattWatchStorage = {
   },
 
   /**
+   * Validates active billing cycle meter tracking record against strict domain rules.
+   * Validates numeric fields for finite, non-negative values, dates, and reading relationships.
+   * @param {*} meterData
+   * @returns {{ valid: boolean, error?: string, sanitized?: Object }}
+   */
+  validateMeterTracking(meterData) {
+    if (!meterData || typeof meterData !== 'object' || Array.isArray(meterData)) {
+      return { valid: false, error: 'Meter tracking data must be a valid JSON object' };
+    }
+
+    // Helper to validate optional non-negative numeric fields
+    const validateNonNegativeNumber = (val, fieldName, max = 10000000) => {
+      if (val === null || val === undefined || val === '') {
+        return { valid: true, value: 0, specified: false };
+      }
+      if (typeof val === 'boolean') {
+        return { valid: false, error: `${fieldName} must be a number, not boolean` };
+      }
+      const num = Number(val);
+      if (isNaN(num) || !Number.isFinite(num)) {
+        return { valid: false, error: `${fieldName} must be a finite number` };
+      }
+      if (num < 0) {
+        return { valid: false, error: `${fieldName} cannot be negative` };
+      }
+      if (num > max) {
+        return { valid: false, error: `${fieldName} cannot exceed ${max}` };
+      }
+      return { valid: true, value: num, specified: true };
+    };
+
+    // 1. Validate numeric fields
+    const valStart = validateNonNegativeNumber(meterData.startReading, 'startReading');
+    if (!valStart.valid) return { valid: false, error: valStart.error };
+
+    const valCurrent = validateNonNegativeNumber(meterData.currentReading, 'currentReading');
+    if (!valCurrent.valid) return { valid: false, error: valCurrent.error };
+
+    const valUnits = validateNonNegativeNumber(meterData.actualUnits, 'actualUnits');
+    if (!valUnits.valid) return { valid: false, error: valUnits.error };
+
+    const valCost = validateNonNegativeNumber(meterData.actualCost, 'actualCost');
+    if (!valCost.valid) return { valid: false, error: valCost.error };
+
+    // 2. Validate reading relationship: currentReading >= startReading
+    if (valStart.specified && valCurrent.specified) {
+      if (valCurrent.value < valStart.value) {
+        return {
+          valid: false,
+          error: `Current meter reading (${valCurrent.value}) cannot be lower than start meter reading (${valStart.value})`
+        };
+      }
+    }
+
+    // Helper to validate exact YYYY-MM-DD calendar dates
+    const isValidCalendarDate = (dateStr) => {
+      if (typeof dateStr !== 'string') return false;
+      const match = dateStr.trim().match(/^(\d{4})-(\d{2})-(\d{2})$/);
+      if (!match) return false;
+      const year = parseInt(match[1], 10);
+      const month = parseInt(match[2], 10);
+      const day = parseInt(match[3], 10);
+
+      if (year < 1900 || year > 2100) return false;
+      if (month < 1 || month > 12) return false;
+      if (day < 1 || day > 31) return false;
+
+      // Check number of days in month (accurately accounts for leap years)
+      const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate();
+      return day <= daysInMonth;
+    };
+
+    // 3. Validate date fields: cycleStartDate and cycleEndDate
+    let cleanStartDate = '';
+    if (meterData.cycleStartDate !== null && meterData.cycleStartDate !== undefined && meterData.cycleStartDate !== '') {
+      if (typeof meterData.cycleStartDate !== 'string' || !isValidCalendarDate(meterData.cycleStartDate)) {
+        return {
+          valid: false,
+          error: `Invalid cycleStartDate "${meterData.cycleStartDate}": must be a valid calendar date in YYYY-MM-DD format`
+        };
+      }
+      cleanStartDate = meterData.cycleStartDate.trim();
+    }
+
+    let cleanEndDate = '';
+    if (meterData.cycleEndDate !== null && meterData.cycleEndDate !== undefined && meterData.cycleEndDate !== '') {
+      if (typeof meterData.cycleEndDate !== 'string' || !isValidCalendarDate(meterData.cycleEndDate)) {
+        return {
+          valid: false,
+          error: `Invalid cycleEndDate "${meterData.cycleEndDate}": must be a valid calendar date in YYYY-MM-DD format`
+        };
+      }
+      cleanEndDate = meterData.cycleEndDate.trim();
+    }
+
+    // 4. Validate date relationship: cycleEndDate >= cycleStartDate
+    if (cleanStartDate && cleanEndDate) {
+      if (cleanEndDate < cleanStartDate) {
+        return {
+          valid: false,
+          error: `Cycle end date (${cleanEndDate}) cannot be earlier than cycle start date (${cleanStartDate})`
+        };
+      }
+    }
+
+    // 5. Compute actualUnits if readings are available, or use validated actualUnits
+    let computedUnits = valUnits.value;
+    if (valCurrent.specified && valStart.specified && valCurrent.value >= valStart.value && valStart.value > 0) {
+      computedUnits = valCurrent.value - valStart.value;
+    }
+
+    // 6. Validate notes
+    let cleanNotes = '';
+    if (meterData.notes !== undefined && meterData.notes !== null) {
+      if (typeof meterData.notes !== 'string') {
+        return { valid: false, error: 'notes must be a string' };
+      }
+      cleanNotes = meterData.notes.slice(0, 500);
+    }
+
+    // 7. Validate updatedAt
+    let updatedAt = Date.now();
+    if (meterData.updatedAt !== undefined && meterData.updatedAt !== null) {
+      const validTime = this.validateTimestamp(meterData.updatedAt);
+      if (validTime !== null) {
+        updatedAt = validTime;
+      }
+    }
+
+    return {
+      valid: true,
+      sanitized: {
+        cycleStartDate: cleanStartDate,
+        cycleEndDate: cleanEndDate,
+        startReading: valStart.value,
+        currentReading: valCurrent.value,
+        actualUnits: computedUnits,
+        actualCost: valCost.value,
+        notes: cleanNotes,
+        updatedAt
+      }
+    };
+  },
+
+  /**
+   * Retrieves active billing cycle meter tracking record
+   * @returns {Object|null}
+   */
+  getMeterTracking() {
+    const key = this._getKey('METER');
+    try {
+      const data = localStorage.getItem(key);
+      if (!data) return null;
+      const parsed = JSON.parse(data);
+      if (typeof parsed !== 'object' || parsed === null) return null;
+      return parsed;
+    } catch (e) {
+      return null;
+    }
+  },
+
+  /**
+   * Saves active billing cycle meter tracking record
+   * @param {Object} meterData
+   * @returns {boolean} Success status
+   */
+  saveMeterTracking(meterData) {
+    const val = this.validateMeterTracking(meterData);
+    if (!val.valid) {
+      console.warn('[WattWatch Storage] Refusing to save invalid meter tracking data:', val.error);
+      return false;
+    }
+    try {
+      localStorage.setItem(this._getKey('METER'), JSON.stringify(val.sanitized));
+      return true;
+    } catch (e) {
+      console.error('[WattWatch Storage] Error saving meter tracking:', e);
+      return false;
+    }
+  },
+
+  /**
+   * Parses CSV text containing appliance records using strict RFC 4180 rules.
+   * Validates required and optional fields with detailed row-by-row error reporting.
+   * @param {string} csvText
+   * @returns {{ success: boolean, totalRows: number, validRecords: Array, errors: Array }}
+   */
+  parseAppliancesCSV(csvText) {
+    if (typeof csvText !== 'string' || !csvText.trim()) {
+      return { success: false, totalRows: 0, validRecords: [], errors: ['CSV content is empty or invalid'] };
+    }
+
+    // Strip BOM
+    const text = csvText.replace(/^\uFEFF/, '');
+
+    // RFC 4180 state machine parser handling quotes and newlines within fields
+    const rows = [];
+    let curRow = [];
+    let curVal = '';
+    let inQuotes = false;
+
+    for (let i = 0; i < text.length; i++) {
+      const c = text[i];
+      const next = text[i + 1];
+
+      if (inQuotes) {
+        if (c === '"') {
+          if (next === '"') {
+            curVal += '"';
+            i++; // skip escaped quote
+          } else {
+            inQuotes = false;
+          }
+        } else {
+          curVal += c;
+        }
+      } else {
+        if (c === '"') {
+          inQuotes = true;
+        } else if (c === ',') {
+          curRow.push(curVal.trim());
+          curVal = '';
+        } else if (c === '\r' || c === '\n') {
+          curRow.push(curVal.trim());
+          curVal = '';
+          if (curRow.some(cell => cell.length > 0)) {
+            rows.push(curRow);
+          }
+          curRow = [];
+          if (c === '\r' && next === '\n') {
+            i++; // skip \n
+          }
+        } else {
+          curVal += c;
+        }
+      }
+    }
+    if (curVal.length > 0 || curRow.length > 0) {
+      curRow.push(curVal.trim());
+      if (curRow.some(cell => cell.length > 0)) {
+        rows.push(curRow);
+      }
+    }
+
+    if (rows.length < 2) {
+      return { success: false, totalRows: rows.length, validRecords: [], errors: ['CSV file must contain a header row and at least one data row'] };
+    }
+
+    const headers = rows[0].map(h => h.toLowerCase().trim().replace(/[\r\n]+/g, ''));
+    const nameIdx = headers.findIndex(h => h === 'name' || h === 'appliance' || h === 'appliance name');
+    const catIdx = headers.findIndex(h => h === 'category');
+    const wattsIdx = headers.findIndex(h => h.includes('watt') || h.includes('power'));
+    const hoursIdx = headers.findIndex(h => h.includes('hour') || h.includes('daily'));
+    const daysIdx = headers.findIndex(h => h.includes('day') || h.includes('operating'));
+    const qtyIdx = headers.findIndex(h => h.includes('quantity') || h === 'qty' || h === 'count');
+    const standbyIdx = headers.findIndex(h => h.includes('standby'));
+    const dutyIdx = headers.findIndex(h => h.includes('duty') || h.includes('inverter'));
+    const weekdayIdx = headers.findIndex(h => h.includes('weekday'));
+    const weekendIdx = headers.findIndex(h => h.includes('weekend'));
+    const activeDaysIdx = headers.findIndex(h => h.includes('active days') || h.includes('days per week') || h === 'active_days');
+
+    if (nameIdx === -1 || wattsIdx === -1 || hoursIdx === -1) {
+      return {
+        success: false,
+        totalRows: rows.length - 1,
+        validRecords: [],
+        errors: ['CSV is missing required headers. Required: Name, Power Watts, Daily Hours (Optional: Category, Operating Days, Quantity)']
+      };
+    }
+
+    const validRecords = [];
+    const errors = [];
+    const validCategories = ['Cooling', 'Kitchen', 'Lighting', 'Entertainment', 'Computing', 'Other'];
+
+    for (let r = 1; r < rows.length; r++) {
+      const row = rows[r];
+      const lineNum = r + 1;
+      const rowErrors = [];
+
+      const rawName = row[nameIdx];
+      const rawWatts = row[wattsIdx];
+      const rawHours = row[hoursIdx];
+      const rawDays = daysIdx !== -1 ? row[daysIdx] : '30';
+      const rawQty = qtyIdx !== -1 ? row[qtyIdx] : '1';
+      const rawCat = catIdx !== -1 ? row[catIdx] : 'Other';
+
+      if (!rawName || !rawName.trim()) {
+        rowErrors.push('Appliance name cannot be empty');
+      }
+
+      const pWatts = Number(rawWatts);
+      if (isNaN(pWatts) || pWatts <= 0 || pWatts > 50000) {
+        rowErrors.push(`Power rating (${rawWatts}) must be between 1 and 50,000 W`);
+      }
+
+      const dHours = Number(rawHours);
+      if (isNaN(dHours) || dHours < 0 || dHours > 24) {
+        rowErrors.push(`Daily hours (${rawHours}) must be between 0 and 24`);
+      }
+
+      const oDays = rawDays ? Number(rawDays) : 30;
+      if (isNaN(oDays) || oDays < 0 || oDays > 31 || !Number.isInteger(oDays)) {
+        rowErrors.push(`Operating days (${rawDays}) must be an integer between 0 and 31`);
+      }
+
+      const qty = rawQty ? Number(rawQty) : 1;
+      if (isNaN(qty) || qty < 1 || qty > 1000 || !Number.isInteger(qty)) {
+        rowErrors.push(`Quantity (${rawQty}) must be an integer >= 1`);
+      }
+
+      let category = 'Other';
+      if (rawCat && rawCat.trim()) {
+        const matched = validCategories.find(c => c.toLowerCase() === rawCat.trim().toLowerCase());
+        category = matched || 'Other';
+      }
+
+      const record = {
+        id: `app_csv_${Date.now()}_${r}_${Math.random().toString(36).substr(2, 5)}`,
+        name: rawName ? rawName.trim().slice(0, 100) : `Appliance #${r}`,
+        category,
+        powerWatts: pWatts,
+        dailyHours: dHours,
+        operatingDays: oDays,
+        quantity: qty,
+        createdAt: Date.now() - ((rows.length - r) * 1000)
+      };
+
+      if (standbyIdx !== -1 && row[standbyIdx]) {
+        const sb = Number(row[standbyIdx]);
+        if (!isNaN(sb) && sb >= 0 && sb <= 500) record.standbyWatts = sb;
+      }
+      if (dutyIdx !== -1 && row[dutyIdx]) {
+        const dc = Number(row[dutyIdx]);
+        if (!isNaN(dc) && dc > 0 && dc <= 100) record.dutyCyclePercent = dc;
+      }
+      if (weekdayIdx !== -1 && row[weekdayIdx]) {
+        const wd = Number(row[weekdayIdx]);
+        if (!isNaN(wd) && wd >= 0 && wd <= 24) record.weekdayHours = wd;
+      }
+      if (weekendIdx !== -1 && row[weekendIdx]) {
+        const we = Number(row[weekendIdx]);
+        if (!isNaN(we) && we >= 0 && we <= 24) record.weekendHours = we;
+      }
+      if (activeDaysIdx !== -1 && row[activeDaysIdx]) {
+        const ad = Number(row[activeDaysIdx]);
+        if (!isNaN(ad) && ad >= 1 && ad <= 7) record.activeDaysPerWeek = Math.round(ad);
+      }
+
+      if (rowErrors.length > 0) {
+        errors.push(`Row ${lineNum}: ${rowErrors.join(', ')}`);
+      } else {
+        validRecords.push(record);
+      }
+    }
+
+    return {
+      success: errors.length === 0,
+      totalRows: rows.length - 1,
+      validRecords,
+      errors
+    };
+  },
+
+  /**
    * Clears all appliances, history and resets settings to default
    */
   clearAllData() {
@@ -1975,7 +2617,9 @@ const WattWatchStorage = {
       localStorage.removeItem(this._getKey('APPLIANCES'));
       localStorage.removeItem(this._getKey('SETTINGS'));
       localStorage.removeItem(this._getKey('HISTORY'));
+      localStorage.removeItem(this._getKey('METER'));
       localStorage.removeItem(this.getGuideKey());
+      this.invalidateCache();
       return true;
     } catch (e) {
       console.error('[WattWatch Storage] Error clearing data:', e);

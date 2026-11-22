@@ -1,0 +1,12 @@
+
+# Local editor settings
+.vscode/
+
+# Local backups
+backups/
+
+# Local audit and review files
+*.diff
+complete-review.txt
+privacy-review.txt
+responsive-review.txt

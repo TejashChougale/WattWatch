@@ -235,6 +235,54 @@ const WattWatchSimulator = {
   },
 
   /**
+   * Applies a What-If scenario directly to the replacement simulator
+   * @param {Object} scenario
+   */
+  applyScenario(scenario) {
+    if (!scenario || !scenario.applianceId) return;
+
+    if (typeof WattWatchApp !== 'undefined' && WattWatchApp.navigateTo) {
+      WattWatchApp.navigateTo('simulator');
+    }
+
+    const select = document.getElementById('simApplianceSelect');
+    if (select) {
+      select.value = scenario.applianceId;
+      this.handleApplianceSelect();
+    }
+
+    if (scenario.targetWatts !== undefined) {
+      const elWatts = document.getElementById('simAltWatts');
+      if (elWatts) elWatts.value = scenario.targetWatts;
+    }
+    if (scenario.targetHours !== undefined) {
+      const elHours = document.getElementById('simAltHours');
+      if (elHours) elHours.value = scenario.targetHours;
+    }
+    if (scenario.targetDays !== undefined) {
+      const elDays = document.getElementById('simAltDays');
+      if (elDays) elDays.value = scenario.targetDays;
+    }
+    if (scenario.targetQty !== undefined) {
+      const elQty = document.getElementById('simAltQty');
+      if (elQty) elQty.value = scenario.targetQty;
+    }
+
+    this.calculateReplacement();
+
+    const resultBox = document.getElementById('simResultsContainer');
+    if (resultBox && typeof resultBox.scrollIntoView === 'function') {
+      try {
+        resultBox.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      } catch (_) {}
+    }
+
+    if (typeof WattWatchApp !== 'undefined' && WattWatchApp.showToast) {
+      WattWatchApp.showToast(`Applied "${scenario.title || 'What-If Scenario'}" to simulator`, 'info', 'Scenario Loaded');
+    }
+  },
+
+  /**
    * Advanced Tariff Calculator Events & Sandbox
    */
   bindTariffEvents() {
@@ -248,7 +296,7 @@ const WattWatchSimulator = {
       });
     }
 
-    const inputs = ['calcFixedCharges', 'calcTaxPercent', 'calcFlatRateInput', 'calcTestKwhInput'];
+    const inputs = ['calcFixedCharges', 'calcTaxPercent', 'calcFlatRateInput', 'calcTestKwhInput', 'calcFreeUnits', 'calcBillCredit'];
     inputs.forEach(id => {
       const el = document.getElementById(id);
       if (el) el.addEventListener('input', () => this.runTariffCalculation());
@@ -264,7 +312,7 @@ const WattWatchSimulator = {
       btnApplySettings.addEventListener('click', () => this.applyTariffToSettings());
     }
 
-    // Safe delegated click listener for removing slab rows
+    // Safe delegated click and input listeners for slab table
     const slabTableBody = document.getElementById('tariffSlabsTableBody');
     if (slabTableBody) {
       slabTableBody.addEventListener('click', (e) => {
@@ -273,6 +321,11 @@ const WattWatchSimulator = {
         const idx = parseInt(btn.getAttribute('data-index'), 10);
         if (!isNaN(idx)) {
           this.removeSlabRow(idx);
+        }
+      });
+      slabTableBody.addEventListener('input', (e) => {
+        if (e.target && (e.target.classList.contains('slab-upto-input') || e.target.classList.contains('slab-rate-input'))) {
+          this.runTariffCalculation();
         }
       });
     }
@@ -287,6 +340,8 @@ const WattWatchSimulator = {
     const flatInput = document.getElementById('calcFlatRateInput');
     const fixedInput = document.getElementById('calcFixedCharges');
     const taxInput = document.getElementById('calcTaxPercent');
+    const freeInput = document.getElementById('calcFreeUnits');
+    const creditInput = document.getElementById('calcBillCredit');
     const slabGroup = document.getElementById('tariffSlabsEditorGroup');
 
     const valRate = (typeof WattWatchCalculations !== 'undefined')
@@ -304,10 +359,22 @@ const WattWatchSimulator = {
       : Number(settings.additionalTaxPercent || 5.0);
     const taxPercent = !isNaN(valTax) ? valTax : 5.0;
 
+    const valFree = (typeof WattWatchCalculations !== 'undefined')
+      ? WattWatchCalculations.validateFreeUnits(settings.freeUnits, 0)
+      : Number(settings.freeUnits || 0);
+    const freeUnits = !isNaN(valFree) ? valFree : 0;
+
+    const valCredit = (typeof WattWatchCalculations !== 'undefined')
+      ? WattWatchCalculations.validateBillCredit(settings.billCreditInr, 0)
+      : Number(settings.billCreditInr || 0);
+    const billCredit = !isNaN(valCredit) ? valCredit : 0;
+
     if (modelSelect) modelSelect.value = settings.tariffModel || 'flat';
     if (flatInput) flatInput.value = flatRate.toFixed(2);
     if (fixedInput) fixedInput.value = fixedCharges.toFixed(2);
     if (taxInput) taxInput.value = taxPercent.toFixed(1);
+    if (freeInput) freeInput.value = freeUnits.toString();
+    if (creditInput) creditInput.value = billCredit.toString();
 
     if (slabGroup) slabGroup.style.display = settings.tariffModel === 'slab' ? 'block' : 'none';
 
@@ -349,17 +416,12 @@ const WattWatchSimulator = {
         </td>
         <td>
           ${slabs.length > 1
-            ? `<button type="button" class="btn btn-secondary btn-icon btn-sm" data-action="remove-slab" data-index="${idx}" title="Remove Tier" style="color: #A92639;">&times;</button>`
+            ? `<button type="button" class="btn btn-secondary btn-icon btn-sm" data-action="remove-slab" data-index="${idx}" title="Remove Tier" aria-label="Remove Slab Tier ${idx + 1}" style="color: #A92639;">&times;</button>`
             : '<span style="color: var(--text-secondary);">—</span>'
           }
         </td>
       `;
       tbody.appendChild(tr);
-    });
-
-    // Re-bind change listeners
-    tbody.querySelectorAll('input').forEach(inp => {
-      inp.addEventListener('input', () => this.runTariffCalculation());
     });
   },
 
@@ -438,6 +500,10 @@ const WattWatchSimulator = {
     const fixedCharges = (rawFixed !== undefined && rawFixed !== null && rawFixed.trim() !== '') ? Number(rawFixed) : 0;
     const rawTax = document.getElementById('calcTaxPercent')?.value;
     const taxPercent = (rawTax !== undefined && rawTax !== null && rawTax.trim() !== '') ? Number(rawTax) : 0;
+    const rawFree = document.getElementById('calcFreeUnits')?.value;
+    const freeUnits = (rawFree !== undefined && rawFree !== null && rawFree.trim() !== '') ? Number(rawFree) : 0;
+    const rawCredit = document.getElementById('calcBillCredit')?.value;
+    const billCredit = (rawCredit !== undefined && rawCredit !== null && rawCredit.trim() !== '') ? Number(rawCredit) : 0;
     const slabs = this.readCurrentSlabsFromUI();
 
     const mockSettings = {
@@ -445,6 +511,8 @@ const WattWatchSimulator = {
       electricityRate: flatRate,
       fixedCharges,
       additionalTaxPercent: taxPercent,
+      freeUnits,
+      billCreditInr: billCredit,
       slabConfig: slabs
     };
 
@@ -474,7 +542,15 @@ const WattWatchSimulator = {
       `;
     });
 
+    const subsidyBanner = (result.subsidyApplied > 0 || result.freeUnitsApplied > 0)
+      ? `<div style="background: var(--bg-surface); border: 1px dashed var(--emerald-primary, #10b981); border-radius: var(--radius-md); padding: 0.75rem 1rem; margin-bottom: 1.25rem; font-size: 0.85rem; color: var(--text-primary);">
+          ${result.freeUnitsApplied > 0 ? `<div><strong>Lifeline Allowance:</strong> ${result.freeUnitsApplied.toFixed(1)} kWh billed at ₹0.00 (${result.billableKwh.toFixed(1)} billable units).</div>` : ''}
+          ${result.subsidyApplied > 0 ? `<div><strong>Govt Subsidy / Bill Credit Applied:</strong> -${WattWatchCalculations.formatCurrency(result.subsidyApplied)} (Gross Bill: ${WattWatchCalculations.formatCurrency(result.grossCost)} &rarr; Net Payable: ${WattWatchCalculations.formatCurrency(result.totalCost)}).</div>` : ''}
+        </div>`
+      : '';
+
     breakdownBox.innerHTML = `
+      ${subsidyBanner}
       <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; margin-bottom: 1.25rem;">
         <div style="background: var(--soft-blue); padding: 0.85rem; border-radius: var(--radius-md);">
           <div style="font-size: 0.72rem; color: var(--text-secondary); text-transform: uppercase;">Energy Base Cost</div>
@@ -487,7 +563,7 @@ const WattWatchSimulator = {
         </div>
 
         <div style="background: var(--light-burgundy); padding: 0.85rem; border-radius: var(--radius-md);">
-          <div style="font-size: 0.72rem; color: var(--text-secondary); text-transform: uppercase;">Total Estimated Bill</div>
+          <div style="font-size: 0.72rem; color: var(--text-secondary); text-transform: uppercase;">Total Payable Bill</div>
           <div style="font-family: var(--font-serif); font-size: 1.35rem; font-weight: 700; color: var(--deep-burgundy);">${WattWatchCalculations.formatCurrency(result.totalCost)}</div>
           <div style="font-size: 0.75rem; color: var(--text-secondary); margin-top: 0.2rem;">Effective Rate: ₹${result.effectiveRatePerKwh.toFixed(2)}/kWh</div>
         </div>
@@ -519,6 +595,8 @@ const WattWatchSimulator = {
     const rawFlat = document.getElementById('calcFlatRateInput')?.value;
     const rawFixed = document.getElementById('calcFixedCharges')?.value;
     const rawTax = document.getElementById('calcTaxPercent')?.value;
+    const rawFree = document.getElementById('calcFreeUnits')?.value;
+    const rawCredit = document.getElementById('calcBillCredit')?.value;
 
     const flatRate = (typeof WattWatchCalculations !== 'undefined')
       ? WattWatchCalculations.validateTariffRate(rawFlat, NaN)
@@ -529,8 +607,14 @@ const WattWatchSimulator = {
     const taxPercent = (typeof WattWatchCalculations !== 'undefined')
       ? WattWatchCalculations.validateTaxPercent(rawTax, NaN)
       : Number(rawTax);
+    const freeUnits = (rawFree !== undefined && rawFree !== null && String(rawFree).trim() !== '')
+      ? ((typeof WattWatchCalculations !== 'undefined') ? WattWatchCalculations.validateFreeUnits(rawFree, NaN) : Number(rawFree))
+      : 0;
+    const billCredit = (rawCredit !== undefined && rawCredit !== null && String(rawCredit).trim() !== '')
+      ? ((typeof WattWatchCalculations !== 'undefined') ? WattWatchCalculations.validateBillCredit(rawCredit, NaN) : Number(rawCredit))
+      : 0;
 
-    if (isNaN(flatRate) || isNaN(fixedCharges) || isNaN(taxPercent)) {
+    if (isNaN(flatRate) || isNaN(fixedCharges) || isNaN(taxPercent) || isNaN(freeUnits) || isNaN(billCredit)) {
       WattWatchApp.showToast('Cannot apply settings: please enter valid non-negative numbers (tax must be 0-100%).', 'error', 'Invalid Tariff');
       return;
     }
@@ -554,6 +638,8 @@ const WattWatchSimulator = {
       electricityRate: flatRate,
       fixedCharges,
       additionalTaxPercent: taxPercent,
+      freeUnits,
+      billCreditInr: billCredit,
       slabConfig: sanitizedSlabs
     });
 
