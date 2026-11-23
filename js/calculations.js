@@ -690,6 +690,59 @@ const WattWatchCalculations = {
   },
 
   /**
+   * Daily Energy Target Calculator:
+   * Given a daily budget allowance, computes the corresponding maximum allowable daily consumption (kWh/day)
+   * under the active tariff model (flat or progressive slabs with fixed charges and taxes).
+   * @param {number} dailyBudgetInr - Daily budget in INR
+   * @param {Object} [settings={}] - Active tariff settings
+   * @param {number} [daysInMonth] - Optional period days (defaults to days in current month)
+   * @param {Date|string|number} [currentDate] - Optional reference date
+   * @returns {number} Daily allowable energy target in kWh (or NaN / 0)
+   */
+  calculateDailyAllowedKwhForBudget(dailyBudgetInr, settings = {}, daysInMonth = undefined, currentDate = undefined) {
+    if (!this.isFiniteNumber(dailyBudgetInr) || Number(dailyBudgetInr) <= 0) {
+      return 0;
+    }
+    const days = (Number.isInteger(daysInMonth) && daysInMonth >= 28 && daysInMonth <= 31)
+      ? daysInMonth
+      : this.getDaysInCurrentMonth(currentDate);
+    const monthlyBudget = Number(dailyBudgetInr) * days;
+    const monthlyAllowedKwh = this.calculateAllowedKwhForBudget(monthlyBudget, settings);
+    return (this.isFiniteNumber(monthlyAllowedKwh) && monthlyAllowedKwh >= 0)
+      ? (monthlyAllowedKwh / days)
+      : NaN;
+  },
+
+  /**
+   * Current Calendar Period Helper:
+   * Returns standard YYYY-MM period string, human-readable label, and day count for the period.
+   * @param {Date|string|number} [referenceDate=new Date()]
+   * @returns {{ period: string, periodLabel: string, daysInPeriod: number, year: number, month: number }}
+   */
+  getCurrentCalendarPeriod(referenceDate = new Date()) {
+    const d = (referenceDate instanceof Date && !isNaN(referenceDate.getTime()))
+      ? referenceDate
+      : (typeof referenceDate === 'string' || typeof referenceDate === 'number')
+        ? new Date(referenceDate)
+        : new Date();
+    const safeDate = (!isNaN(d.getTime())) ? d : new Date();
+    const year = safeDate.getFullYear();
+    const month = safeDate.getMonth(); // 0-11
+    const pad = (n) => String(n).padStart(2, '0');
+    const period = `${year}-${pad(month + 1)}`;
+    const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+    const periodLabel = `${monthNames[month]} ${year}`;
+    const daysInPeriod = new Date(year, month + 1, 0).getDate();
+    return {
+      period,
+      periodLabel,
+      daysInPeriod,
+      year,
+      month
+    };
+  },
+
+  /**
    * Daily Budget & Energy Pacing Calculator:
    * Computes daily budget allowance, daily energy allowance, daily estimated cost,
    * remaining monthly budget, and projected monthly budget difference.
@@ -732,6 +785,7 @@ const WattWatchCalculations = {
     const remainingBudget = hasBudget && isBillValid ? (budget - bill) : NaN;
     const projectedDifference = hasBudget && isBillValid ? (bill - budget) : NaN;
     const dailyCostDifference = (hasBudget && isBillValid) ? (dailyEstimatedCost - dailyBudgetInr) : NaN;
+    const variance = hasBudget && isBillValid ? (budget - bill) : NaN;
 
     let pacingStatus = 'unset';
     let pacingLabel = 'No Budget';
@@ -776,6 +830,7 @@ const WattWatchCalculations = {
       remainingBudget,
       projectedDifference,
       dailyCostDifference,
+      variance,
       pacingStatus,
       pacingLabel,
       explanation,
@@ -806,6 +861,7 @@ const WattWatchCalculations = {
     const budget = hasBudget ? budgetStatus.budget : 0;
     const remaining = hasBudget && isBillValid ? (budget - bill) : NaN;
     const projectedOverspend = hasBudget && isBillValid && (bill > budget) ? (bill - budget) : 0;
+    const variance = hasBudget && isBillValid ? (budget - bill) : NaN;
 
     let forecastState = 'unset';
     let forecastStateLabel = 'No Budget Configured';
@@ -846,6 +902,7 @@ const WattWatchCalculations = {
       budget,
       remaining,
       projectedOverspend,
+      variance,
       utilizationPercent: budgetStatus.utilizationPercent,
       status: budgetStatus.status,
       forecastState,

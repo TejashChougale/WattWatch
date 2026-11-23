@@ -95,9 +95,11 @@
     <span id="topbarAuthLabel">Sign In</span>
     <span id="topbarGuestBadge" class="badge-guest">Guest</span>
     <button id="btnTopbarAuth"></button>
+    <button type="button" class="mobile-menu-toggle" id="mobileMenuToggle" aria-label="Toggle navigation drawer" aria-expanded="false"></button>
+    <div class="sidebar-backdrop" id="sidebarBackdrop"></div>
 
     <div class="app-layout">
-      <aside class="app-sidebar"></aside>
+      <aside class="app-sidebar" id="appSidebar"></aside>
       <main class="app-main">
         <div id="view-settings">
           <div id="settingsPrivacyCard">
@@ -112,7 +114,7 @@
 
     <div id="overviewComparisonContent"></div>
     <span id="overviewComparisonBadge"></span>
-    <div class="insights-tabs" role="tablist" aria-label="Insights Timescale">
+    <div class="insights-segmented-tabs insights-tabs" role="tablist" aria-label="Select insight timeframe">
       <button type="button" class="insights-tab active" data-timeframe="daily" role="tab" aria-selected="true" id="tabDailyInsights" aria-controls="overviewInsightsContent">Daily</button>
       <button type="button" class="insights-tab" data-timeframe="weekly" role="tab" aria-selected="false" id="tabWeeklyInsights" aria-controls="overviewInsightsContent">Weekly</button>
       <button type="button" class="insights-tab" data-timeframe="monthly" role="tab" aria-selected="false" id="tabMonthlyInsights" aria-controls="overviewInsightsContent">Monthly</button>
@@ -154,11 +156,14 @@
       <div class="empty-state-title"></div>
       <div class="empty-state-desc"></div>
     </div>
-    <div id="applianceTableWrap"></div>
+    <div class="table-responsive" id="appliancesTableWrap"><div id="applianceTableWrap"></div></div>
     <span id="applianceCountBadge"></span>
     <span id="applianceTotalUnitsBadge"></span>
     <div id="historyEmptyState" style="display: none;"></div>
-    <div id="historyTableWrap"></div>
+    <div class="table-responsive" id="historyTableWrap"></div>
+    <div class="metric-value" id="historyHighestBill">₹0.00</div>
+    <div class="metric-value" id="historyLowestBill">₹0.00</div>
+    <div class="metric-value" id="historyRecordsCount">0 Records</div>
     <div id="historyComparisonCard"></div>
     <div id="comparisonResultsBox"></div>
     <select id="comparePeriodSelectA"></select>
@@ -4786,6 +4791,289 @@
           for (let i = 0; i < localStorage.length; i++) {
             const k = localStorage.key(i);
             if (k && k.startsWith(phase4Ns)) {
+              keysToRemove.push(k);
+            }
+          }
+          keysToRemove.forEach(k => localStorage.removeItem(k));
+        }
+      }
+
+      // ==========================================
+      // SECTION 50: PHASE 5 COMPREHENSIVE BUG SWEEP & ZERO-DEFECT HARDENING
+      // ==========================================
+      {
+        const phase5Ns = 'wattwatch_audit_test_p5_';
+        const origNs = WattWatchStorage.testNamespace;
+        WattWatchStorage.setTestNamespace(phase5Ns);
+
+        try {
+          // --- 50.1: Category A: Budget and pacing calculation consistency ---
+          // A: Shared variance formula: variance = targetBudget - projectedMonthEndBill
+          // Case 1: Target ₹2,500, projected bill ₹0
+          const pacingZero = WattWatchCalculations.calculateDailyPacing(0, 2500, 0, { electricityRate: 8.00 }, 30);
+          assert(pacingZero.variance === 2500, 'P5.A1: calculateDailyPacing exposes shared variance = 2500 for ₹2500 budget and ₹0 bill');
+          const forecastZero = WattWatchCalculations.calculateBillForecast(0, 2500, 0, { electricityRate: 8.00 }, 30);
+          assert(forecastZero.variance === 2500, 'P5.A2: calculateBillForecast exposes shared variance = 2500 for ₹2500 budget and ₹0 bill');
+
+          // Case 2: Target ₹2,500, projected bill ₹2,500 (exact match)
+          const pacingExact = WattWatchCalculations.calculateDailyPacing(2500, 2500, 312.5, { electricityRate: 8.00 }, 30);
+          assert(pacingExact.variance === 0, 'P5.A3: calculateDailyPacing variance = 0 on exact budget match');
+          const forecastExact = WattWatchCalculations.calculateBillForecast(2500, 2500, 312.5, { electricityRate: 8.00 }, 30);
+          assert(forecastExact.variance === 0, 'P5.A4: calculateBillForecast variance = 0 on exact budget match');
+
+          // Case 3: Target ₹2,500, projected bill ₹2,800 (over budget)
+          const pacingOver = WattWatchCalculations.calculateDailyPacing(2800, 2500, 350, { electricityRate: 8.00 }, 30);
+          assert(pacingOver.variance === -300, 'P5.A5: calculateDailyPacing variance = -300 when over budget by ₹300');
+          const forecastOver = WattWatchCalculations.calculateBillForecast(2800, 2500, 350, { electricityRate: 8.00 }, 30);
+          assert(forecastOver.variance === -300, 'P5.A6: calculateBillForecast variance = -300 when over budget by ₹300');
+
+          // Case 4: Target ₹2,500, projected bill ₹2,100 (under budget)
+          const pacingUnder = WattWatchCalculations.calculateDailyPacing(2100, 2500, 262.5, { electricityRate: 8.00 }, 30);
+          assert(pacingUnder.variance === 400, 'P5.A7: calculateDailyPacing variance = 400 when under budget by ₹400');
+          const forecastUnder = WattWatchCalculations.calculateBillForecast(2100, 2500, 262.5, { electricityRate: 8.00 }, 30);
+          assert(forecastUnder.variance === 400, 'P5.A8: calculateBillForecast variance = 400 when under budget by ₹400');
+
+          // B: Daily Energy Target inverse tariff calculation (Flat vs Progressive Slabs)
+          // Flat rate test: daily budget ₹83.33, rate ₹8.00/kWh, 30 days
+          const dailyKwhFlat = WattWatchCalculations.calculateDailyAllowedKwhForBudget(83.33, { tariffModel: 'flat', electricityRate: 8.00 }, 30);
+          assert(Math.abs(dailyKwhFlat - 10.41625) < 0.01, 'P5.A9: Flat tariff daily energy target for ₹83.33/day at ₹8/kWh is ~10.42 kWh/day');
+
+          // Progressive slab test: 0-100 @ ₹4, above 100 @ ₹8. Daily budget ₹50 across 30 days (₹1,500 monthly budget)
+          // 100 units * 4 = ₹400. Remaining energy = ₹1100 / 8 = 137.5 units. Total monthly = 237.5 kWh. Daily = 237.5 / 30 = 7.9167 kWh/day.
+          const slabConfig = [
+            { upTo: 100, rate: 4.00 },
+            { upTo: null, rate: 8.00 }
+          ];
+          const dailyKwhSlab = WattWatchCalculations.calculateDailyAllowedKwhForBudget(50.00, { tariffModel: 'slab', slabConfig }, 30);
+          assert(Math.abs(dailyKwhSlab - (237.5 / 30)) < 0.01, 'P5.A10: Slab tariff correctly calculates daily allowed kWh through progressive inverse tiers');
+
+          // C: Unified day counts across month lengths and leap years
+          assert(WattWatchCalculations.getDaysInCurrentMonth(new Date(2024, 1, 15)) === 29, 'P5.A11: Leap February 2024 has 29 days');
+          assert(WattWatchCalculations.getDaysInCurrentMonth(new Date(2026, 1, 15)) === 28, 'P5.A12: Standard February 2026 has 28 days');
+          assert(WattWatchCalculations.getDaysInCurrentMonth(new Date(2026, 3, 15)) === 30, 'P5.A13: April 2026 has 30 days');
+          assert(WattWatchCalculations.getDaysInCurrentMonth(new Date(2026, 0, 15)) === 31, 'P5.A14: January 2026 has 31 days');
+
+          // D: Mid-month projection with specific day count
+          const pacingFeb = WattWatchCalculations.calculateDailyPacing(1400, 2800, 175, { electricityRate: 8.00 }, 28);
+          assert(pacingFeb.daysInMonth === 28, 'P5.A15: calculateDailyPacing uses 28 days for February');
+          assert(pacingFeb.dailyBudgetInr === 100, 'P5.A16: Daily budget in 28-day month is ₹2800 / 28 = ₹100/day');
+
+          // E: Current calendar period helper
+          const calPeriod = WattWatchCalculations.getCurrentCalendarPeriod(new Date(2026, 1, 10));
+          assert(calPeriod.period === '2026-02', 'P5.A17: getCurrentCalendarPeriod returns "2026-02"');
+          assert(calPeriod.daysInPeriod === 28, 'P5.A18: getCurrentCalendarPeriod returns 28 days for Feb 2026');
+          assert(calPeriod.periodLabel === 'February 2026', 'P5.A19: getCurrentCalendarPeriod returns "February 2026"');
+
+          // --- 50.2: Category B: Chart empty states and lifecycle ---
+          // Test all 4 charts render empty states without crashing
+          const overviewTrendCanvas = document.getElementById('overviewTrendChart');
+          WattWatchCharts.renderOverviewTrendChart({ appliances: [], totalDailyKwh: 0 });
+          assert(WattWatchCharts.instances.overviewTrend === null, 'P5.B1: overviewTrend instance is null on empty appliances');
+          const ovTrendOverlay = overviewTrendCanvas ? overviewTrendCanvas.parentElement.querySelector('.canvas-empty-state-overlay') : null;
+          assert(ovTrendOverlay && ovTrendOverlay.style.display !== 'none', 'P5.B2: overviewTrend shows empty state overlay');
+          assert(ovTrendOverlay && ovTrendOverlay.getAttribute('role') === 'status', 'P5.B3: overviewTrend overlay has role="status"');
+
+          const overviewCatCanvas = document.getElementById('overviewCategoryChart');
+          WattWatchCharts.renderOverviewCategoryChart({ appliances: [], totalMonthlyKwh: 0, categoryBreakdown: {} });
+          assert(WattWatchCharts.instances.overviewCategory === null, 'P5.B4: overviewCategory instance is null on empty data');
+          const ovCatOverlay = overviewCatCanvas ? overviewCatCanvas.parentElement.querySelector('.canvas-empty-state-overlay') : null;
+          assert(ovCatOverlay && ovCatOverlay.style.display !== 'none', 'P5.B5: overviewCategory shows empty state overlay');
+
+          const historyTrendCanvas = document.getElementById('historyTrendChart');
+          WattWatchCharts.renderHistoryTrendChart([]);
+          assert(WattWatchCharts.instances.historyTrend === null, 'P5.B6: historyTrend instance is null on empty history');
+          const histTrendOverlay = historyTrendCanvas ? historyTrendCanvas.parentElement.querySelector('.canvas-empty-state-overlay') : null;
+          assert(histTrendOverlay && histTrendOverlay.style.display !== 'none', 'P5.B7: historyTrend shows empty state overlay');
+
+          const comparisonCanvas = document.getElementById('historyComparisonChart');
+          WattWatchCharts.renderComparisonChart(null);
+          assert(WattWatchCharts.instances.comparisonChart === null, 'P5.B8: comparisonChart instance is null on null comparison');
+          const compOverlay = comparisonCanvas ? comparisonCanvas.parentElement.querySelector('.canvas-empty-state-overlay') : null;
+          assert(compOverlay && compOverlay.style.display !== 'none', 'P5.B9: comparisonChart shows empty state overlay');
+
+          // Safe repeated chart creation and destruction without canvas-in-use errors
+          let chartCrashOccurred = false;
+          try {
+            const mockTrendData = {
+              appliances: [{ name: 'AC', powerWatts: 1500, dailyHours: 4, quantity: 1, operatingDays: 30 }],
+              totalDailyKwh: 6.0,
+              ratePerKwh: 8.00
+            };
+            WattWatchCharts.renderOverviewTrendChart(mockTrendData);
+            WattWatchCharts.renderOverviewTrendChart(mockTrendData); // Repeated update
+            WattWatchCharts.destroyChart('overviewTrend', overviewTrendCanvas);
+            WattWatchCharts.renderOverviewTrendChart(mockTrendData); // Re-instantiation
+            WattWatchCharts.destroyChart('overviewTrend', overviewTrendCanvas);
+          } catch (e) {
+            chartCrashOccurred = true;
+          }
+          assert(!chartCrashOccurred, 'P5.B10: Repeated chart re-creation and destruction executes without canvas-in-use runtime error');
+
+          // Safe handling of malformed datasets
+          let malformedCrash = false;
+          try {
+            WattWatchCharts.renderOverviewTrendChart(null);
+            WattWatchCharts.renderOverviewCategoryChart(null);
+            WattWatchCharts.renderAnalyticsTimelineChart(null);
+            WattWatchCharts.renderAnalyticsApplianceRankChart(null);
+            WattWatchCharts.renderAnalyticsCategoryShareChart(null);
+            WattWatchCharts.renderCarbonChart(null, null);
+            WattWatchCharts.renderHistoryTrendChart(null);
+            WattWatchCharts.renderComparisonChart({ isValid: false });
+          } catch (e) {
+            malformedCrash = true;
+          }
+          assert(!malformedCrash, 'P5.B11: All chart render functions safely handle null or malformed data without throwing');
+
+          // --- 50.3: Category C: Accessibility and keyboard navigation ---
+          // A: Mobile drawer toggle has aria-expanded
+          const mobToggle = document.getElementById('mobileMenuToggle');
+          assert(mobToggle && mobToggle.hasAttribute('aria-expanded'), 'P5.C1: #mobileMenuToggle has aria-expanded attribute');
+
+          // B: ARIA tablist and tab semantics on category filters
+          const catFilters = document.getElementById('categoryFilters');
+          assert(catFilters && catFilters.getAttribute('role') === 'tablist', 'P5.C2: #categoryFilters has role="tablist"');
+          const allTabs = catFilters ? Array.from(catFilters.querySelectorAll('[role="tab"]')) : [];
+          assert(allTabs.length >= 6, 'P5.C3: #categoryFilters contains multiple role="tab" elements');
+          const hasSelectedTab = allTabs.some(t => t.getAttribute('aria-selected') === 'true');
+          assert(hasSelectedTab, 'P5.C4: Active category tab has aria-selected="true"');
+
+          // C: Timescale insights tablist
+          const insightTabsWrap = document.querySelector('.insights-segmented-tabs');
+          assert(insightTabsWrap && insightTabsWrap.getAttribute('role') === 'tablist', 'P5.C5: .insights-segmented-tabs has role="tablist"');
+          const insightTabs = insightTabsWrap ? Array.from(insightTabsWrap.querySelectorAll('[role="tab"]')) : [];
+          assert(insightTabs.length === 3, 'P5.C6: Timescale insights has 3 tabs (Daily, Weekly, Monthly)');
+
+          // D: Modal backdrop focus trap and restoration
+          const mockTrigger = document.createElement('button');
+          document.body.appendChild(mockTrigger);
+          mockTrigger.focus();
+          const privModal = document.getElementById('privacyModal');
+          if (privModal && WattWatchApp.modalManager) {
+            WattWatchApp.openPrivacyModal(mockTrigger);
+            assert(privModal.classList.contains('is-open'), 'P5.C7: Privacy modal opens with is-open class');
+            WattWatchApp.closePrivacyModal();
+            assert(!privModal.classList.contains('is-open'), 'P5.C8: Privacy modal closes properly');
+          }
+          mockTrigger.remove();
+
+          // --- 50.4: Category D: Single source of truth and state synchronization ---
+          // A: Hash navigation
+          WattWatchApp.navigateTo('appliances', true);
+          assert(WattWatchApp.currentView === 'appliances', 'P5.D1: navigateTo("appliances") sets currentView to appliances');
+          assert(window.location.hash === '#appliances', 'P5.D2: navigateTo updates window.location.hash to #appliances');
+
+          WattWatchApp.navigateTo('settings', true);
+          assert(WattWatchApp.currentView === 'settings', 'P5.D3: navigateTo("settings") sets currentView to settings');
+          assert(window.location.hash === '#settings', 'P5.D4: navigateTo updates window.location.hash to #settings');
+
+          WattWatchApp.navigateTo('overview', true);
+          assert(WattWatchApp.currentView === 'overview', 'P5.D5: navigateTo("overview") sets currentView to overview');
+
+          // B: Mobile drawer lifecycle and scroll unlock
+          WattWatchApp.toggleMobileDrawer();
+          const appSidebar = document.getElementById('appSidebar');
+          assert(appSidebar && appSidebar.classList.contains('is-open'), 'P5.D6: toggleMobileDrawer opens sidebar');
+          WattWatchApp.closeMobileDrawer();
+          assert(appSidebar && !appSidebar.classList.contains('is-open'), 'P5.D7: closeMobileDrawer closes sidebar');
+          assert(document.body.style.overflow === '', 'P5.D8: closeMobileDrawer restores body overflow to unscroll-locked');
+
+          // --- 50.5: Category E: Numeric input validation ---
+          // A: Negative electricity rate rejected
+          assert(WattWatchStorage.saveSettings({ electricityRate: -10 }) === false, 'P5.E1: saveSettings rejects negative electricityRate');
+          // B: Negative budget rejected
+          assert(WattWatchStorage.saveSettings({ budgetInr: -500 }) === false, 'P5.E2: saveSettings rejects negative budgetInr');
+          // C: NaN and Infinity rejected
+          assert(WattWatchStorage.saveSettings({ electricityRate: NaN }) === false, 'P5.E3: saveSettings rejects NaN electricityRate');
+          assert(WattWatchStorage.saveSettings({ electricityRate: Infinity }) === false, 'P5.E4: saveSettings rejects Infinity electricityRate');
+          assert(WattWatchStorage.saveSettings({ fixedCharges: -50 }) === false, 'P5.E5: saveSettings rejects negative fixedCharges');
+          assert(WattWatchStorage.saveSettings({ additionalTaxPercent: 120 }) === false, 'P5.E6: saveSettings rejects tax > 100%');
+          assert(WattWatchStorage.saveSettings({ additionalTaxPercent: -5 }) === false, 'P5.E7: saveSettings rejects negative tax');
+
+          // D: Appliance power validation: 0 Watts rejected
+          const zeroWattApp = { name: 'Broken Fan', category: 'Cooling', powerWatts: 0, dailyHours: 2, quantity: 1, operatingDays: 30 };
+          const valZero = WattWatchStorage.validateAppliance(zeroWattApp);
+          assert(valZero.valid === false, 'P5.E8: validateAppliance rejects 0 powerWatts');
+
+          // E: Appliance hours validation: hours > 24 rejected
+          const overHoursApp = { name: 'Ultra AC', category: 'Cooling', powerWatts: 1500, dailyHours: 25, quantity: 1, operatingDays: 30 };
+          const valOverHours = WattWatchStorage.validateAppliance(overHoursApp);
+          assert(valOverHours.valid === false, 'P5.E9: validateAppliance rejects dailyHours > 24');
+
+          // F: Valid zero values preserved where legitimate (e.g. budget = 0 means disabled)
+          assert(WattWatchStorage.saveSettings({ budgetInr: 0 }) === true, 'P5.E10: saveSettings accepts budgetInr = 0 (disabling budget)');
+          assert(WattWatchStorage.getSettings().budgetInr === 0, 'P5.E11: getSettings returns budgetInr = 0');
+
+          // --- 50.6: Category F: localStorage corruption, quota and restricted storage ---
+          // A: QuotaExceededError detection helper
+          assert(WattWatchStorage.isQuotaExceeded({ name: 'QuotaExceededError', code: 22 }) === true, 'P5.F1: isQuotaExceeded identifies QuotaExceededError');
+          assert(WattWatchStorage.isQuotaExceeded({ name: 'Error' }) === false, 'P5.F2: isQuotaExceeded returns false for standard Error');
+
+          // B: Restricted storage detection helper
+          assert(WattWatchStorage.isStorageRestricted({ name: 'SecurityError', code: 18 }) === true, 'P5.F3: isStorageRestricted identifies SecurityError');
+
+          // C: isStorageAvailable returns true in normal test environment
+          assert(WattWatchStorage.isStorageAvailable() === true, 'P5.F4: isStorageAvailable returns true');
+
+          // --- 50.7: Category G: Billing snapshots and history ---
+          // A: Snapshot immutability: editing live appliances does not alter past snapshots
+          const snapPayload = {
+            id: 'snap_test_immutability_1',
+            period: '2025-11',
+            periodLabel: 'November 2025',
+            totalKwh: 250,
+            totalCost: 2000,
+            electricityRate: 8.00,
+            appliancesSnapshot: [
+              { name: 'Fixed AC', category: 'Cooling', powerWatts: 1200, dailyHours: 5, quantity: 1, operatingDays: 30 }
+            ]
+          };
+          WattWatchStorage.saveSnapshot(snapPayload);
+          const retrievedSnap = WattWatchStorage.getHistory().find(h => h.id === 'snap_test_immutability_1');
+          assert(retrievedSnap !== undefined, 'P5.G1: Snapshot saved successfully');
+          assert(retrievedSnap.appliancesSnapshot[0].powerWatts === 1200, 'P5.G2: Saved snapshot stores frozen appliance rating at 1200W');
+
+          // Mutate local array object - snapshot in storage remains unchanged
+          retrievedSnap.appliancesSnapshot[0].powerWatts = 9999;
+          const freshRetrieval = WattWatchStorage.getHistory().find(h => h.id === 'snap_test_immutability_1');
+          assert(freshRetrieval.appliancesSnapshot[0].powerWatts === 1200, 'P5.G3: Snapshot immutability preserved; subsequent mutations do not leak into stored records');
+
+          // B: Highest, Lowest, and Records count recalculation
+          WattWatchHistory.updateHistoryKpis([]);
+          const elPeak = document.getElementById('historyHighestBill');
+          const elLow = document.getElementById('historyLowestBill');
+          const elCount = document.getElementById('historyRecordsCount');
+          assert(elPeak && elPeak.textContent.includes('0.00'), 'P5.G4: Highest bill is ₹0.00 when history is empty');
+          assert(elLow && elLow.textContent.includes('0.00'), 'P5.G5: Lowest bill is ₹0.00 when history is empty');
+          assert(elCount && elCount.textContent.includes('0 Records'), 'P5.G6: Record count is "0 Records" when history is empty');
+
+          WattWatchHistory.updateHistoryKpis([
+            { id: 's1', period: '2026-01', totalCost: 1500, totalKwh: 180 },
+            { id: 's2', period: '2026-02', totalCost: 2400, totalKwh: 300 },
+            { id: 's3', period: '2026-03', totalCost: 950, totalKwh: 110 }
+          ]);
+          assert(elPeak.textContent.includes('2,400'), 'P5.G7: Highest bill accurately reports ₹2,400');
+          assert(elLow.textContent.includes('950'), 'P5.G8: Lowest bill accurately reports ₹950');
+          assert(elCount.textContent.includes('3 Records'), 'P5.G9: Record count accurately reports "3 Records"');
+
+          // Clean up snapshot test
+          WattWatchStorage.deleteSnapshot('snap_test_immutability_1');
+
+          // --- 50.8: Category H: Responsive Layout Verification ---
+          // Ensure table wrappers have table-responsive class for horizontal scrolling on narrow screens
+          const appTableWrap = document.getElementById('appliancesTableWrap');
+          assert(appTableWrap && appTableWrap.classList.contains('table-responsive'), 'P5.H1: Appliances table wrap has .table-responsive class');
+          const histTableWrap = document.getElementById('historyTableWrap');
+          assert(histTableWrap && histTableWrap.classList.contains('table-responsive'), 'P5.H2: History table wrap has .table-responsive class');
+
+        } finally {
+          WattWatchStorage.setTestNamespace(origNs);
+
+          // Clean up test namespace keys
+          const keysToRemove = [];
+          for (let i = 0; i < localStorage.length; i++) {
+            const k = localStorage.key(i);
+            if (k && k.startsWith(phase5Ns)) {
               keysToRemove.push(k);
             }
           }

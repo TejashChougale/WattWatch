@@ -402,12 +402,13 @@ const WattWatchHistory = {
     const appliances = WattWatchStorage.getAppliances();
     const settings = WattWatchStorage.getSettings();
     const summary = WattWatchCalculations.calculateHouseholdSummary(appliances, settings);
-    const elapsedDays = pacing.isValid ? pacing.elapsedDays : 30;
+    const daysInPeriod = (pacing.isValid && pacing.totalDays) ? pacing.totalDays : WattWatchCalculations.getDaysInCurrentMonth();
+    const elapsedDays = pacing.isValid ? pacing.elapsedDays : daysInPeriod;
 
     // Prorated expected consumption for elapsed days
-    const dailyKwh = summary.totalMonthlyKwh / 30;
+    const dailyKwh = summary.totalMonthlyKwh / daysInPeriod;
     const expectedElapsedKwh = dailyKwh * elapsedDays;
-    const dailyCost = summary.totalMonthlyCost / 30;
+    const dailyCost = summary.totalMonthlyCost / daysInPeriod;
     const expectedElapsedCost = dailyCost * elapsedDays;
 
     let unitsVarianceHtml = '';
@@ -451,7 +452,7 @@ const WattWatchHistory = {
         <div style="flex: 1; min-width: 180px;">
           <div style="font-size: 0.72rem; color: var(--text-secondary); text-transform: uppercase;">Cycle Progress</div>
           <div style="font-size: 0.95rem; font-weight: 600; color: var(--text-primary); margin-top: 0.2rem;">
-            ${pacing.isValid ? `${pacing.elapsedDays} of ${pacing.totalDays} Days (${pacing.progressPercent}%)` : '30-day baseline'}
+            ${pacing.isValid ? `${pacing.elapsedDays} of ${pacing.totalDays} Days (${pacing.progressPercent}%)` : `${daysInPeriod}-day baseline`}
           </div>
           <div style="font-size: 0.78rem; color: var(--text-secondary);">
             ${pacing.isValid ? `${pacing.remainingDays} days remaining in cycle` : 'Dates not set'}
@@ -518,24 +519,29 @@ const WattWatchHistory = {
 
     if (!elPeak || !elLow || !elCount) return;
 
-    if (history.length === 0) {
+    const safeHistory = Array.isArray(history) ? history : [];
+    const validSnapshots = safeHistory.filter(h => h && typeof h === 'object' && Number.isFinite(Number(h.totalCost)) && Number(h.totalCost) >= 0);
+
+    if (validSnapshots.length === 0) {
       elPeak.textContent = '₹0.00';
+      elPeak.title = 'No historical records available';
       elLow.textContent = '₹0.00';
+      elLow.title = 'No historical records available';
       elCount.textContent = '0 Records';
       return;
     }
 
-    const sortedByCost = [...history].sort((a, b) => b.totalCost - a.totalCost);
+    const sortedByCost = [...validSnapshots].sort((a, b) => Number(b.totalCost) - Number(a.totalCost));
     const highest = sortedByCost[0];
     const lowest = sortedByCost[sortedByCost.length - 1];
 
     elPeak.textContent = WattWatchCalculations.formatCurrency(highest.totalCost);
-    elPeak.title = `Highest: ${highest.periodLabel} (${highest.totalKwh.toFixed(1)} kWh)`;
+    elPeak.title = `Highest: ${highest.periodLabel || highest.period} (${Number(highest.totalKwh || 0).toFixed(1)} kWh)`;
 
     elLow.textContent = WattWatchCalculations.formatCurrency(lowest.totalCost);
-    elLow.title = `Lowest: ${lowest.periodLabel} (${lowest.totalKwh.toFixed(1)} kWh)`;
+    elLow.title = `Lowest: ${lowest.periodLabel || lowest.period} (${Number(lowest.totalKwh || 0).toFixed(1)} kWh)`;
 
-    elCount.textContent = `${history.length} Month${history.length > 1 ? 's' : ''}`;
+    elCount.textContent = `${validSnapshots.length} Record${validSnapshots.length !== 1 ? 's' : ''}`;
   },
 
   /**
@@ -602,12 +608,18 @@ const WattWatchHistory = {
 
     if (!snapA || !snapB) {
       resultBox.innerHTML = `<div style="text-align: center; color: var(--text-secondary); padding: 1.5rem;">Select two periods above to view comparison.</div>`;
+      if (typeof WattWatchCharts !== 'undefined' && typeof WattWatchCharts.renderComparisonChart === 'function') {
+        WattWatchCharts.renderComparisonChart(null);
+      }
       return;
     }
 
     const comp = WattWatchCalculations.compareSnapshots(snapA, snapB);
     if (!comp || !comp.isValid) {
       resultBox.innerHTML = `<div style="text-align: center; color: var(--text-secondary); padding: 1.5rem;">One or both selected billing periods contain invalid calculation data.</div>`;
+      if (typeof WattWatchCharts !== 'undefined' && typeof WattWatchCharts.renderComparisonChart === 'function') {
+        WattWatchCharts.renderComparisonChart(null);
+      }
       return;
     }
 

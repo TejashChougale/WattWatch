@@ -147,7 +147,7 @@
       <!-- Top Sticky Navigation Bar -->
       <header class="app-topbar">
         <div class="topbar-left">
-          <button type="button" class="mobile-menu-toggle" id="mobileMenuToggle" aria-label="Toggle navigation drawer">
+          <button type="button" class="mobile-menu-toggle" id="mobileMenuToggle" aria-label="Toggle navigation drawer" aria-expanded="false">
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <line x1="3" y1="12" x2="21" y2="12"/>
               <line x1="3" y1="6" x2="21" y2="6"/>
@@ -1466,7 +1466,7 @@
                   </svg>
                   <span>Restore Backup (JSON)</span>
                 </button>
-                <input type="file" id="importJsonFileInput" accept=".json,application/json" style="display: none;">
+                <input type="file" id="importJsonFileInput" accept=".json,application/json" style="display: none;" aria-label="Upload JSON backup file">
 
                 <button type="button" class="btn btn-secondary" id="btnImportAppliancesCSV">
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -1940,11 +1940,11 @@
           <span style="font-size: 0.8rem; font-weight: 600; color: var(--text-primary); display: block; margin-bottom: 0.5rem;">Import Strategy:</span>
           <div style="display: flex; gap: 1.5rem; flex-wrap: wrap;">
             <label style="display: flex; align-items: center; gap: 0.4rem; font-size: 0.85rem; cursor: pointer;">
-              <input type="radio" name="csvImportAction" value="merge" id="csvModeMerge" checked>
+              <input type="radio" name="csvImportAction" value="merge" id="csvModeMerge" checked aria-label="Merge with Existing Appliances">
               <span>Merge with Existing Appliances</span>
             </label>
             <label style="display: flex; align-items: center; gap: 0.4rem; font-size: 0.85rem; cursor: pointer;">
-              <input type="radio" name="csvImportAction" value="replace" id="csvModeReplace">
+              <input type="radio" name="csvImportAction" value="replace" id="csvModeReplace" aria-label="Replace Active Inventory Entirely">
               <span>Replace Active Inventory Entirely</span>
             </label>
           </div>
@@ -2067,7 +2067,7 @@
 
             <!-- Option to import existing guest appliances and settings -->
             <label class="auth-checkbox-wrap" id="signupImportGuestDataWrap">
-              <input type="checkbox" id="signupImportGuestData">
+              <input type="checkbox" id="signupImportGuestData" aria-label="Import existing guest appliances, tariff settings, and billing history into this new account">
               <span id="signupImportGuestDataLabel">Import existing guest appliances, tariff settings, and billing history into this new account</span>
             </label>
 

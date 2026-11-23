@@ -964,6 +964,72 @@ const WattWatchStorage = {
   },
 
   /**
+   * Checks whether localStorage is supported and accessible in the current browser session.
+   * @returns {boolean}
+   */
+  isStorageAvailable() {
+    try {
+      const testKey = '__wattwatch_storage_test__';
+      localStorage.setItem(testKey, '1');
+      localStorage.removeItem(testKey);
+      return true;
+    } catch (_) {
+      return false;
+    }
+  },
+
+  /**
+   * Detects if an error was caused by local storage quota exhaustion
+   * @param {*} e
+   * @returns {boolean}
+   */
+  isQuotaExceeded(e) {
+    return e && (
+      e.name === 'QuotaExceededError' ||
+      e.name === 'NS_ERROR_DOM_QUOTA_REACHED' ||
+      e.code === 22 ||
+      e.code === 1014
+    );
+  },
+
+  /**
+   * Detects if an error was caused by browser security/privacy storage restrictions
+   * @param {*} e
+   * @returns {boolean}
+   */
+  isStorageRestricted(e) {
+    return e && (
+      e.name === 'SecurityError' ||
+      e.code === 18
+    );
+  },
+
+  /**
+   * Dispatches a clear non-blocking alert when local persistence fails due to quota or restriction
+   * @param {*} e
+   * @param {string} context
+   */
+  handleStorageError(e, context = 'Data') {
+    if (this.isQuotaExceeded(e)) {
+      this.notifyStorageUnavailable(`Browser storage quota exceeded. Unable to save ${context}. Please free browser storage or export and trim your snapshots.`);
+    } else if (this.isStorageRestricted(e)) {
+      this.notifyStorageUnavailable(`Browser storage is restricted or disabled. ${context} cannot be persisted across sessions.`);
+    }
+  },
+
+  /**
+   * Dispatches non-blocking user notice
+   * @param {string} msg
+   */
+  notifyStorageUnavailable(msg) {
+    if (typeof WattWatchApp !== 'undefined' && typeof WattWatchApp.showToast === 'function') {
+      WattWatchApp.showToast(msg, 'warning', 'Storage Notice');
+    } else {
+      console.warn('[WattWatch Storage]', msg);
+    }
+  },
+
+  /**
    * Saves appliances array to localStorage
    * @param {Array} appliances
    * @returns {boolean} Success status
@@ -982,6 +1048,7 @@ const WattWatchStorage = {
       return true;
     } catch (e) {
       console.error('[WattWatch Storage] Error saving appliances:', e);
+      this.handleStorageError(e, 'Appliances');
       return false;
     }
   },
@@ -1035,8 +1102,77 @@ const WattWatchStorage = {
    */
   saveSettings(settings) {
     try {
+      if (!settings || typeof settings !== 'object' || Array.isArray(settings)) {
+        console.warn('[WattWatch Storage] Refusing to persist non-object settings payload:', settings);
+        return false;
+      }
       const current = this.getSettings();
       const merged = { ...current, ...settings };
+
+      // Explicit validation to reject negative, NaN, or non-finite values
+      if (settings.electricityRate !== undefined) {
+        const er = Number(settings.electricityRate);
+        if (isNaN(er) || er < 0 || !Number.isFinite(er)) {
+          console.warn('[WattWatch Storage] Refusing to persist invalid electricityRate:', settings.electricityRate);
+          return false;
+        }
+        merged.electricityRate = er;
+      }
+
+      if (settings.budgetInr !== undefined) {
+        const b = Number(settings.budgetInr);
+        if (isNaN(b) || b < 0 || !Number.isFinite(b)) {
+          console.warn('[WattWatch Storage] Refusing to persist invalid budgetInr:', settings.budgetInr);
+          return false;
+        }
+        merged.budgetInr = b;
+      }
+
+      if (settings.carbonEmissionFactor !== undefined && settings.carbonEmissionFactor !== null) {
+        const cf = Number(settings.carbonEmissionFactor);
+        if (isNaN(cf) || cf < 0 || !Number.isFinite(cf)) {
+          console.warn('[WattWatch Storage] Refusing to persist invalid carbonEmissionFactor:', settings.carbonEmissionFactor);
+          return false;
+        }
+        merged.carbonEmissionFactor = cf;
+      }
+
+      if (settings.fixedCharges !== undefined) {
+        const fc = Number(settings.fixedCharges);
+        if (isNaN(fc) || fc < 0 || !Number.isFinite(fc)) {
+          console.warn('[WattWatch Storage] Refusing to persist invalid fixedCharges:', settings.fixedCharges);
+          return false;
+        }
+        merged.fixedCharges = fc;
+      }
+
+      if (settings.additionalTaxPercent !== undefined) {
+        const tax = Number(settings.additionalTaxPercent);
+        if (isNaN(tax) || tax < 0 || tax > 100 || !Number.isFinite(tax)) {
+          console.warn('[WattWatch Storage] Refusing to persist invalid additionalTaxPercent:', settings.additionalTaxPercent);
+          return false;
+        }
+        merged.additionalTaxPercent = tax;
+      }
+
+      if (settings.freeUnits !== undefined) {
+        const fu = Number(settings.freeUnits);
+        if (isNaN(fu) || fu < 0 || !Number.isFinite(fu)) {
+          console.warn('[WattWatch Storage] Refusing to persist invalid freeUnits:', settings.freeUnits);
+          return false;
+        }
+        merged.freeUnits = fu;
+      }
+
+      if (settings.billCreditInr !== undefined) {
+        const bc = Number(settings.billCreditInr);
+        if (isNaN(bc) || bc < 0 || !Number.isFinite(bc)) {
+          console.warn('[WattWatch Storage] Refusing to persist invalid billCreditInr:', settings.billCreditInr);
+          return false;
+        }
+        merged.billCreditInr = bc;
+      }
+
       if (merged.tariffModel === 'slab') {
         if (typeof WattWatchCalculations === 'undefined' || typeof WattWatchCalculations.validateSlabConfig !== 'function') {
           console.warn('[WattWatch Storage] Refusing to persist slab configuration: WattWatchCalculations.validateSlabConfig is unavailable');
@@ -1049,19 +1185,13 @@ const WattWatchStorage = {
         }
         merged.slabConfig = valSlab.sanitized;
       }
-      if (settings.freeUnits !== undefined) {
-        const fu = Number(settings.freeUnits);
-        merged.freeUnits = (!isNaN(fu) && fu >= 0) ? fu : 0;
-      }
-      if (settings.billCreditInr !== undefined) {
-        const bc = Number(settings.billCreditInr);
-        merged.billCreditInr = (!isNaN(bc) && bc >= 0) ? bc : 0;
-      }
+
       localStorage.setItem(this._getKey('SETTINGS'), JSON.stringify(merged));
       this.invalidateCache();
       return true;
     } catch (e) {
       console.error('[WattWatch Storage] Error saving settings:', e);
+      this.handleStorageError(e, 'Settings');
       return false;
     }
   },
@@ -1088,6 +1218,7 @@ const WattWatchStorage = {
       localStorage.setItem(this._getKey('THEME'), theme === 'dark' ? 'dark' : 'light');
     } catch (e) {
       console.error('[WattWatch Storage] Error saving theme:', e);
+      this.handleStorageError(e, 'Theme');
     }
   },
 
@@ -1097,10 +1228,19 @@ const WattWatchStorage = {
    */
   getHistory() {
     const key = this._getKey('HISTORY');
+    const cloneSnapshotItem = (h) => ({
+      ...h,
+      tariffBreakdown: (h.tariffBreakdown && typeof h.tariffBreakdown === 'object')
+        ? JSON.parse(JSON.stringify(h.tariffBreakdown))
+        : h.tariffBreakdown,
+      appliancesSnapshot: Array.isArray(h.appliancesSnapshot)
+        ? h.appliancesSnapshot.map(a => ({ ...a }))
+        : []
+    });
     try {
       const data = localStorage.getItem(key);
       if (data === this._cachedHistoryRaw && this._cachedHistory !== null) {
-        return this._cachedHistory.map(h => ({ ...h }));
+        return this._cachedHistory.map(cloneSnapshotItem);
       }
       if (!data) {
         this._cachedHistory = [];
@@ -1170,7 +1310,7 @@ const WattWatchStorage = {
       }
       this._cachedHistory = validated;
       this._cachedHistoryRaw = data;
-      return validated.map(h => ({ ...h }));
+      return validated.map(cloneSnapshotItem);
     } catch (e) {
       this.invalidateCache();
       console.error('[WattWatch Storage] Error reading history:', e);
@@ -1203,6 +1343,7 @@ const WattWatchStorage = {
       return true;
     } catch (e) {
       console.error('[WattWatch Storage] Error saving history:', e);
+      this.handleStorageError(e, 'History');
       return false;
     }
   },
@@ -2423,6 +2564,7 @@ const WattWatchStorage = {
       return true;
     } catch (e) {
       console.error('[WattWatch Storage] Error saving meter tracking:', e);
+      this.handleStorageError(e, 'Meter Tracking');
       return false;
     }
   },
