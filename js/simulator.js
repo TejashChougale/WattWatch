@@ -408,11 +408,11 @@ const WattWatchSimulator = {
         <td>
           ${isLast && s.upTo === null
             ? '<span style="font-size: 0.85rem; color: var(--text-secondary);">Above previous limit (Open)</span><input type="hidden" class="slab-upto-input" value="null">'
-            : `<input type="number" class="form-control slab-upto-input" value="${s.upTo || 100}" min="1" step="50" style="padding: 0.35rem 0.6rem; font-size: 0.85rem;">`
+            : `<input type="number" class="form-control slab-upto-input" aria-label="Tier ${idx + 1} upper limit in kWh" value="${s.upTo || 100}" min="1" step="50" style="padding: 0.35rem 0.6rem; font-size: 0.85rem;">`
           }
         </td>
         <td>
-          <input type="number" class="form-control slab-rate-input" value="${Number(s.rate).toFixed(2)}" min="0" step="0.25" style="padding: 0.35rem 0.6rem; font-size: 0.85rem;">
+          <input type="number" class="form-control slab-rate-input" aria-label="Tier ${idx + 1} rate in rupees per kWh" value="${Number(s.rate).toFixed(2)}" min="0" step="0.25" style="padding: 0.35rem 0.6rem; font-size: 0.85rem;">
         </td>
         <td>
           ${slabs.length > 1
@@ -620,7 +620,7 @@ const WattWatchSimulator = {
     }
 
     const slabs = this.readCurrentSlabsFromUI();
-    let sanitizedSlabs = slabs;
+    let sanitizedSlabs = undefined;
 
     if (model === 'slab') {
       if (typeof WattWatchCalculations !== 'undefined' && WattWatchCalculations.validateSlabConfig) {
@@ -633,15 +633,19 @@ const WattWatchSimulator = {
       }
     }
 
-    const saved = WattWatchStorage.saveSettings({
+    const payload = {
       tariffModel: model,
       electricityRate: flatRate,
       fixedCharges,
       additionalTaxPercent: taxPercent,
       freeUnits,
-      billCreditInr: billCredit,
-      slabConfig: sanitizedSlabs
-    });
+      billCreditInr: billCredit
+    };
+    if (sanitizedSlabs !== undefined) {
+      payload.slabConfig = sanitizedSlabs;
+    }
+
+    const saved = WattWatchStorage.saveSettings(payload);
 
     if (!saved) {
       WattWatchApp.showToast('Failed to apply settings. Please verify all tariff values.', 'error', 'Save Failed');

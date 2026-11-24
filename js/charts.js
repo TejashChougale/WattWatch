@@ -43,13 +43,28 @@ const WattWatchCharts = {
   },
 
   /**
-   * Safely destroys an existing chart instance
+   * Safely destroys an existing chart instance and clears any instance attached to canvas
    * @param {string} key
+   * @param {HTMLCanvasElement} [canvas=null]
    */
-  destroyChart(key) {
+  destroyChart(key, canvas = null) {
     if (this.instances[key]) {
-      this.instances[key].destroy();
+      try {
+        this.instances[key].destroy();
+      } catch (e) {
+        console.warn(`[WattWatch Charts] Error destroying chart ${key}:`, e);
+      }
       this.instances[key] = null;
+    }
+    if (canvas && typeof Chart !== 'undefined' && typeof Chart.getChart === 'function') {
+      try {
+        const existing = Chart.getChart(canvas);
+        if (existing) {
+          existing.destroy();
+        }
+      } catch (e) {
+        console.warn(`[WattWatch Charts] Error destroying canvas instance for ${key}:`, e);
+      }
     }
   },
 
@@ -81,9 +96,9 @@ const WattWatchCharts = {
     const canvas = document.getElementById('overviewTrendChart');
     if (!canvas) return;
 
-    this.destroyChart('overviewTrend');
+    this.destroyChart('overviewTrend', canvas);
 
-    if (!summary || summary.appliances.length === 0) {
+    if (!summary || !Array.isArray(summary.appliances) || summary.appliances.length === 0 || !Number.isFinite(summary.totalDailyKwh) || summary.totalDailyKwh <= 0) {
       this.renderEmptyStateOnCanvas(canvas, 'Add appliances to visualize consumption trends');
       return;
     }
@@ -178,9 +193,9 @@ const WattWatchCharts = {
     const canvas = document.getElementById('overviewCategoryChart');
     if (!canvas) return;
 
-    this.destroyChart('overviewCategory');
+    this.destroyChart('overviewCategory', canvas);
 
-    if (!summary || summary.appliances.length === 0 || summary.totalMonthlyKwh === 0) {
+    if (!summary || !summary.categoryBreakdown || !Array.isArray(summary.appliances) || summary.appliances.length === 0 || !Number.isFinite(summary.totalMonthlyKwh) || summary.totalMonthlyKwh <= 0) {
       this.renderEmptyStateOnCanvas(canvas, 'No category data available');
       return;
     }
@@ -278,9 +293,9 @@ const WattWatchCharts = {
     const canvas = document.getElementById('analyticsTimelineChart');
     if (!canvas) return;
 
-    this.destroyChart('analyticsTimeline');
+    this.destroyChart('analyticsTimeline', canvas);
 
-    if (!summary || summary.appliances.length === 0) {
+    if (!summary || !Array.isArray(summary.appliances) || summary.appliances.length === 0) {
       this.renderEmptyStateOnCanvas(canvas, 'Add appliances to generate analytics projection');
       return;
     }
@@ -394,9 +409,9 @@ const WattWatchCharts = {
     const canvas = document.getElementById('analyticsApplianceRankChart');
     if (!canvas) return;
 
-    this.destroyChart('analyticsApplianceRank');
+    this.destroyChart('analyticsApplianceRank', canvas);
 
-    if (!summary || summary.appliances.length === 0) {
+    if (!summary || !Array.isArray(summary.appliances) || summary.appliances.length === 0) {
       this.renderEmptyStateOnCanvas(canvas, 'No appliance consumption records found');
       return;
     }
@@ -481,9 +496,9 @@ const WattWatchCharts = {
     const canvas = document.getElementById('analyticsCategoryShareChart');
     if (!canvas) return;
 
-    this.destroyChart('analyticsCategoryShare');
+    this.destroyChart('analyticsCategoryShare', canvas);
 
-    if (!summary || summary.appliances.length === 0 || summary.totalMonthlyCost === 0) {
+    if (!summary || !summary.categoryBreakdown || !Array.isArray(summary.appliances) || summary.appliances.length === 0 || !Number.isFinite(summary.totalMonthlyCost) || summary.totalMonthlyCost <= 0) {
       this.renderEmptyStateOnCanvas(canvas, 'No cost data available');
       return;
     }
@@ -557,9 +572,9 @@ const WattWatchCharts = {
     const canvas = document.getElementById('analyticsCarbonChart');
     if (!canvas) return;
 
-    this.destroyChart('carbonChart');
+    this.destroyChart('carbonChart', canvas);
 
-    if (!summary || summary.appliances.length === 0 || !emissionFactor) {
+    if (!summary || !Array.isArray(summary.appliances) || summary.appliances.length === 0 || !emissionFactor || !Number.isFinite(Number(emissionFactor)) || Number(emissionFactor) <= 0) {
       this.renderEmptyStateOnCanvas(canvas, 'Configure emission factor in Settings to view carbon breakdown');
       return;
     }
@@ -641,9 +656,9 @@ const WattWatchCharts = {
     const canvas = document.getElementById('historyTrendChart');
     if (!canvas) return;
 
-    this.destroyChart('historyTrend');
+    this.destroyChart('historyTrend', canvas);
 
-    if (!history || history.length === 0) {
+    if (!Array.isArray(history) || history.length === 0 || !history.some(h => h && Number.isFinite(Number(h.totalKwh)))) {
       this.renderEmptyStateOnCanvas(canvas, 'No saved billing snapshots available');
       return;
     }
@@ -728,9 +743,9 @@ const WattWatchCharts = {
     const canvas = document.getElementById('historyComparisonChart');
     if (!canvas) return;
 
-    this.destroyChart('comparisonChart');
+    this.destroyChart('comparisonChart', canvas);
 
-    if (!comp) {
+    if (!comp || comp.isValid === false || !Number.isFinite(Number(comp.kwhA)) || !Number.isFinite(Number(comp.kwhB))) {
       this.renderEmptyStateOnCanvas(canvas, 'Select two billing periods above to compare consumption and costs');
       return;
     }
@@ -816,13 +831,29 @@ const WattWatchCharts = {
    * @param {string} message
    */
   renderEmptyStateOnCanvas(canvas, message) {
+    if (!canvas) return;
     const parent = canvas.parentElement;
     if (!parent) return;
+
+    if (window.getComputedStyle(parent).position === 'static') {
+      parent.style.position = 'relative';
+    }
+
+    // Clear canvas pixels so no ghost traces remain
+    try {
+      const ctx = canvas.getContext('2d');
+      if (ctx) ctx.clearRect(0, 0, canvas.width, canvas.height);
+    } catch (_) {}
+
+    canvas.style.opacity = '0';
+    canvas.setAttribute('aria-hidden', 'true');
 
     let overlay = parent.querySelector('.canvas-empty-state-overlay');
     if (!overlay) {
       overlay = document.createElement('div');
       overlay.className = 'canvas-empty-state-overlay';
+      overlay.setAttribute('role', 'status');
+      overlay.setAttribute('aria-live', 'polite');
       overlay.style.position = 'absolute';
       overlay.style.inset = '0';
       overlay.style.display = 'flex';
@@ -832,6 +863,7 @@ const WattWatchCharts = {
       overlay.style.padding = '1.5rem';
       overlay.style.textAlign = 'center';
       overlay.style.pointerEvents = 'none';
+      overlay.style.zIndex = '2';
       parent.appendChild(overlay);
     }
 
@@ -851,9 +883,12 @@ const WattWatchCharts = {
   },
 
   /**
-   * Removes empty state overlay on canvas
+   * Removes empty state overlay on canvas and restores visibility
    */
   clearEmptyState(canvas) {
+    if (!canvas) return;
+    canvas.style.opacity = '1';
+    canvas.removeAttribute('aria-hidden');
     const parent = canvas?.parentElement;
     const overlay = parent?.querySelector('.canvas-empty-state-overlay');
     if (overlay) {

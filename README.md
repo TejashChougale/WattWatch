@@ -5,8 +5,8 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-B99A62.svg)](https://opensource.org/licenses/MIT)
 [![Pure Vanilla JS](https://img.shields.io/badge/Stack-Vanilla%20JS%20%7C%20HTML5%20%7C%20CSS3-172B55.svg)](#technology-stack)
 [![Chart.js v4](https://img.shields.io/badge/Visuals-Chart.js%20v4-6E293F.svg)](https://www.chartjs.org/)
-[![Audit Test Suite](https://img.shields.io/badge/Audit%20Tests-750%2F750%20Passed-2E946E.svg)](#-automated-testing--quality-assurance)
-[![Responsive Verification](https://img.shields.io/badge/Responsive-21%2F21%20Passed-2E946E.svg)](#-automated-testing--quality-assurance)
+[![Audit Test Suite](https://img.shields.io/badge/Audit%20Tests-1447%2F1447%20Passed-2E946E.svg)](#-automated-testing--quality-assurance)
+[![Responsive Verification](https://img.shields.io/badge/Responsive-22%2F22%20Passed-2E946E.svg)](#-automated-testing--quality-assurance)
 
 > **WattWatch** is a client-side household electricity tracking and analytics application. It provides appliance-level consumption estimates, monthly billing snapshots, an electricity budget tracker, month-to-month comparisons, an appliance replacement simulator, a configurable multi-slab tariff calculator, a carbon footprint estimator, and printable PDF energy reports.
 
@@ -250,8 +250,8 @@ WattWatch features a comprehensive, automated test harness designed to run direc
 
 | Test Suite | File Path | Total Tests | Passed | Failed | Scope |
 | :--- | :--- | :---: | :---: | :---: | :--- |
-| **Audit Test Suite** | [`tests/audit_tests.html`](tests/audit_tests.html) | **750** | **750** | **0** | Energy formulas, tariff slabs, budget tracking, CSV injection, atomic JSON rollback, theme export/import rollback, focus trap & modal stacking manager, Remove All Appliances, stored XSS, corrupted storage recovery, workspace isolation, CSP meta verification, Chart.js SRI integrity, and Firebase asynchronous sign-out resilience. |
-| **Responsive Verification** | [`tests/responsive_verification.html`](tests/responsive_verification.html) | **21** | **21** | **0** | Mobile viewports (320px, 360px, 390px), tablet (768px), desktop (1024px, 1366px), zero overflow across all 7 views and both light and dark themes, touch targets ($\ge 44\text{px}$), font sizes ($\ge 16\text{px}$), modal bottom sheets. |
+| **Audit Test Suite** | [`tests/audit_tests.html`](tests/audit_tests.html) | **1,447** | **1,447** | **0** | Energy formulas, tariff slabs, budget pacing, CSV/JSON validation, data-import safeguards, appliance backup recovery, meter and snapshot validation, chart lifecycle and empty states, accessibility labels, workspace isolation, CSP/SRI checks, and Firebase sign-out resilience. |
+| **Responsive Verification** | [`tests/responsive_verification.html`](tests/responsive_verification.html) | **22** | **22** | **0** | Mobile viewports (320px, 360px, 390px), tablet (768px), desktop (1024px, 1366px), zero overflow across all 7 views and both light and dark themes, touch targets ($\ge 44\text{px}$), font sizes ($\ge 16\text{px}$), modal bottom sheets. |
 
 ### 2. Isolated Test Execution
 The test suite utilizes a dedicated `testNamespace` (`wattwatch_audit_test_`). Running tests is designed to avoid overwriting real user or guest data in `localStorage`; test keys are cleaned up and production keys are checked by the suite.
@@ -314,8 +314,8 @@ WattWatch-Web/
 │   └── chart.umd.min.js         # Production Chart.js v4 bundle for 100% offline local execution
 │
 ├── tests/
-│   ├── audit_tests.html         # Automated 474-assertion audit test suite
-│   └── responsive_verification.html # Automated 20-check responsive layout verification suite
+│   ├── audit_tests.html         # Automated 1,447-assertion audit test suite
+│   └── responsive_verification.html # Automated 22-check responsive layout verification suite
 │
 └── assets/
     └── logo.svg                 # Custom SVG geometric shield and energy lightning crest
