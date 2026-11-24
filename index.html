@@ -362,7 +362,7 @@
               <div class="pacing-tile">
                 <span class="pacing-tile-label">Daily Energy Target</span>
                 <span class="pacing-tile-val" id="pacingDailyKwh">9.46 kWh / day</span>
-                <span class="pacing-tile-sub">Max allowance</span>
+                <span class="pacing-tile-sub" id="pacingDailyKwhSub" title="Maximum allowable daily energy under your active budget and tariff model, factoring in fixed charges and duties when applicable">Max allowance</span>
               </div>
               <div class="pacing-tile">
                 <span class="pacing-tile-label">Configured Daily Cost</span>
@@ -749,15 +749,15 @@
               </div>
               <div class="form-group">
                 <label for="meterStartReading" class="form-label">Start Meter Reading (kWh):</label>
-                <input type="number" id="meterStartReading" class="form-control" placeholder="e.g. 10240.5" step="0.1" min="0">
+                <input type="number" id="meterStartReading" class="form-control" aria-label="Start Meter Reading in kWh" placeholder="e.g. 10240.5" step="0.1" min="0">
               </div>
               <div class="form-group">
                 <label for="meterCurrentReading" class="form-label">Current Meter Reading (kWh):</label>
-                <input type="number" id="meterCurrentReading" class="form-control" placeholder="e.g. 10485.0" step="0.1" min="0">
+                <input type="number" id="meterCurrentReading" class="form-control" aria-label="Current Meter Reading in kWh" placeholder="e.g. 10485.0" step="0.1" min="0">
               </div>
               <div class="form-group">
                 <label for="meterActualCost" class="form-label">Actual Utility Bill (₹ INR, Optional):</label>
-                <input type="number" id="meterActualCost" class="form-control" placeholder="e.g. 2150" step="1" min="0">
+                <input type="number" id="meterActualCost" class="form-control" aria-label="Actual Utility Bill in rupees" placeholder="e.g. 2150" step="1" min="0">
               </div>
               <div class="form-group">
                 <label for="meterNotes" class="form-label">Reading Notes (Optional):</label>
@@ -804,14 +804,14 @@
             <div style="display: flex; align-items: center; gap: 1rem; margin-bottom: 1.5rem; flex-wrap: wrap;">
               <div style="flex: 1; min-width: 240px;">
                 <label for="comparePeriodSelectA" class="form-label">Baseline Period (A):</label>
-                <select id="comparePeriodSelectA" class="form-control"></select>
+                <select id="comparePeriodSelectA" class="form-control" aria-label="Baseline Period (A)"></select>
               </div>
               <div style="font-family: var(--font-serif); font-weight: 700; color: var(--antique-gold); font-size: 1.25rem; margin-top: 1.25rem;">
                 VS
               </div>
               <div style="flex: 1; min-width: 240px;">
                 <label for="comparePeriodSelectB" class="form-label">Comparison Period (B):</label>
-                <select id="comparePeriodSelectB" class="form-control"></select>
+                <select id="comparePeriodSelectB" class="form-control" aria-label="Comparison Period (B)"></select>
               </div>
             </div>
 
@@ -2066,7 +2066,7 @@
             </div>
 
             <!-- Option to import existing guest appliances and settings -->
-            <label class="auth-checkbox-wrap" id="signupImportGuestDataWrap">
+            <label class="auth-checkbox-wrap" id="signupImportGuestDataWrap" style="display: none;">
               <input type="checkbox" id="signupImportGuestData" aria-label="Import existing guest appliances, tariff settings, and billing history into this new account">
               <span id="signupImportGuestDataLabel">Import existing guest appliances, tariff settings, and billing history into this new account</span>
             </label>

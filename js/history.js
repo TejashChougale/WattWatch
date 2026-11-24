@@ -477,6 +477,21 @@ const WattWatchHistory = {
     const currentReading = (rawCurRead !== undefined && rawCurRead !== null && rawCurRead.trim() !== '') ? Number(rawCurRead) : null;
     const actualCost = (rawActualCost !== undefined && rawActualCost !== null && rawActualCost.trim() !== '') ? Number(rawActualCost) : null;
 
+    if (startReading !== null && (isNaN(startReading) || startReading < 0 || !Number.isFinite(startReading))) {
+      WattWatchApp.showToast('Start meter reading must be a valid non-negative number.', 'error', 'Invalid Meter Reading');
+      return;
+    }
+
+    if (currentReading !== null && (isNaN(currentReading) || currentReading < 0 || !Number.isFinite(currentReading))) {
+      WattWatchApp.showToast('Current meter reading must be a valid non-negative number.', 'error', 'Invalid Meter Reading');
+      return;
+    }
+
+    if (actualCost !== null && (isNaN(actualCost) || actualCost < 0 || !Number.isFinite(actualCost))) {
+      WattWatchApp.showToast('Actual utility bill cost must be a valid non-negative number.', 'error', 'Invalid Utility Cost');
+      return;
+    }
+
     if (startReading !== null && currentReading !== null && currentReading < startReading) {
       WattWatchApp.showToast('Current meter reading cannot be lower than start meter reading.', 'error', 'Invalid Meter Reading');
       return;
@@ -606,8 +621,24 @@ const WattWatchHistory = {
     const resultBox = document.getElementById('comparisonResultsBox');
     if (!resultBox) return;
 
+    if (history.length < 2) {
+      resultBox.innerHTML = `<div style="text-align: center; color: var(--text-secondary); padding: 1.5rem;">Save at least two billing snapshots to view month-to-month comparison.</div>`;
+      if (typeof WattWatchCharts !== 'undefined' && typeof WattWatchCharts.renderComparisonChart === 'function') {
+        WattWatchCharts.renderComparisonChart(null);
+      }
+      return;
+    }
+
     if (!snapA || !snapB) {
       resultBox.innerHTML = `<div style="text-align: center; color: var(--text-secondary); padding: 1.5rem;">Select two periods above to view comparison.</div>`;
+      if (typeof WattWatchCharts !== 'undefined' && typeof WattWatchCharts.renderComparisonChart === 'function') {
+        WattWatchCharts.renderComparisonChart(null);
+      }
+      return;
+    }
+
+    if (snapA.id === snapB.id) {
+      resultBox.innerHTML = `<div style="text-align: center; color: var(--text-secondary); padding: 1.5rem;">Please select two different billing periods to compare.</div>`;
       if (typeof WattWatchCharts !== 'undefined' && typeof WattWatchCharts.renderComparisonChart === 'function') {
         WattWatchCharts.renderComparisonChart(null);
       }
@@ -835,7 +866,11 @@ const WattWatchHistory = {
       confirmText: 'Delete Record',
       confirmClass: 'btn-danger',
       onConfirm: () => {
-        WattWatchStorage.deleteSnapshot(id);
+        const ok = WattWatchStorage.deleteSnapshot(id);
+        if (!ok) {
+          WattWatchApp.showToast(`Failed to delete record for ${label}.`, 'error', 'Delete Failed');
+          return;
+        }
         WattWatchApp.showToast(`Deleted record for ${label}`, 'info', 'Record Removed');
         WattWatchApp.refreshAll();
       }

@@ -1131,9 +1131,14 @@ const WattWatchApp = {
           rateInput.value = Number(curSettings.electricityRate !== undefined ? curSettings.electricityRate : 8.00).toFixed(2);
           return;
         }
-        WattWatchStorage.saveSettings({ electricityRate: val });
+        const saved = WattWatchStorage.saveSettings({ electricityRate: val, tariffModel: 'flat' });
+        if (!saved) {
+          this.showToast('Failed to update electricity flat rate.', 'error', 'Save Failed');
+          rateInput.value = Number(curSettings.electricityRate !== undefined ? curSettings.electricityRate : 8.00).toFixed(2);
+          return;
+        }
         this.refreshAll();
-        this.showToast(`Electricity flat rate updated to ₹${val.toFixed(2)}/kWh`, 'success', 'Rate Updated');
+        this.showToast(`Electricity flat rate updated to ₹${val.toFixed(2)}/kWh (Flat mode active)`, 'success', 'Rate Updated');
       });
     }
 
@@ -1181,7 +1186,12 @@ const WattWatchApp = {
           budgetInput.value = Number(curSettings.budgetInr || 0);
           return;
         }
-        WattWatchStorage.saveSettings({ budgetInr: val });
+        const saved = WattWatchStorage.saveSettings({ budgetInr: val });
+        if (!saved) {
+          this.showToast('Failed to update monthly electricity budget.', 'error', 'Save Failed');
+          budgetInput.value = Number(curSettings.budgetInr || 0);
+          return;
+        }
         // Reset session warning so user gets fresh alerts for new budget
         this.budgetWarnedSession = { 75: false, 90: false, 100: false };
         this.refreshAll();
@@ -1201,7 +1211,12 @@ const WattWatchApp = {
           return;
         }
         const factor = valStr === '' ? null : Number(valStr);
-        WattWatchStorage.saveSettings({ carbonEmissionFactor: factor });
+        const saved = WattWatchStorage.saveSettings({ carbonEmissionFactor: factor });
+        if (!saved) {
+          this.showToast('Failed to update carbon emission factor.', 'error', 'Save Failed');
+          carbonInput.value = curSettings.carbonEmissionFactor !== null ? Number(curSettings.carbonEmissionFactor).toFixed(2) : '';
+          return;
+        }
         this.refreshAll();
         this.showToast(factor !== null ? `Grid carbon factor set to ${factor} kg CO₂e/kWh` : 'Carbon factor disabled', 'info', 'Carbon Setting');
       });
@@ -1221,7 +1236,12 @@ const WattWatchApp = {
           freeUnitsInput.value = Number(curSettings.freeUnits || 0);
           return;
         }
-        WattWatchStorage.saveSettings({ freeUnits: val });
+        const saved = WattWatchStorage.saveSettings({ freeUnits: val });
+        if (!saved) {
+          this.showToast('Failed to update free electricity allowance.', 'error', 'Save Failed');
+          freeUnitsInput.value = Number(curSettings.freeUnits || 0);
+          return;
+        }
         this.refreshAll();
         this.showToast(`Lifeline allowance updated to ${val} kWh/month`, 'success', 'Tariff Saved');
       });
@@ -1241,7 +1261,12 @@ const WattWatchApp = {
           billCreditInput.value = Number(curSettings.billCreditInr || 0);
           return;
         }
-        WattWatchStorage.saveSettings({ billCreditInr: val });
+        const saved = WattWatchStorage.saveSettings({ billCreditInr: val });
+        if (!saved) {
+          this.showToast('Failed to update government subsidy / bill credit.', 'error', 'Save Failed');
+          billCreditInput.value = Number(curSettings.billCreditInr || 0);
+          return;
+        }
         this.refreshAll();
         this.showToast(`Government subsidy / bill credit set to ₹${val.toFixed(2)}`, 'success', 'Tariff Saved');
       });
@@ -1575,7 +1600,11 @@ const WattWatchApp = {
     const validRecords = this._pendingCsv.validRecords;
 
     if (mode === 'replace') {
-      WattWatchStorage.saveAppliances(validRecords);
+      const saved = WattWatchStorage.saveAppliances(validRecords);
+      if (!saved) {
+        this.showToast('Failed to save imported appliances to browser storage.', 'error', 'Import Failed');
+        return;
+      }
       this.showToast(`Replaced active inventory with ${validRecords.length} appliances from CSV.`, 'success', 'Import Successful');
     } else {
       const existing = WattWatchStorage.getAppliances();
@@ -1594,7 +1623,11 @@ const WattWatchApp = {
         }
       });
 
-      WattWatchStorage.saveAppliances(existing);
+      const saved = WattWatchStorage.saveAppliances(existing);
+      if (!saved) {
+        this.showToast('Failed to save imported appliances to browser storage.', 'error', 'Import Failed');
+        return;
+      }
       this.showToast(`Imported ${validRecords.length} appliances (${added} added, ${updated} merged).`, 'success', 'Import Successful');
     }
 
@@ -2086,9 +2119,12 @@ const WattWatchApp = {
     if (!card) return;
 
     const activeUser = WattWatchStorage.getActiveUser();
+    const isGuestSession = (typeof WattWatchAuth !== 'undefined' && WattWatchAuth.chosenSessionType === 'guest');
+    const isAuth = Boolean(activeUser) && !isGuestSession;
+
     const guestData = WattWatchStorage.hasGuestData();
 
-    if (activeUser && guestData.hasData) {
+    if (isAuth && guestData.hasData) {
       card.style.display = 'block';
       if (desc) {
         desc.textContent = `Found ${guestData.appliancesCount} appliance(s) and ${guestData.historyCount} historical snapshot(s) in local guest storage. Transfer them safely into your account without overwriting existing account records.`;

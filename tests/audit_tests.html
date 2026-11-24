@@ -166,8 +166,8 @@
     <div class="metric-value" id="historyRecordsCount">0 Records</div>
     <div id="historyComparisonCard"></div>
     <div id="comparisonResultsBox"></div>
-    <select id="comparePeriodSelectA"></select>
-    <select id="comparePeriodSelectB"></select>
+    <select id="comparePeriodSelectA" aria-label="Baseline Period (A)"></select>
+    <select id="comparePeriodSelectB" aria-label="Comparison Period (B)"></select>
     <div id="historyDetailModal" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="historyDetailTitle" aria-hidden="true">
       <div id="historyDetailTitle"></div>
       <div id="historyDetailBody"></div>
@@ -202,9 +202,9 @@
     <div id="actualMeterTrackerCard">
       <input type="date" id="meterCycleStart">
       <input type="date" id="meterCycleEnd">
-      <input type="number" id="meterStartReading">
-      <input type="number" id="meterCurrentReading">
-      <input type="number" id="meterActualCost">
+      <input type="number" id="meterStartReading" aria-label="Start Meter Reading in kWh">
+      <input type="number" id="meterCurrentReading" aria-label="Current Meter Reading in kWh">
+      <input type="number" id="meterActualCost" aria-label="Actual Utility Bill in rupees">
       <input type="text" id="meterNotes">
       <div id="meterComparisonSummary"></div>
       <div id="meterCycleProgressFill"></div>
@@ -245,6 +245,20 @@
       <div style="position: relative;"><canvas id="historyTrendChart"></canvas></div>
       <div style="position: relative;"><canvas id="historyComparisonChart"></canvas></div>
     </div>
+    <div id="settingsGuestMigrationCard" style="display: none;">
+      <p id="settingsGuestMigrationDesc"></p>
+      <button id="btnSettingsMigrateGuest"></button>
+    </div>
+    <div id="signupImportGuestDataWrap" style="display: none;">
+      <input type="checkbox" id="signupImportGuestData">
+      <span id="signupImportGuestDataLabel"></span>
+    </div>
+    <span class="pacing-tile-sub" id="pacingDailyKwhSub" title="Maximum allowable daily energy under your active budget and tariff model, factoring in fixed charges and duties when applicable">Max allowance</span>
+    <input type="number" id="settingsElectricityRate" value="8.00">
+    <input type="number" id="settingsMonthlyBudget" value="2500">
+    <input type="number" id="settingsCarbonFactor" value="0.82">
+    <input type="number" id="settingsFreeUnits" value="0">
+    <input type="number" id="settingsBillCredit" value="0">
   </div>
 
   <!-- Load Application Modules -->
@@ -5074,6 +5088,568 @@
           for (let i = 0; i < localStorage.length; i++) {
             const k = localStorage.key(i);
             if (k && k.startsWith(phase5Ns)) {
+              keysToRemove.push(k);
+            }
+          }
+          keysToRemove.forEach(k => localStorage.removeItem(k));
+        }
+      }
+
+      // ==========================================
+      // SECTION 51: PHASE 5.1 REGRESSION TESTS (CATEGORIES A-G)
+      // ==========================================
+      {
+        const phase51Ns = 'wattwatch_audit_test_p51_';
+        const origNs = WattWatchStorage.testNamespace;
+        WattWatchStorage.setTestNamespace(phase51Ns);
+
+        try {
+          // --- 51.1: Category A: Budget Math & Pacing Clarity ---
+          // Verify daily allowed energy calculation under default tariff (₹110 fixed charge, 5% duty)
+          const dailyAllowedDefault = WattWatchCalculations.calculateDailyAllowedKwhForBudget(83.333333, {
+            electricityRate: 8.00,
+            fixedCharges: 110.00,
+            additionalTaxPercent: 5.0,
+            freeUnits: 0,
+            billCreditInr: 0,
+            tariffModel: 'flat'
+          }, 30);
+          assert(Math.abs(dailyAllowedDefault - 9.4623) < 0.01, 'P51.A1: calculateDailyAllowedKwhForBudget yields ~9.46 kWh/day with default tariff parameters');
+
+          // Verify daily allowed energy calculation without fixed charges or duty yields raw ~10.42 kWh/day
+          const dailyAllowedRaw = WattWatchCalculations.calculateDailyAllowedKwhForBudget(83.333333, {
+            electricityRate: 8.00,
+            fixedCharges: 0,
+            additionalTaxPercent: 0,
+            freeUnits: 0,
+            billCreditInr: 0,
+            tariffModel: 'flat'
+          }, 30);
+          assert(Math.abs(dailyAllowedRaw - 10.4167) < 0.01, 'P51.A2: calculateDailyAllowedKwhForBudget yields ~10.42 kWh/day when fixed charges and duties are zero');
+
+          // Sub-label tile in DOM has explanatory title attribute
+          const pacingSubEl = document.getElementById('pacingDailyKwhSub');
+          assert(pacingSubEl && pacingSubEl.hasAttribute('title') && pacingSubEl.getAttribute('title').length > 10, 'P51.A3: pacingDailyKwhSub element has descriptive title attribute explaining tariff deductions');
+
+          // --- 51.2: Category B: Guest Data Detection & UI Visibility ---
+          // hasGuestData ignores invalid / corrupted appliance objects
+          localStorage.setItem(`${phase51Ns}wattwatch_appliances_v1`, JSON.stringify([{ invalid: true }]));
+          localStorage.setItem(`${phase51Ns}wattwatch_history_v1`, JSON.stringify([]));
+          const guestDataCorrupt = WattWatchStorage.hasGuestData();
+          assert(guestDataCorrupt.hasData === false && guestDataCorrupt.appliancesCount === 0, 'P51.B1: hasGuestData correctly returns hasData=false when guest storage contains only invalid records');
+
+          // hasGuestData detects genuinely valid appliance records
+          localStorage.setItem(`${phase51Ns}wattwatch_appliances_v1`, JSON.stringify([{
+            id: 'app_g1',
+            name: 'Guest Fan',
+            category: 'Cooling',
+            powerWatts: 75,
+            dailyHours: 6,
+            operatingDays: 30,
+            quantity: 1
+          }]));
+          const guestDataValid = WattWatchStorage.hasGuestData();
+          assert(guestDataValid.hasData === true && guestDataValid.appliancesCount === 1, 'P51.B2: hasGuestData correctly detects valid guest appliance records');
+
+          // updateSettingsGuestMigration hides card in Guest Mode
+          WattWatchStorage.setActiveUser(null);
+          WattWatchApp.updateSettingsGuestMigration();
+          const guestCard = document.getElementById('settingsGuestMigrationCard');
+          assert(guestCard && guestCard.style.display === 'none', 'P51.B3: settingsGuestMigrationCard remains hidden in Guest Mode even when guest records exist');
+
+          // updateSettingsGuestMigration shows card when authenticated AND guest data exists
+          WattWatchStorage.setActiveUser('user_p51_test');
+          WattWatchApp.updateSettingsGuestMigration();
+          assert(guestCard && guestCard.style.display === 'block', 'P51.B4: settingsGuestMigrationCard displays when user is authenticated and valid guest data exists');
+
+          // updateSettingsGuestMigration hides card when authenticated but guest data is empty
+          localStorage.setItem(`${phase51Ns}wattwatch_appliances_v1`, JSON.stringify([]));
+          WattWatchApp.updateSettingsGuestMigration();
+          assert(guestCard && guestCard.style.display === 'none', 'P51.B5: settingsGuestMigrationCard hides when authenticated but guest storage is empty');
+          WattWatchStorage.setActiveUser(null);
+
+          // updateGuestImportCheckbox hides wrap when guest storage has no data
+          localStorage.setItem(`${phase51Ns}wattwatch_appliances_v1`, JSON.stringify([]));
+          localStorage.setItem(`${phase51Ns}wattwatch_history_v1`, JSON.stringify([]));
+          const signupWrap = document.getElementById('signupImportGuestDataWrap');
+          if (typeof WattWatchAuth !== 'undefined' && WattWatchAuth.updateGuestImportCheckbox) {
+            WattWatchAuth.updateGuestImportCheckbox();
+            assert(signupWrap && signupWrap.style.display === 'none', 'P51.B6: updateGuestImportCheckbox hides wrap when guest storage has no data');
+            // updateGuestImportCheckbox shows wrap when guest storage has valid data
+            localStorage.setItem(`${phase51Ns}wattwatch_appliances_v1`, JSON.stringify([{ id: 'g1', name: 'Fan', powerWatts: 50, dailyHours: 4, operatingDays: 30, quantity: 1, category: 'Cooling' }]));
+            WattWatchAuth.updateGuestImportCheckbox();
+            assert(signupWrap && signupWrap.style.display === 'flex', 'P51.B7: updateGuestImportCheckbox shows wrap when guest storage has valid data');
+          }
+
+          // --- 51.3: Category C: Two-Way Tariff Synchronization ---
+          // When setting electricityRate in settings, tariffModel is explicitly set to flat
+          WattWatchStorage.saveSettings({ tariffModel: 'slab', electricityRate: 8.00 });
+          assert(WattWatchStorage.getSettings().tariffModel === 'slab', 'P51.C1: Settings saved in slab mode');
+          const rateInputEl = document.getElementById('settingsElectricityRate');
+          if (rateInputEl) {
+            rateInputEl.value = '9.50';
+            rateInputEl.dispatchEvent(new Event('change'));
+            assert(WattWatchStorage.getSettings().tariffModel === 'flat', 'P51.C2: Updating electricityRate explicitly sets tariffModel to flat');
+            assert(WattWatchStorage.getSettings().electricityRate === 9.50, 'P51.C3: Electricity rate correctly saved as 9.50');
+          }
+
+          // populateTariffSandbox renders slab inputs with proper aria-labels
+          WattWatchSimulator.renderSlabRows([
+            { upTo: 100, rate: 4.50 },
+            { upTo: null, rate: 10.00 }
+          ]);
+          const uptoInputs = document.querySelectorAll('.slab-upto-input:not([type="hidden"])');
+          const rateInputs = document.querySelectorAll('.slab-rate-input');
+          assert(uptoInputs.length > 0 && uptoInputs[0].hasAttribute('aria-label'), 'P51.C4: Slab upto input has aria-label');
+          assert(rateInputs.length > 0 && rateInputs[0].hasAttribute('aria-label'), 'P51.C5: Slab rate input has aria-label');
+
+          // --- 51.4: Category D: Accessibility Audit of Dynamic & History Controls ---
+          // Verify key form inputs and selects have aria-label or associated labels
+          const selectA = document.getElementById('comparePeriodSelectA');
+          const selectB = document.getElementById('comparePeriodSelectB');
+          assert(selectA && (selectA.hasAttribute('aria-label') || document.querySelector('label[for="comparePeriodSelectA"]')), 'P51.D1: comparePeriodSelectA has accessible label');
+          assert(selectB && (selectB.hasAttribute('aria-label') || document.querySelector('label[for="comparePeriodSelectB"]')), 'P51.D2: comparePeriodSelectB has accessible label');
+          const meterStart = document.getElementById('meterStartReading');
+          const meterCur = document.getElementById('meterCurrentReading');
+          assert(meterStart && (meterStart.hasAttribute('aria-label') || document.querySelector('label[for="meterStartReading"]')), 'P51.D3: meterStartReading has accessible label');
+          assert(meterCur && (meterCur.hasAttribute('aria-label') || document.querySelector('label[for="meterCurrentReading"]')), 'P51.D4: meterCurrentReading has accessible label');
+
+          // --- 51.5: Category E: Chart Empty States and Destruction ---
+          // Verify destroyChart handles null, valid, and re-entrant calls safely
+          WattWatchCharts.destroyChart('overviewTrend');
+          assert(WattWatchCharts.instances.overviewTrend === null, 'P51.E1: destroyChart cleanly nulls chart instance');
+
+          // Verify renderComparisonChart handles empty comparison gracefully
+          const compCanvas = document.getElementById('historyComparisonChart');
+          WattWatchCharts.renderComparisonChart(null);
+          assert(compCanvas && compCanvas.getAttribute('aria-hidden') === 'true', 'P51.E2: renderComparisonChart(null) marks canvas aria-hidden');
+          const compOverlay = compCanvas.parentElement.querySelector('.canvas-empty-state-overlay');
+          assert(compOverlay && compOverlay.style.display !== 'none', 'P51.E3: renderComparisonChart(null) displays empty state overlay');
+
+          // --- 51.6: Category F: Meter Verification & Snapshot Edge Cases ---
+          // validateMeterTracking correctly computes actualUnits when startReading is 0.0
+          const meterStartZero = WattWatchStorage.validateMeterTracking({
+            startReading: 0.0,
+            currentReading: 125.5,
+            cycleStartDate: '2026-10-01',
+            cycleEndDate: '2026-10-31'
+          });
+          assert(meterStartZero.valid === true, 'P51.F1: validateMeterTracking accepts start reading of 0.0');
+          assert(meterStartZero.sanitized.actualUnits === 125.5, 'P51.F2: validateMeterTracking computes actualUnits = 125.5 when start reading is 0.0');
+
+          // saveSnapshot merges existing record for same period without duplicating
+          const snap1 = {
+            id: 'snap_p51_period_test',
+            period: '2026-11',
+            periodLabel: 'November 2026',
+            totalKwh: 300,
+            totalCost: 2400,
+            electricityRate: 8.00,
+            tariffModel: 'flat'
+          };
+          WattWatchStorage.saveSnapshot(snap1);
+          const snap2 = {
+            id: 'snap_p51_period_test_dup',
+            period: '2026-11',
+            periodLabel: 'November 2026',
+            totalKwh: 350,
+            totalCost: 2800,
+            electricityRate: 8.00,
+            tariffModel: 'flat'
+          };
+          WattWatchStorage.saveSnapshot(snap2);
+          const histSnapshots = WattWatchStorage.getHistory().filter(h => h.period === '2026-11');
+          assert(histSnapshots.length === 1, 'P51.F3: saveSnapshot updates existing period record without creating duplicate');
+          assert(histSnapshots[0].totalKwh === 350, 'P51.F4: saveSnapshot merged update reflects latest kwh value');
+          WattWatchStorage.deleteSnapshot('snap_p51_period_test');
+
+          // --- 51.7: Category G: CSV & JSON Import Guardrails ---
+          // parseAppliancesCSV rejects malformed CSV with missing headers
+          const badCsv = 'Foo,Bar,Baz\n1,2,3';
+          const badCsvRes = WattWatchStorage.parseAppliancesCSV(badCsv);
+          assert(badCsvRes.success === false, 'P51.G1: parseAppliancesCSV rejects CSV with missing required headers');
+          assert(badCsvRes.errors.length > 0, 'P51.G2: parseAppliancesCSV returns descriptive error message');
+
+          // parseAppliancesCSV successfully parses valid RFC 4180 CSV
+          const goodCsv = 'Name,Power Watts,Daily Hours,Operating Days,Quantity,Category\n"Refrigerator",200,24,30,1,"Kitchen"\n"LED Bulb",10,5,30,4,"Lighting"';
+          const goodCsvRes = WattWatchStorage.parseAppliancesCSV(goodCsv);
+          assert(goodCsvRes.success === true, 'P51.G3: parseAppliancesCSV parses valid RFC 4180 CSV content');
+          assert(goodCsvRes.validRecords.length === 2, 'P51.G4: parseAppliancesCSV extracts 2 valid appliance records');
+
+          // importDataJSON rolls back all 5 keys if storage throws an error
+          const validJsonBackup = JSON.stringify({
+            version: '2.0',
+            settings: { electricityRate: 9.00 },
+            appliances: [{ id: 'app_backup_1', name: 'Backup AC', powerWatts: 1500, dailyHours: 4, operatingDays: 30, quantity: 1, category: 'Cooling' }],
+            history: [],
+            meterTracking: { startReading: 100, currentReading: 200, cycleStartDate: '2026-10-01', cycleEndDate: '2026-10-31' }
+          });
+          // Ensure valid JSON import works cleanly
+          const importResult = WattWatchStorage.importDataJSON(validJsonBackup, { mode: 'merge' });
+          assert(importResult.success === true, 'P51.G5: importDataJSON successfully imports valid v2.0 JSON payload');
+          assert(importResult.count === 1, 'P51.G6: importDataJSON reports 1 appliance imported');
+
+          // --- 51.8: Appliance Validation Hardening ---
+          // Decimal activeDaysPerWeek rejected
+          const badDecAdw = WattWatchStorage.validateAppliance({ name: 'Fan', category: 'Cooling', powerWatts: 75, quantity: 1, dailyHours: 8, operatingDays: 30, activeDaysPerWeek: 3.5 });
+          assert(badDecAdw.valid === false, 'P51.H1: validateAppliance rejects non-integer decimal activeDaysPerWeek (3.5)');
+          const goodIntAdw = WattWatchStorage.validateAppliance({ name: 'Fan', category: 'Cooling', powerWatts: 75, quantity: 1, dailyHours: 8, operatingDays: 30, activeDaysPerWeek: 5 });
+          assert(goodIntAdw.valid === true && goodIntAdw.sanitized.activeDaysPerWeek === 5, 'P51.H2: validateAppliance accepts integer activeDaysPerWeek');
+          assert(WattWatchStorage.validateAppliance({ name: 'Fan', category: 'Cooling', powerWatts: 75, quantity: 1, dailyHours: 8, operatingDays: 30, activeDaysPerWeek: 0 }).valid === false, 'P51.H3: validateAppliance rejects activeDaysPerWeek below 1');
+          assert(WattWatchStorage.validateAppliance({ name: 'Fan', category: 'Cooling', powerWatts: 75, quantity: 1, dailyHours: 8, operatingDays: 30, activeDaysPerWeek: 8 }).valid === false, 'P51.H4: validateAppliance rejects activeDaysPerWeek above 7');
+
+          // Optional calculation metrics rejection of NaN, Infinity, negative
+          assert(WattWatchStorage.validateAppliance({ name: 'Fan', category: 'Cooling', powerWatts: 75, quantity: 1, dailyHours: 8, operatingDays: 30, monthlyCost: NaN }).valid === false, 'P51.H5: validateAppliance rejects NaN monthlyCost');
+          assert(WattWatchStorage.validateAppliance({ name: 'Fan', category: 'Cooling', powerWatts: 75, quantity: 1, dailyHours: 8, operatingDays: 30, monthlyKwh: Infinity }).valid === false, 'P51.H6: validateAppliance rejects Infinity monthlyKwh');
+          assert(WattWatchStorage.validateAppliance({ name: 'Fan', category: 'Cooling', powerWatts: 75, quantity: 1, dailyHours: 8, operatingDays: 30, dailyCost: -5 }).valid === false, 'P51.H7: validateAppliance rejects negative dailyCost');
+          assert(WattWatchStorage.validateAppliance({ name: 'Fan', category: 'Cooling', powerWatts: 75, quantity: 1, dailyHours: 8, operatingDays: 30, sharePercentage: -10 }).valid === false, 'P51.H8: validateAppliance rejects negative sharePercentage');
+          const validMetrics = WattWatchStorage.validateAppliance({ name: 'Fan', category: 'Cooling', powerWatts: 75, quantity: 1, dailyHours: 8, operatingDays: 30, monthlyCost: 150.5, monthlyKwh: 18.2 });
+          assert(validMetrics.valid === true && validMetrics.sanitized.monthlyCost === 150.5 && validMetrics.sanitized.monthlyKwh === 18.2, 'P51.H9: validateAppliance preserves valid non-negative metrics');
+
+          // --- 51.9: Snapshot Validation & Persistence ---
+          assert(WattWatchStorage.validateSnapshot({ period: '2026-11', totalKwh: 100, totalCost: 800, meterReadingStart: 1500, meterReadingEnd: 1200 }).valid === false, 'P51.I1: validateSnapshot rejects meterReadingEnd < meterReadingStart');
+          assert(WattWatchStorage.validateSnapshot({ period: '2026-11', totalKwh: 100, totalCost: 800, meterReadingStart: 1200, meterReadingEnd: 1500 }).valid === true, 'P51.I2: validateSnapshot accepts meterReadingEnd >= meterReadingStart');
+          assert(WattWatchStorage.validateSnapshot({ period: '2026-11', totalKwh: 100, totalCost: 800, meterReadingStart: 0, meterReadingEnd: 300 }).valid === true, 'P51.I3: validateSnapshot accepts 0.0 starting reading');
+          assert(WattWatchStorage.validateSnapshot({ period: '2026-11', totalKwh: 100, totalCost: 800, createdAt: true }).valid === false, 'P51.I4: validateSnapshot rejects boolean createdAt (true)');
+          assert(WattWatchStorage.validateSnapshot({ period: '2026-11', totalKwh: 100, totalCost: 800, createdAt: false }).valid === false, 'P51.I5: validateSnapshot rejects boolean createdAt (false)');
+          assert(WattWatchStorage.validateSnapshot({ period: '2026-11', totalKwh: 100, totalCost: 800, createdAt: -500 }).valid === false, 'P51.I6: validateSnapshot rejects negative createdAt');
+          assert(WattWatchStorage.validateSnapshot({ period: '2026-11', totalKwh: 100, totalCost: 800, createdAt: NaN }).valid === false, 'P51.I7: validateSnapshot rejects NaN createdAt');
+          const snapSanRes = WattWatchStorage.validateSnapshot({ period: '2026-11', totalKwh: 100, totalCost: 800 });
+          assert(snapSanRes.valid === true && typeof snapSanRes.sanitized === 'object' && snapSanRes.sanitized.period === '2026-11', 'P51.I8: validateSnapshot returns { valid: true, sanitized: ... }');
+
+          // Snapshot deduplication & descending sorting
+          localStorage.removeItem(WattWatchStorage._getKey('HISTORY'));
+          WattWatchStorage.invalidateCache();
+          WattWatchStorage.saveSnapshot({ period: '2026-08', totalKwh: 100, totalCost: 800, notes: 'August Record' });
+          WattWatchStorage.saveSnapshot({ period: '2026-12', totalKwh: 150, totalCost: 1200 });
+          WattWatchStorage.saveSnapshot({ period: '2026-08', totalKwh: 120, totalCost: 960 });
+          const allHist = WattWatchStorage.getHistory();
+          assert(allHist.length === 2, 'P51.I9: saveSnapshot updates existing period without duplicating records');
+          assert(allHist[0].period === '2026-12' && allHist[1].period === '2026-08', 'P51.I10: saveSnapshot preserves descending chronological period order');
+          const augRecord = allHist.find(h => h.period === '2026-08');
+          assert(augRecord && augRecord.totalKwh === 120 && augRecord.notes === 'August Record', 'P51.I11: saveSnapshot merges update with existing fields cleanly');
+
+          // --- 51.10: Settings & JSON Import Domain Constraints ---
+          assert(WattWatchStorage.saveSettings({ billingDays: true }) === false, 'P51.J1: saveSettings rejects boolean billingDays');
+          assert(WattWatchStorage.saveSettings({ billingDays: -10 }) === false, 'P51.J2: saveSettings rejects negative billingDays');
+          assert(WattWatchStorage.saveSettings({ billingDays: 30 }) === true, 'P51.J3: saveSettings accepts legacy 30 billingDays');
+          assert(WattWatchStorage.saveSettings({ billingDays: 15 }) === true, 'P51.J4: saveSettings accepts legacy 15 billingDays without arbitrary 28-31 restriction');
+          assert(WattWatchStorage.getSettings().billingDays === 15, 'P51.J5: saveSettings preserves legacy billingDays');
+          WattWatchStorage.saveSettings({ billingDays: 30 });
+
+          // JSON import domain constraints
+          assert(WattWatchStorage.importDataJSON(JSON.stringify({ version: '2.0', appliances: [], settings: { budgetInr: -500 } })).success === false, 'P51.J7: importDataJSON rejects negative budgetInr');
+          assert(WattWatchStorage.importDataJSON(JSON.stringify({ version: '2.0', appliances: [], settings: { fixedCharges: -100 } })).success === false, 'P51.J8: importDataJSON rejects negative fixedCharges');
+          assert(WattWatchStorage.importDataJSON(JSON.stringify({ version: '2.0', appliances: [], settings: { additionalTaxPercent: 120 } })).success === false, 'P51.J9: importDataJSON rejects additionalTaxPercent > 100');
+          assert(WattWatchStorage.importDataJSON(JSON.stringify({ version: '2.0', appliances: [], settings: { additionalTaxPercent: -5 } })).success === false, 'P51.J10: importDataJSON rejects negative additionalTaxPercent');
+          assert(WattWatchStorage.importDataJSON(JSON.stringify({ version: '2.0', appliances: [], settings: { freeUnits: -50 } })).success === false, 'P51.J11: importDataJSON rejects negative freeUnits');
+          assert(WattWatchStorage.importDataJSON(JSON.stringify({ version: '2.0', appliances: [], settings: { billCreditInr: -200 } })).success === false, 'P51.J12: importDataJSON rejects negative billCreditInr');
+          assert(WattWatchStorage.importDataJSON(JSON.stringify({ version: '2.0', appliances: [], settings: { carbonEmissionFactor: -0.5 } })).success === false, 'P51.J13: importDataJSON rejects negative carbonEmissionFactor');
+          assert(WattWatchStorage.importDataJSON(JSON.stringify({ version: '2.0', appliances: [], settings: { billingDays: 15 } })).success === true, 'P51.J14: importDataJSON accepts legacy backup with billingDays: 15');
+          assert(WattWatchStorage.importDataJSON(JSON.stringify({ version: '2.0', appliances: [], settings: { billingDays: 35 } })).success === true, 'P51.J15: importDataJSON accepts legacy backup with billingDays: 35');
+
+          // Atomic rejection of replacement import if ANY appliance is invalid
+          const badAppPayload = JSON.stringify({
+            version: '2.0',
+            appliances: [
+              { id: 'app_good_rep', name: 'Good Fan', category: 'Cooling', powerWatts: 75, quantity: 1, dailyHours: 8, operatingDays: 30 },
+              { id: 'app_bad_rep', name: 'Bad Fan', category: 'Cooling', powerWatts: -50, quantity: 1, dailyHours: 8, operatingDays: 30 }
+            ]
+          });
+          const repBadRes = WattWatchStorage.importDataJSON(badAppPayload, { mode: 'replace' });
+          assert(repBadRes.success === false, 'P51.J16: importDataJSON atomically rejects replace import when any appliance is invalid');
+          const mergeBadRes = WattWatchStorage.importDataJSON(badAppPayload, { mode: 'merge' });
+          assert(mergeBadRes.success === true && mergeBadRes.skippedCount >= 1, 'P51.J17: importDataJSON in merge mode accurately tracks skippedCount for invalid appliances');
+
+          // --- 51.11: Comparison Edge Cases (<2 Snapshots) ---
+          WattWatchStorage.clearAllData();
+          WattWatchHistory.renderComparison();
+          const compBox = document.getElementById('comparisonResultsBox');
+          assert(compBox && compBox.textContent.includes('two billing snapshots'), 'P51.K1: renderComparison with 0 snapshots displays clean empty state');
+
+          WattWatchStorage.saveSnapshot({ period: '2026-11', totalKwh: 100, totalCost: 800 });
+          WattWatchHistory.renderComparison();
+          assert(compBox && compBox.textContent.includes('two billing snapshots'), 'P51.K2: renderComparison with 1 snapshot displays clean empty state');
+
+          WattWatchStorage.saveSnapshot({ period: '2026-10', totalKwh: 120, totalCost: 960 });
+          const selCompA = document.getElementById('comparePeriodSelectA');
+          const selCompB = document.getElementById('comparePeriodSelectB');
+          const twoSnaps = WattWatchStorage.getHistory();
+          selCompA.innerHTML = '<option value="' + twoSnaps[0].id + '">A</option>';
+          selCompB.innerHTML = '<option value="' + twoSnaps[0].id + '">B</option>';
+          selCompA.value = twoSnaps[0].id;
+          selCompB.value = twoSnaps[0].id;
+          WattWatchHistory.renderComparison();
+          assert(compBox && compBox.textContent.includes('different billing periods'), 'P51.K3: renderComparison with identical periods prompts selection of different periods');
+
+          // --- 51.12: Appliance Preservation, Backup Verification & Safe Recovery ---
+          // A: Backup creation when invalid records exist in raw storage
+          const appRawKey = WattWatchStorage._getKey('APPLIANCES');
+          const corruptedRawPayload = JSON.stringify([
+            { id: 'app_stable_1', name: 'Valid Ceiling Fan', category: 'Cooling', powerWatts: 75, quantity: 2, dailyHours: 8, operatingDays: 30 },
+            { id: 'app_invalid_watts', name: 'Broken Heater', category: 'Other', powerWatts: -500, quantity: 1, dailyHours: 4, operatingDays: 30 }
+          ]);
+          localStorage.setItem(appRawKey, corruptedRawPayload);
+          WattWatchStorage.invalidateCache();
+          const validAppsRead = WattWatchStorage.getAppliances();
+          assert(validAppsRead.length === 1 && validAppsRead[0].id === 'app_stable_1', 'P51.L1: getAppliances returns only valid records and preserves stable ID');
+          assert(WattWatchStorage._appliancePreservationBlocked === false, 'P51.L2: _appliancePreservationBlocked is false when backup successfully created and verified');
+
+          const backupsList = WattWatchStorage.getInvalidApplianceBackups();
+          assert(backupsList.length >= 1, 'P51.L3: getInvalidApplianceBackups discovers created invalid appliance backup');
+          const activeBackupKey = backupsList[0].backupKey;
+          assert(localStorage.getItem(activeBackupKey) === corruptedRawPayload, 'P51.L4: Backup content in localStorage exactly matches original corrupted payload');
+
+          // B: Existing backup verification on repeated reads
+          WattWatchStorage.invalidateCache();
+          const repeatedReadApps = WattWatchStorage.getAppliances();
+          assert(repeatedReadApps.length === 1 && repeatedReadApps[0].name === 'Valid Ceiling Fan', 'P51.L5: Repeated getAppliances returns valid records without duplicate backups');
+          assert(WattWatchStorage._appliancePreservationBlocked === false, 'P51.L6: Repeated read verifies existing backup in storage without blocking');
+
+          // C: Missing / Corrupted backup detection in storage
+          localStorage.removeItem(activeBackupKey); // Simulate missing backup in storage
+          WattWatchStorage.invalidateCache();
+          WattWatchStorage.getAppliances(); // Triggers recreation and re-verification
+          const recreatedBackups = WattWatchStorage.getInvalidApplianceBackups();
+          assert(recreatedBackups.length >= 1, 'P51.L7: getAppliances detects missing backup in storage and safely recreates it');
+
+          // D: Backup failure (QuotaExceededError) blocks writes and does not unblock on repeated reads
+          const realSetItemStorage = localStorage.setItem;
+          try {
+            // Delete all backups first
+            WattWatchStorage.getInvalidApplianceBackups().forEach(b => localStorage.removeItem(b.backupKey));
+            WattWatchStorage.invalidApplianceBackup = null;
+            WattWatchStorage.invalidateCache();
+
+            let quotaTripped = false;
+            localStorage.setItem = function(k, v) {
+              if (k.startsWith('wattwatch_invalid_appliances_')) {
+                quotaTripped = true;
+                throw new DOMException('Storage quota exceeded on invalid appliance backup', 'QuotaExceededError');
+              }
+              realSetItemStorage.call(localStorage, k, v);
+            };
+
+            // Call getAppliances - backup attempt should throw and set _appliancePreservationBlocked = true
+            WattWatchStorage.getAppliances();
+            assert(quotaTripped === true, 'P51.L8: Simulated quota error during backup creation triggered');
+            assert(WattWatchStorage._appliancePreservationBlocked === true, 'P51.L9: _appliancePreservationBlocked is set to true when backup fails');
+
+            // Save attempt while blocked MUST return false and not overwrite active appliances
+            const blockedSaveResult = WattWatchStorage.saveAppliances([{ id: 'app_try_save', name: 'New Lamp', category: 'Lighting', powerWatts: 25, quantity: 1, dailyHours: 2, operatingDays: 30 }]);
+            assert(blockedSaveResult === false, 'P51.L10: saveAppliances returns false when appliance preservation is blocked');
+            assert(localStorage.getItem(appRawKey) === corruptedRawPayload, 'P51.L11: Corrupted raw payload in storage was NOT overwritten while preservation was blocked');
+
+            // Repeated read must NOT accidentally unblock writes
+            WattWatchStorage.invalidateCache();
+            WattWatchStorage.getAppliances();
+            assert(WattWatchStorage._appliancePreservationBlocked === true, 'P51.L12: Repeated getAppliances keeps writes blocked when backup is still unverified');
+            assert(WattWatchStorage.saveAppliances([{ id: 'app_try_save_2', name: 'New Lamp 2', category: 'Lighting', powerWatts: 25, quantity: 1, dailyHours: 2, operatingDays: 30 }]) === false, 'P51.L13: saveAppliances continues to be blocked on subsequent attempts');
+          } finally {
+            localStorage.setItem = realSetItemStorage;
+          }
+
+          // E: Successful recovery path via recoverInvalidAppliances()
+          WattWatchStorage.invalidateCache();
+          WattWatchStorage.getAppliances(); // Allows clean backup creation now that setItem is restored
+          assert(WattWatchStorage._appliancePreservationBlocked === false, 'P51.L14: Preservation unblocked once backup succeeds');
+          const readyBackups = WattWatchStorage.getInvalidApplianceBackups();
+          assert(readyBackups.length >= 1, 'P51.L15: Valid backup exists for recovery');
+          const recoveryResult = WattWatchStorage.recoverInvalidAppliances(readyBackups[0].backupKey);
+          assert(recoveryResult.success === true, 'P51.L16: recoverInvalidAppliances successfully extracts quarantined backup');
+          assert(recoveryResult.validCount === 1 && recoveryResult.invalidCount === 1, 'P51.L17: recoverInvalidAppliances accurately categorizes valid and invalid records');
+          assert(recoveryResult.invalidRecords[0].raw.name === 'Broken Heater', 'P51.L18: recoverInvalidAppliances identifies exact broken appliance name');
+          assert(WattWatchStorage.clearInvalidApplianceBackup(readyBackups[0].backupKey) === true, 'P51.L19: clearInvalidApplianceBackup removes backup key');
+
+          // Clean active appliances key
+          WattWatchStorage.saveAppliances([{ id: 'app_clean_fan', name: 'Ceiling Fan', category: 'Cooling', powerWatts: 75, quantity: 1, dailyHours: 8, operatingDays: 30 }]);
+
+          // --- 51.13: Tariff Switching & Retained Slab Configuration ---
+          // Start with custom valid slab config
+          const initialSlabs = [
+            { upTo: 50, rate: 3.50 },
+            { upTo: 150, rate: 6.00 },
+            { upTo: null, rate: 9.00 }
+          ];
+          WattWatchStorage.saveSettings({
+            tariffModel: 'slab',
+            electricityRate: 8.00,
+            slabConfig: initialSlabs
+          });
+          const slabSettings = WattWatchStorage.getSettings();
+          assert(slabSettings.tariffModel === 'slab', 'P51.M1: Initial tariffModel is slab');
+          assert(slabSettings.slabConfig && slabSettings.slabConfig.length === 3, 'P51.M2: slabConfig saved with 3 tiers');
+
+          // Switch to flat tariff model (simulating user toggling to Flat rate in Settings or Simulator)
+          WattWatchStorage.saveSettings({
+            tariffModel: 'flat',
+            electricityRate: 8.50
+          });
+          const flatSettings = WattWatchStorage.getSettings();
+          assert(flatSettings.tariffModel === 'flat', 'P51.M3: tariffModel switched to flat');
+          assert(flatSettings.electricityRate === 8.50, 'P51.M4: Flat electricityRate updated to 8.50');
+          // Slabs should NOT be wiped when switching to flat
+          assert(Array.isArray(flatSettings.slabConfig) && flatSettings.slabConfig.length === 3, 'P51.M5: Valid slabConfig is retained in settings while in flat mode');
+          assert(flatSettings.slabConfig[0].rate === 3.50 && flatSettings.slabConfig[2].rate === 9.00, 'P51.M6: Retained slab rates match original configuration');
+
+          // Switch back to slab mode
+          WattWatchStorage.saveSettings({ tariffModel: 'slab' });
+          const reSlabSettings = WattWatchStorage.getSettings();
+          assert(reSlabSettings.tariffModel === 'slab', 'P51.M7: tariffModel switched back to slab');
+          assert(reSlabSettings.slabConfig[0].rate === 3.50 && reSlabSettings.slabConfig[2].rate === 9.00, 'P51.M8: Switching back to slab preserves complete slab structure');
+
+          // Simulator applyTariffToSettings preserving slabConfig when applying flat
+          const mockFlatSelect = document.getElementById('calcTariffModelSelect');
+          const mockFlatRateInput = document.getElementById('calcFlatRateInput');
+          if (mockFlatSelect && mockFlatRateInput) {
+            mockFlatSelect.value = 'flat';
+            mockFlatRateInput.value = '7.75';
+            WattWatchSimulator.applyTariffToSettings();
+            const afterSimSettings = WattWatchStorage.getSettings();
+            assert(afterSimSettings.tariffModel === 'flat', 'P51.M9: applyTariffToSettings sets tariffModel to flat');
+            assert(afterSimSettings.electricityRate === 7.75, 'P51.M10: applyTariffToSettings updates flat rate to 7.75');
+            assert(Array.isArray(afterSimSettings.slabConfig) && afterSimSettings.slabConfig.length === 3, 'P51.M11: applyTariffToSettings in flat mode preserves slabConfig');
+          }
+
+          // --- 51.14: Comprehensive Audit of All Seven Chart Areas ---
+          // 1. Overview Daily Trend Chart (overviewTrend)
+          const cOverviewTrend = document.getElementById('overviewTrendChart');
+          WattWatchCharts.renderOverviewTrendChart(null);
+          assert(WattWatchCharts.instances.overviewTrend === null, 'P51.N1: renderOverviewTrendChart(null) leaves instance null');
+          const ovTrendOverlay = cOverviewTrend?.parentElement?.querySelector('.canvas-empty-state-overlay');
+          assert(ovTrendOverlay && ovTrendOverlay.style.display !== 'none', 'P51.N2: renderOverviewTrendChart(null) displays empty state overlay');
+          assert(cOverviewTrend && cOverviewTrend.getAttribute('aria-hidden') === 'true', 'P51.N3: renderOverviewTrendChart(null) marks canvas aria-hidden');
+
+          // 2. Overview Category Breakdown Chart (overviewCategory)
+          const cOverviewCat = document.getElementById('overviewCategoryChart');
+          WattWatchCharts.renderOverviewCategoryChart(null);
+          assert(WattWatchCharts.instances.overviewCategory === null, 'P51.N4: renderOverviewCategoryChart(null) leaves instance null');
+          const ovCatOverlay = cOverviewCat?.parentElement?.querySelector('.canvas-empty-state-overlay');
+          assert(ovCatOverlay && ovCatOverlay.style.display !== 'none', 'P51.N5: renderOverviewCategoryChart(null) displays empty state overlay');
+          assert(cOverviewCat && cOverviewCat.getAttribute('aria-hidden') === 'true', 'P51.N6: renderOverviewCategoryChart(null) marks canvas aria-hidden');
+
+          // 3. Analytics Timeline Chart (analyticsTimeline)
+          const cAnalyticsTime = document.getElementById('analyticsTimelineChart');
+          WattWatchCharts.renderAnalyticsTimelineChart(null);
+          assert(WattWatchCharts.instances.analyticsTimeline === null, 'P51.N7: renderAnalyticsTimelineChart(null) leaves instance null');
+          const anTimeOverlay = cAnalyticsTime?.parentElement?.querySelector('.canvas-empty-state-overlay');
+          assert(anTimeOverlay && anTimeOverlay.style.display !== 'none', 'P51.N8: renderAnalyticsTimelineChart(null) displays empty state overlay');
+          assert(cAnalyticsTime && cAnalyticsTime.getAttribute('aria-hidden') === 'true', 'P51.N9: renderAnalyticsTimelineChart(null) marks canvas aria-hidden');
+
+          // 4. Analytics Appliance Rank Chart (analyticsApplianceRank)
+          const cAnalyticsRank = document.getElementById('analyticsApplianceRankChart');
+          WattWatchCharts.renderAnalyticsApplianceRankChart(null);
+          assert(WattWatchCharts.instances.analyticsApplianceRank === null, 'P51.N10: renderAnalyticsApplianceRankChart(null) leaves instance null');
+          const anRankOverlay = cAnalyticsRank?.parentElement?.querySelector('.canvas-empty-state-overlay');
+          assert(anRankOverlay && anRankOverlay.style.display !== 'none', 'P51.N11: renderAnalyticsApplianceRankChart(null) displays empty state overlay');
+          assert(cAnalyticsRank && cAnalyticsRank.getAttribute('aria-hidden') === 'true', 'P51.N12: renderAnalyticsApplianceRankChart(null) marks canvas aria-hidden');
+
+          // 5. Analytics Category Share Chart (analyticsCategoryShare)
+          const cAnalyticsShare = document.getElementById('analyticsCategoryShareChart');
+          WattWatchCharts.renderAnalyticsCategoryShareChart(null);
+          assert(WattWatchCharts.instances.analyticsCategoryShare === null, 'P51.N13: renderAnalyticsCategoryShareChart(null) leaves instance null');
+          const anShareOverlay = cAnalyticsShare?.parentElement?.querySelector('.canvas-empty-state-overlay');
+          assert(anShareOverlay && anShareOverlay.style.display !== 'none', 'P51.N14: renderAnalyticsCategoryShareChart(null) displays empty state overlay');
+          assert(cAnalyticsShare && cAnalyticsShare.getAttribute('aria-hidden') === 'true', 'P51.N15: renderAnalyticsCategoryShareChart(null) marks canvas aria-hidden');
+
+          // 6. Carbon / Environmental Emissions Chart (carbonChart)
+          const cCarbon = document.getElementById('analyticsCarbonChart');
+          WattWatchCharts.renderCarbonChart(null, 0.82);
+          assert(WattWatchCharts.instances.carbonChart === null, 'P51.N16: renderCarbonChart(null) leaves instance null');
+          const carbonOverlay = cCarbon?.parentElement?.querySelector('.canvas-empty-state-overlay');
+          assert(carbonOverlay && carbonOverlay.style.display !== 'none', 'P51.N17: renderCarbonChart(null) displays empty state overlay');
+          assert(cCarbon && cCarbon.getAttribute('aria-hidden') === 'true', 'P51.N18: renderCarbonChart(null) marks canvas aria-hidden');
+
+          // 7. Bill History Trend Chart (historyTrend)
+          const cHistTrend = document.getElementById('historyTrendChart');
+          WattWatchCharts.renderHistoryTrendChart([]);
+          assert(WattWatchCharts.instances.historyTrend === null, 'P51.N19: renderHistoryTrendChart([]) leaves instance null');
+          const histTrendOverlay = cHistTrend?.parentElement?.querySelector('.canvas-empty-state-overlay');
+          assert(histTrendOverlay && histTrendOverlay.style.display !== 'none', 'P51.N20: renderHistoryTrendChart([]) displays empty state overlay');
+          assert(cHistTrend && cHistTrend.getAttribute('aria-hidden') === 'true', 'P51.N21: renderHistoryTrendChart([]) marks canvas aria-hidden');
+
+          // 8. Month-to-Month Comparison Chart (comparisonChart)
+          const cComparison = document.getElementById('historyComparisonChart');
+          WattWatchCharts.renderComparisonChart(null);
+          assert(WattWatchCharts.instances.comparisonChart === null, 'P51.N22: renderComparisonChart(null) leaves instance null');
+          const compChartOverlay = cComparison?.parentElement?.querySelector('.canvas-empty-state-overlay');
+          assert(compChartOverlay && compChartOverlay.style.display !== 'none', 'P51.N23: renderComparisonChart(null) displays empty state overlay');
+          assert(cComparison && cComparison.getAttribute('aria-hidden') === 'true', 'P51.N24: renderComparisonChart(null) marks canvas aria-hidden');
+
+          // DestroyAll cleans up all instances and leaves them null
+          WattWatchCharts.destroyAll();
+          assert(Object.values(WattWatchCharts.instances).every(inst => inst === null), 'P51.N25: destroyAll leaves every chart instance null');
+
+          // --- 51.15: Strict Guest-Data Detection Card Triggers ---
+          const guestAppKey = WattWatchStorage._getGuestKey('APPLIANCES');
+          const guestHistKey = WattWatchStorage._getGuestKey('HISTORY');
+          const guestMigrationCard = document.getElementById('settingsGuestMigrationCard');
+
+          // Case 1: Empty guest storage
+          localStorage.removeItem(guestAppKey);
+          localStorage.removeItem(guestHistKey);
+          WattWatchStorage.invalidateCache();
+          const emptyGuestData = WattWatchStorage.hasGuestData();
+          assert(emptyGuestData.hasData === false, 'P51.O1: hasGuestData returns false when guest storage is empty');
+          WattWatchApp.updateSettingsGuestMigration();
+          assert(guestMigrationCard && guestMigrationCard.style.display === 'none', 'P51.O2: guestMigrationCard is hidden when guest storage is empty');
+
+          // Case 2: Malformed JSON in guest storage
+          localStorage.setItem(guestAppKey, '{ not: valid json }');
+          WattWatchStorage.invalidateCache();
+          const malformedGuestData = WattWatchStorage.hasGuestData();
+          assert(malformedGuestData.hasData === false, 'P51.O3: hasGuestData returns false when guest data contains malformed JSON');
+          WattWatchApp.updateSettingsGuestMigration();
+          assert(guestMigrationCard && guestMigrationCard.style.display === 'none', 'P51.O4: guestMigrationCard is hidden when guest data is malformed');
+
+          // Case 3: Invalid-only records in guest storage
+          localStorage.setItem(guestAppKey, JSON.stringify([
+            { id: 'bad_g1', name: 'Corrupt App', category: 'Other', powerWatts: -100, dailyHours: 4, operatingDays: 30, quantity: 1 }
+          ]));
+          WattWatchStorage.invalidateCache();
+          const invalidOnlyGuestData = WattWatchStorage.hasGuestData();
+          assert(invalidOnlyGuestData.hasData === false, 'P51.O5: hasGuestData returns false when guest records are all invalid');
+          WattWatchApp.updateSettingsGuestMigration();
+          assert(guestMigrationCard && guestMigrationCard.style.display === 'none', 'P51.O6: guestMigrationCard is hidden when guest records are invalid-only');
+
+          // Case 4: Valid guest records exist but user is in guest session (not authenticated)
+          localStorage.setItem(guestAppKey, JSON.stringify([
+            { id: 'good_g1', name: 'Valid Fan', category: 'Cooling', powerWatts: 75, dailyHours: 8, operatingDays: 30, quantity: 1 }
+          ]));
+          WattWatchStorage.invalidateCache();
+          const validGuestData = WattWatchStorage.hasGuestData();
+          assert(validGuestData.hasData === true && validGuestData.appliancesCount === 1, 'P51.O7: hasGuestData recognizes valid guest appliance');
+
+          // When in guest session, card must NOT be displayed
+          WattWatchStorage.setActiveUser(null);
+          if (typeof WattWatchAuth !== 'undefined') WattWatchAuth.chosenSessionType = 'guest';
+          WattWatchApp.updateSettingsGuestMigration();
+          assert(guestMigrationCard && guestMigrationCard.style.display === 'none', 'P51.O8: guestMigrationCard is hidden in guest session even if guest data exists');
+
+          // Case 5: Valid guest records exist AND user is an authenticated account -> card is shown
+          WattWatchStorage.setActiveUser('user_p51_auth');
+          if (typeof WattWatchAuth !== 'undefined') WattWatchAuth.chosenSessionType = 'email';
+          WattWatchApp.updateSettingsGuestMigration();
+          assert(guestMigrationCard && guestMigrationCard.style.display === 'block', 'P51.O9: guestMigrationCard is shown when authenticated user has valid guest data');
+
+          // Reset user to null
+          WattWatchStorage.setActiveUser(null);
+          if (typeof WattWatchAuth !== 'undefined') WattWatchAuth.chosenSessionType = 'guest';
+          WattWatchApp.updateSettingsGuestMigration();
+          assert(guestMigrationCard && guestMigrationCard.style.display === 'none', 'P51.O10: guestMigrationCard is hidden after session reset');
+
+          // Clean up guest keys
+          localStorage.removeItem(guestAppKey);
+          localStorage.removeItem(guestHistKey);
+          WattWatchStorage.invalidateCache();
+        } finally {
+          WattWatchStorage.setTestNamespace(origNs);
+
+          // Clean up test namespace keys
+          const keysToRemove = [];
+          for (let i = 0; i < localStorage.length; i++) {
+            const k = localStorage.key(i);
+            if (k && k.startsWith(phase51Ns)) {
               keysToRemove.push(k);
             }
           }

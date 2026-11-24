@@ -572,7 +572,11 @@ const WattWatchAppliances = {
           ...payload,
           updatedAt: Date.now()
         };
-        WattWatchStorage.saveAppliances(appliances);
+        const saved = WattWatchStorage.saveAppliances(appliances);
+        if (!saved) {
+          WattWatchApp.showToast('Failed to save appliance to storage.', 'error', 'Save Failed');
+          return;
+        }
         WattWatchApp.showToast('Appliance updated successfully', 'success', 'Saved');
       }
     } else {
@@ -583,7 +587,11 @@ const WattWatchAppliances = {
         createdAt: Date.now()
       };
       appliances.push(newAppliance);
-      WattWatchStorage.saveAppliances(appliances);
+      const saved = WattWatchStorage.saveAppliances(appliances);
+      if (!saved) {
+        WattWatchApp.showToast('Failed to save appliance to storage.', 'error', 'Save Failed');
+        return;
+      }
       WattWatchApp.showToast(`"${payload.name}" added to inventory`, 'success', 'Appliance Added');
     }
 
@@ -618,7 +626,11 @@ const WattWatchAppliances = {
   deleteAppliance(id) {
     const appliances = WattWatchStorage.getAppliances();
     const updated = appliances.filter(a => a.id !== id);
-    WattWatchStorage.saveAppliances(updated);
+    const saved = WattWatchStorage.saveAppliances(updated);
+    if (!saved) {
+      WattWatchApp.showToast('Failed to delete appliance from storage.', 'error', 'Delete Failed');
+      return;
+    }
     WattWatchApp.showToast('Appliance deleted from inventory', 'info', 'Removed');
     WattWatchApp.refreshAll();
   },
@@ -837,7 +849,13 @@ const WattWatchAppliances = {
         try {
           this._isRemovingAll = true;
           // Save empty array to active workspace only
-          WattWatchStorage.saveAppliances([]);
+          const saved = WattWatchStorage.saveAppliances([]);
+          if (!saved) {
+            if (typeof WattWatchApp !== 'undefined' && WattWatchApp.showToast) {
+              WattWatchApp.showToast('Failed to clear inventory in storage.', 'error', 'Clear Failed');
+            }
+            return;
+          }
 
           if (typeof WattWatchApp !== 'undefined') {
             if (WattWatchApp.refreshAll) WattWatchApp.refreshAll();
