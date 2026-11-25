@@ -346,18 +346,18 @@ const WattWatchSimulator = {
 
     const valRate = (typeof WattWatchCalculations !== 'undefined')
       ? WattWatchCalculations.validateTariffRate(settings.electricityRate, 8.00)
-      : Number(settings.electricityRate || 8.00);
+      : (settings.electricityRate !== undefined && settings.electricityRate !== null && settings.electricityRate !== '' ? Number(settings.electricityRate) : 8.00);
     const flatRate = !isNaN(valRate) ? valRate : 8.00;
 
     const valFixed = (typeof WattWatchCalculations !== 'undefined')
-      ? WattWatchCalculations.validateFixedCharge(settings.fixedCharges, 110.00)
-      : Number(settings.fixedCharges || 110.00);
-    const fixedCharges = !isNaN(valFixed) ? valFixed : 110.00;
+      ? WattWatchCalculations.validateFixedCharge(settings.fixedCharges, 0.00)
+      : (settings.fixedCharges !== undefined && settings.fixedCharges !== null && settings.fixedCharges !== '' ? Number(settings.fixedCharges) : 0.00);
+    const fixedCharges = !isNaN(valFixed) ? valFixed : 0.00;
 
     const valTax = (typeof WattWatchCalculations !== 'undefined')
-      ? WattWatchCalculations.validateTaxPercent(settings.additionalTaxPercent, 5.0)
-      : Number(settings.additionalTaxPercent || 5.0);
-    const taxPercent = !isNaN(valTax) ? valTax : 5.0;
+      ? WattWatchCalculations.validateTaxPercent(settings.additionalTaxPercent, 0.0)
+      : (settings.additionalTaxPercent !== undefined && settings.additionalTaxPercent !== null && settings.additionalTaxPercent !== '' ? Number(settings.additionalTaxPercent) : 0.0);
+    const taxPercent = !isNaN(valTax) ? valTax : 0.0;
 
     const valFree = (typeof WattWatchCalculations !== 'undefined')
       ? WattWatchCalculations.validateFreeUnits(settings.freeUnits, 0)
@@ -656,3 +656,7 @@ const WattWatchSimulator = {
     WattWatchApp.refreshAll();
   }
 };
+
+if (typeof window !== 'undefined') {
+  window.WattWatchSimulator = WattWatchSimulator;
+}

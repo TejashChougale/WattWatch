@@ -1,0 +1,655 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <link rel="icon" type="image/svg+xml" href="../assets/logo.svg">
+  <script>
+    window.__wattwatchLocalTestAllowed = (location.protocol === 'http:' || location.protocol === 'https:') && ['localhost', '127.0.0.1', '[::1]'].includes(location.hostname);
+  </script>
+  <title>WattWatch End-to-End Automated Smoke & Workflow Test</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; padding: 20px; background: #f8fafc; color: #1e293b; }
+    h1 { font-size: 20px; margin-bottom: 12px; }
+    #summary-line { padding: 12px 16px; border-radius: 6px; font-weight: 700; font-size: 16px; margin-bottom: 16px; }
+    .summary-pass { background: #dcfce7; color: #15803d; border: 1px solid #86efac; }
+    .summary-fail { background: #fee2e2; color: #b91c1c; border: 1px solid #fca5a5; }
+    ul { list-style: none; padding: 0; }
+    li { margin-bottom: 6px; padding: 8px 12px; border-radius: 4px; background: #fff; border: 1px solid #e2e8f0; font-size: 13px; }
+    li.pass { border-left: 4px solid #22c55e; }
+    li.fail { border-left: 4px solid #ef4444; }
+    .details { color: #64748b; font-size: 12px; font-family: monospace; margin-top: 2px; word-break: break-word; }
+    #appFrame { width: 1280px; height: 900px; border: 1px solid #cbd5e1; border-radius: 8px; margin-top: 16px; }
+  </style>
+</head>
+<body>
+  <h1>WattWatch End-to-End Smoke & Workflow Test Suite</h1>
+  <div id="results">Running end-to-end smoke tests...</div>
+  <iframe id="appFrame" src="../index.html"></iframe>
+
+  <script>
+    const capturedErrors = [];
+    const expectedFaultLogs = [];
+    const failedLocalResources = [];
+    const externalResourcesLog = [];
+    let expectingFaultInjectionLog = false;
+
+    window.addEventListener('error', (e) => {
+      capturedErrors.push(`Window error: ${e.message} at ${e.filename}:${e.lineno}`);
+    });
+    window.addEventListener('unhandledrejection', (e) => {
+      capturedErrors.push(`Window rejection: ${e.reason?.message || String(e.reason)}`);
+    });
+
+    const reports = [];
+    function assert(condition, name, details = '') {
+      reports.push({ name, passed: Boolean(condition), details });
+    }
+
+    function attachIframeListeners(win) {
+      win.addEventListener('error', (e) => {
+        if (e.target && e.target !== win && (e.target.src || e.target.href)) {
+          const url = e.target.src || e.target.href;
+          if (url.startsWith(location.origin)) {
+            failedLocalResources.push(`Failed local resource: ${url}`);
+          } else {
+            externalResourcesLog.push(`External resource error: ${url}`);
+          }
+          return;
+        }
+        capturedErrors.push(`Iframe error: ${e.message} at ${e.filename}:${e.lineno}`);
+      }, true);
+
+      win.addEventListener('unhandledrejection', (e) => {
+        capturedErrors.push(`Iframe rejection: ${e.reason?.message || String(e.reason)}`);
+      });
+
+      const originalConsoleError = win.console.error;
+      win.console.error = function(...args) {
+        const msg = args.join(' ');
+        if (expectingFaultInjectionLog && msg.includes('Simulated QuotaExceededError')) {
+          expectedFaultLogs.push(msg);
+        } else {
+          capturedErrors.push(`Console error: ${msg}`);
+        }
+        originalConsoleError.apply(win.console, args);
+      };
+    }
+
+    const frame = document.getElementById('appFrame');
+    const preExistingKeys = [];
+    try {
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (k && k.includes('wattwatch')) {
+          preExistingKeys.push(k);
+        }
+      }
+    } catch (_) {}
+
+    function waitForFrameLoad() {
+      return new Promise((resolve) => {
+        frame.addEventListener('load', () => resolve(), { once: true });
+      });
+    }
+
+    frame.addEventListener('load', async () => {
+      let win = frame.contentWindow;
+      let doc = frame.contentDocument;
+      attachIframeListeners(win);
+
+      const testNs = 'wattwatch_e2e_smoke_test_';
+
+      try {
+        // ============================================================
+        // Phase A: Normal startup, auth gate & all 10 global exports
+        // ============================================================
+        const WattWatchApp = win.WattWatchApp;
+        const WattWatchStorage = win.WattWatchStorage;
+        const WattWatchCalculations = win.WattWatchCalculations;
+        const WattWatchCharts = win.WattWatchCharts;
+        const WattWatchAppliances = win.WattWatchAppliances;
+        const WattWatchHistory = win.WattWatchHistory;
+        const WattWatchRecommendations = win.WattWatchRecommendations;
+        const WattWatchReport = win.WattWatchReport;
+        const WattWatchSimulator = win.WattWatchSimulator;
+        const WattWatchAuth = win.WattWatchAuth;
+
+        const expectedModules = [
+          ['WattWatchApp', WattWatchApp],
+          ['WattWatchStorage', WattWatchStorage],
+          ['WattWatchCalculations', WattWatchCalculations],
+          ['WattWatchCharts', WattWatchCharts],
+          ['WattWatchAppliances', WattWatchAppliances],
+          ['WattWatchHistory', WattWatchHistory],
+          ['WattWatchRecommendations', WattWatchRecommendations],
+          ['WattWatchReport', WattWatchReport],
+          ['WattWatchSimulator', WattWatchSimulator],
+          ['WattWatchAuth', WattWatchAuth]
+        ];
+        const missingMods = expectedModules.filter(([, mod]) => typeof mod === 'undefined').map(([n]) => n);
+        assert(missingMods.length === 0, 'SMOKE-01: All 10 WattWatch modules exported to window', missingMods.length ? `Missing: ${missingMods.join(', ')}` : 'All 10 loaded');
+
+        const authModal = doc.getElementById('authModal');
+        const appLayout = doc.querySelector('.app-layout');
+        assert(authModal && authModal.classList.contains('is-open'), 'SMOKE-02: Startup auth modal gate opens on fresh load');
+        assert(appLayout && appLayout.inert === true, 'SMOKE-03: Background layout is inert while auth gate is unresolved');
+
+        const guestBtn = doc.querySelector('#authPane-login button[onclick*="continueAsGuest"]');
+        assert(Boolean(guestBtn), 'SMOKE-04: Continue as Guest button present on login pane');
+        if (guestBtn) guestBtn.click();
+
+        assert(authModal && !authModal.classList.contains('is-open'), 'SMOKE-05: Auth modal closes after clicking Continue as Guest');
+        assert(appLayout && appLayout.inert === false, 'SMOKE-06: Background layout restored from inert after entering Guest Mode');
+        assert(WattWatchAuth.chosenSessionType === 'guest', 'SMOKE-07: Auth session type set to guest');
+
+        // Isolate storage for test phases B-E
+        WattWatchStorage.setTestNamespace(testNs);
+        WattWatchStorage.clearAllData();
+        WattWatchStorage.saveSettings({
+          electricityRate: 8.00,
+          tariffModel: 'flat',
+          budgetInr: 2500,
+          fixedCharges: 0.00,
+          additionalTaxPercent: 0.0,
+          freeUnits: 0,
+          billCreditInr: 0
+        });
+        WattWatchApp.refreshAll();
+
+        // ============================================================
+        // Phase B: Budget Tracker
+        // ============================================================
+        const daysInMonth = WattWatchCalculations.getDaysInCurrentMonth();
+        const expDailyBudget = (2500 / daysInMonth).toFixed(2);
+        const expDailyKwhFlat = (2500 / 8.0 / daysInMonth).toFixed(2);
+
+        const elTarget = doc.getElementById('budgetForecastTarget');
+        const elProjBill = doc.getElementById('budgetForecastProjectedBill');
+        const elVariance = doc.getElementById('budgetForecastVariance');
+        const elPacingDelta = doc.getElementById('pacingProjectedDelta');
+        const elRemaining = doc.getElementById('budgetCardRemaining');
+        const elPacingDailyKwh = doc.getElementById('pacingDailyKwh');
+        const elPacingBudget = doc.getElementById('pacingDailyBudget');
+        const elBudgetBadge = doc.getElementById('budgetCardBadge');
+
+        assert(elTarget && elTarget.textContent.includes('₹2,500.00'), 'SMOKE-08: Target budget displays ₹2,500.00', elTarget?.textContent);
+        assert(elProjBill && elProjBill.textContent.includes('₹0.00'), 'SMOKE-09: Month-end estimate displays ₹0.00 with 0 appliances', elProjBill?.textContent);
+        assert(elVariance && elVariance.textContent === '₹2,500.00 under', 'SMOKE-10: Variance displays "₹2,500.00 under"', elVariance?.textContent);
+        assert(elPacingDelta && elPacingDelta.textContent === '₹2,500.00 surplus', 'SMOKE-11: Pacing delta displays "₹2,500.00 surplus"', elPacingDelta?.textContent);
+        assert(elRemaining && elRemaining.textContent.includes('₹2,500.00 remaining'), 'SMOKE-12: Budget card remaining displays "₹2,500.00 remaining"', elRemaining?.textContent);
+        assert(elPacingDailyKwh && elPacingDailyKwh.textContent.includes(`${expDailyKwhFlat} kWh / day`), `SMOKE-13: Daily energy target displays ${expDailyKwhFlat} kWh / day`, elPacingDailyKwh?.textContent);
+        assert(elPacingBudget && elPacingBudget.textContent.includes(expDailyBudget), `SMOKE-14: Daily budget target displays ₹${expDailyBudget} / day`, elPacingBudget?.textContent);
+
+        // Nonzero fixed charges (₹110.00) with zero tax
+        WattWatchApp.navigateTo('settings');
+        const setRate = doc.getElementById('settingsElectricityRate');
+        const setFixed = doc.getElementById('settingsFixedCharges');
+        const setTax = doc.getElementById('settingsTaxPercent');
+        const budgetInput = doc.getElementById('settingsMonthlyBudget');
+
+        setFixed.value = '110.00';
+        setFixed.dispatchEvent(new Event('change'));
+        const expDailyKwhFixed = (((2500 - 110) / 8.0) / daysInMonth).toFixed(2);
+        assert(elProjBill && elProjBill.textContent.includes('₹110.00'), 'SMOKE-15: Budget estimate reflects ₹110.00 fixed charge with 0 appliances', elProjBill?.textContent);
+        assert(elVariance && elVariance.textContent === '₹2,390.00 under', 'SMOKE-16: Budget variance updates to ₹2,390.00 under with ₹110 fixed charge', elVariance?.textContent);
+        assert(elPacingDailyKwh && elPacingDailyKwh.textContent.includes(`${expDailyKwhFixed} kWh / day`), `SMOKE-17: Daily energy target updates to ${expDailyKwhFixed} kWh / day with fixed charges`, elPacingDailyKwh?.textContent);
+
+        // Nonzero fixed charges (₹110.00) + nonzero tax (5.0%)
+        setTax.value = '5.0';
+        setTax.dispatchEvent(new Event('change'));
+        const expDailyKwhFixedTax = ((((2500 / 1.05) - 110) / 8.0) / daysInMonth).toFixed(2);
+        assert(elProjBill && elProjBill.textContent.includes('₹115.50'), 'SMOKE-18: Budget estimate reflects ₹110 fixed + 5% tax = ₹115.50', elProjBill?.textContent);
+        assert(elVariance && elVariance.textContent === '₹2,384.50 under', 'SMOKE-19: Budget variance updates to ₹2,384.50 under with fixed + tax', elVariance?.textContent);
+        assert(elPacingDailyKwh && elPacingDailyKwh.textContent.includes(`${expDailyKwhFixedTax} kWh / day`), `SMOKE-20: Daily energy target updates to ${expDailyKwhFixedTax} kWh / day with fixed + tax`, elPacingDailyKwh?.textContent);
+
+        // Settings tariff banner & prompt accuracy
+        const actionPrompt = doc.getElementById('settingsTariffActionPrompt');
+        const activeModelName = doc.getElementById('settingsActiveModelName');
+        const effectiveRateVal = doc.getElementById('settingsEffectiveRateVal');
+        assert(activeModelName && activeModelName.textContent.includes('Flat Rate'), 'SMOKE-21: Settings active model name indicates Flat Rate', activeModelName?.textContent);
+        assert(effectiveRateVal && effectiveRateVal.textContent.includes('₹8.00 / kWh'), 'SMOKE-22: Settings effective rate displays ₹8.00 / kWh', effectiveRateVal?.textContent);
+        assert(actionPrompt && actionPrompt.textContent.includes('110.00') && actionPrompt.textContent.includes('5.0%'), 'SMOKE-23: Settings tariff prompt reflects active fixed charge and duty in flat mode', actionPrompt?.textContent);
+
+        // Zero budget (disabled/unset) check
+        budgetInput.value = '0';
+        budgetInput.dispatchEvent(new Event('change'));
+        assert(elBudgetBadge && elBudgetBadge.textContent === 'No Budget Set', 'SMOKE-24: Zero budget displays No Budget Set state', elBudgetBadge?.textContent);
+        budgetInput.value = '2500';
+        budgetInput.dispatchEvent(new Event('change'));
+
+        // Reset fixed & tax to 0, test Under-Budget and Over-Budget via real Appliance UI Modal
+        setFixed.value = '0.00';
+        setFixed.dispatchEvent(new Event('change'));
+        setTax.value = '0.0';
+        setTax.dispatchEvent(new Event('change'));
+
+        WattWatchApp.navigateTo('overview');
+        const addBtn = doc.getElementById('btnOpenAddAppliance') || doc.querySelector('.topbar-right .btn-gold');
+        addBtn.click();
+        doc.getElementById('modalApplianceName').value = 'Ceiling Fan';
+        doc.getElementById('modalPowerWatts').value = '100';
+        doc.getElementById('modalQuantity').value = '1';
+        doc.getElementById('modalDailyHours').value = '10';
+        doc.getElementById('modalOperatingDays').value = '30';
+        doc.getElementById('applianceForm').dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
+
+        assert(elProjBill && elProjBill.textContent.includes('₹240.00'), 'SMOKE-25: Real appliance addition sets under-budget estimate to ₹240.00', elProjBill?.textContent);
+        assert(elBudgetBadge && elBudgetBadge.textContent === 'Within Budget', 'SMOKE-26: Under-budget badge displays Within Budget', elBudgetBadge?.textContent);
+        assert(elVariance && elVariance.textContent === '₹2,260.00 under', 'SMOKE-27: Under-budget variance displays ₹2,260.00 under', elVariance?.textContent);
+
+        addBtn.click();
+        doc.getElementById('modalApplianceName').value = 'Split AC';
+        doc.getElementById('modalPowerWatts').value = '1500';
+        doc.getElementById('modalQuantity').value = '1';
+        doc.getElementById('modalDailyHours').value = '10';
+        doc.getElementById('modalOperatingDays').value = '30';
+        doc.getElementById('applianceForm').dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
+
+        assert(elProjBill && elProjBill.textContent.includes('₹3,840.00'), 'SMOKE-28: Over-budget estimate displays ₹3,840.00', elProjBill?.textContent);
+        assert(elBudgetBadge && elBudgetBadge.textContent.includes('Exceeded'), 'SMOKE-29: Over-budget badge displays Exceeded', elBudgetBadge?.textContent);
+        assert(elVariance && elVariance.textContent === '+₹1,340.00 over', 'SMOKE-30: Over-budget variance displays "+₹1,340.00 over"', elVariance?.textContent);
+        assert(elPacingDelta && elPacingDelta.textContent === '+₹1,340.00 over', 'SMOKE-31: Over-budget pacing delta displays "+₹1,340.00 over"', elPacingDelta?.textContent);
+        assert(elRemaining && elRemaining.textContent.includes('₹1,340.00 over budget'), 'SMOKE-32: Over-budget remaining displays "₹1,340.00 over budget"', elRemaining?.textContent);
+
+        // Budget updates immediately after tariff rate change (8.00 -> 4.00 => 480 * 4 = ₹1,920)
+        WattWatchApp.navigateTo('settings');
+        setRate.value = '4.00';
+        setRate.dispatchEvent(new Event('change'));
+        assert(elProjBill && elProjBill.textContent.includes('₹1,920.00'), 'SMOKE-33: Changing flat rate updates budget projected bill to ₹1,920.00', elProjBill?.textContent);
+        assert(elVariance && elVariance.textContent === '₹580.00 under', 'SMOKE-34: Budget variance switches back to ₹580.00 under after rate reduction', elVariance?.textContent);
+
+        // ============================================================
+        // Phase C: Tariff Settings, Steppers, Two-Way Sync, Slab<->Flat & Validation
+        // ============================================================
+        // Quick preset & minus stepper edge case at 0.00
+        setRate.value = '0.00';
+        setRate.dispatchEvent(new Event('change'));
+        doc.getElementById('btnRateStepMinus').click();
+        assert(setRate.value === '0.50', 'SMOKE-35: Rate minus stepper from 0.00 clamps cleanly to 0.50 without jumping to 8.00', setRate.value);
+        doc.querySelector('.rate-preset-btn[data-rate="10.00"]').click();
+        assert(setRate.value === '10.00' && WattWatchStorage.getSettings().electricityRate === 10.00, 'SMOKE-36: Quick rate preset updates Settings rate to 10.00');
+
+        setRate.value = '9.50';
+        setRate.dispatchEvent(new Event('change'));
+        setFixed.value = '80.00';
+        setFixed.dispatchEvent(new Event('change'));
+        setTax.value = '7.5';
+        setTax.dispatchEvent(new Event('change'));
+
+        const simRate = doc.getElementById('calcFlatRateInput');
+        const simFixed = doc.getElementById('calcFixedCharges');
+        const simTax = doc.getElementById('calcTaxPercent');
+        assert(simRate.value === '9.50' && simFixed.value === '80.00' && simTax.value === '7.5', 'SMOKE-37: Settings changes propagate cleanly to Simulator');
+
+        // Simulator -> Settings sync + Flat-to-Slab switch
+        WattWatchApp.navigateTo('simulator');
+        simRate.value = '7.25';
+        simFixed.value = '55.00';
+        simTax.value = '4.5';
+        const simModel = doc.getElementById('calcTariffModelSelect');
+        simModel.value = 'slab';
+        simModel.dispatchEvent(new Event('change'));
+        doc.getElementById('btnApplyTariffToSettings').click();
+
+        const slabsContainer = doc.getElementById('settingsActiveSlabsContainer');
+        const flatGroup = doc.getElementById('settingsFlatRateGroup');
+        const slabTbody = doc.getElementById('settingsActiveSlabsTableBody');
+        const modelBadge = doc.getElementById('settingsTariffModeBadge');
+
+        assert(setRate.value === '7.25' && setFixed.value === '55.00' && setTax.value === '4.5', 'SMOKE-38: Simulator tariff values sync back to Settings');
+        assert(win.getComputedStyle(slabsContainer).display !== 'none' && win.getComputedStyle(flatGroup).display === 'none', 'SMOKE-39: Slab-mode toggles Settings container visibility properly');
+        assert(slabTbody && slabTbody.children.length >= 3, 'SMOKE-40: Active slab tiers rendered in Settings table', `${slabTbody?.children.length} tiers`);
+        assert(modelBadge && modelBadge.textContent.includes('Slab Mode Active'), 'SMOKE-41: Settings badge shows Slab Mode Active');
+        assert(doc.getElementById('topbarTariffRate').textContent.includes('Slab Tariff'), 'SMOKE-42: Topbar active tariff pill reflects Slab Tariff', doc.getElementById('topbarTariffRate').textContent);
+
+        // Slab-to-Flat switch from Settings
+        WattWatchApp.navigateTo('settings');
+        doc.getElementById('btnSettingsSwitchToFlat').click();
+        assert(win.getComputedStyle(flatGroup).display !== 'none' && win.getComputedStyle(slabsContainer).display === 'none', 'SMOKE-43: Switch to Flat restores flat controls and hides slabs container');
+        assert(simModel.value === 'flat', 'SMOKE-44: Switch to Flat updates Simulator billing model select to flat');
+        assert(doc.getElementById('topbarTariffRate').textContent.includes('7.25'), 'SMOKE-45: Topbar pill restores flat rate ₹7.25 / kWh', doc.getElementById('topbarTariffRate').textContent);
+
+        // Input validation checks (tax 60% allowed, 105% rejected, negative rate/fixed/budget/meter/appliance rejected)
+        setTax.value = '60.0';
+        const validOver50Html = setTax.checkValidity();
+        setTax.dispatchEvent(new Event('change'));
+        assert(validOver50Html === true && WattWatchStorage.getSettings().additionalTaxPercent === 60.0, 'SMOKE-46: Duty tax 60% valid in both HTML checkValidity and JS storage');
+
+        setTax.value = '105.0';
+        setTax.dispatchEvent(new Event('change'));
+        assert(WattWatchStorage.getSettings().additionalTaxPercent === 60.0 && setTax.value === '60.0', 'SMOKE-47: Tax > 100% rejected and UI input reverted');
+
+        setFixed.value = '-25';
+        setFixed.dispatchEvent(new Event('change'));
+        assert(WattWatchStorage.getSettings().fixedCharges === 55.00 && setFixed.value === '55.00', 'SMOKE-48: Negative fixed charge rejected and UI input reverted');
+
+        setRate.value = '-5';
+        setRate.dispatchEvent(new Event('change'));
+        assert(WattWatchStorage.getSettings().electricityRate === 7.25 && setRate.value === '7.25', 'SMOKE-49: Negative flat rate rejected and UI input reverted');
+
+        budgetInput.value = '-100';
+        budgetInput.dispatchEvent(new Event('change'));
+        assert(WattWatchStorage.getSettings().budgetInr === 2500, 'SMOKE-50: Negative monthly budget rejected');
+
+        WattWatchApp.navigateTo('history');
+        doc.getElementById('meterStartReading').value = '1500';
+        doc.getElementById('meterCurrentReading').value = '1200';
+        doc.getElementById('btnSaveMeterReading').click();
+        const meterSavedBad = WattWatchStorage.getMeterTracking();
+        assert(meterSavedBad === null || meterSavedBad.currentReading !== 1200, 'SMOKE-51: Meter tracking rejects currentReading < startReading');
+        assert(WattWatchStorage.validateAppliance({ name: '', powerWatts: -50, dailyHours: 26, quantity: 0 }).valid === false, 'SMOKE-52: Appliance validator rejects negative wattage and >24h');
+
+        // ============================================================
+        // Phase D: Guest Migration (empty, auth/unauth, controlled FB login, duplicates, failure/rollback/recovery, sign-out)
+        // ============================================================
+        WattWatchStorage.clearAllData();
+        WattWatchStorage.setActiveUser(null);
+        WattWatchAuth.chosenSessionType = 'guest';
+        WattWatchApp.refreshAll();
+
+        const guestCard = doc.getElementById('settingsGuestMigrationCard');
+        const btnMigrateGuest = doc.getElementById('btnSettingsMigrateGuest');
+
+        assert(win.getComputedStyle(guestCard).display === 'none', 'SMOKE-53: Guest migration card hidden when guest storage is empty');
+
+        WattWatchStorage.saveAppliances([
+          { id: 'app_g1', name: 'Guest Fridge', category: 'Kitchen', powerWatts: 150, dailyHours: 24, operatingDays: 30, quantity: 1 }
+        ]);
+        WattWatchStorage.saveSnapshot({
+          id: 'snap_g1', period: '2026-09', periodLabel: 'September 2026', totalKwh: 108, totalCost: 864, effectiveRate: 8, tariffModel: 'flat', appliancesCount: 1, totalUnits: 1
+        });
+        WattWatchApp.refreshAll();
+        assert(win.getComputedStyle(guestCard).display === 'none', 'SMOKE-54: Guest migration card stays hidden in Guest session even with guest data');
+
+        btnMigrateGuest.click();
+        assert(WattWatchStorage.getActiveUser() === null, 'SMOKE-55: Clicking migrate in guest session does not migrate or switch user');
+
+        WattWatchAuth.updateGuestImportCheckbox();
+        const signupWrap = doc.getElementById('signupImportGuestDataWrap');
+        assert(signupWrap && win.getComputedStyle(signupWrap).display !== 'none', 'SMOKE-56: Signup guest import checkbox visible when guest data exists');
+
+        // Controlled mock Firebase Auth login (NEVER touches live Firebase)
+        WattWatchAuth.isFirebaseConfigured = true;
+        WattWatchAuth.auth = { mocked: true };
+        WattWatchAuth.db = null;
+        WattWatchAuth.signInWithEmailAndPassword = async () => ({
+          user: { uid: 'user_smoke_auth', displayName: 'Smoke User', email: 'smoke_user@wattwatch.internal' }
+        });
+        WattWatchAuth.firebaseSignOut = async () => {};
+
+        doc.getElementById('loginUsername').value = 'smoke_user';
+        doc.getElementById('loginPassword').value = 'Password123!';
+        await WattWatchAuth.handleLoginSubmit();
+
+        // Dismiss login prompt dialog if opened so Settings migration button test runs cleanly
+        if (doc.getElementById('confirmModal')?.classList.contains('is-open')) {
+          WattWatchApp.closeConfirmDialog();
+        }
+        WattWatchApp.navigateTo('settings');
+        assert(WattWatchStorage.getActiveUser() === 'user_smoke_auth' && WattWatchAuth.chosenSessionType === 'account', 'SMOKE-57: Controlled mock Firebase login sets active account workspace');
+        assert(win.getComputedStyle(guestCard).display !== 'none', 'SMOKE-58: Guest migration card shown for authenticated user with guest data');
+
+        // Pre-seed duplicate-case record & duplicate snapshot to test collision preservation
+        WattWatchStorage.saveAppliances([
+          { id: 'acct_app1', name: 'guest fridge', category: 'Kitchen', powerWatts: 150, dailyHours: 12, operatingDays: 30, quantity: 2 }
+        ]);
+        WattWatchStorage.saveSnapshot({
+          id: 'acct_snap1', period: '2026-09', periodLabel: 'September 2026', totalKwh: 200, totalCost: 1600, effectiveRate: 8, tariffModel: 'flat', appliancesCount: 1, totalUnits: 2
+        });
+        // Add untrimmed duplicate + second unique appliance directly in guest storage
+        localStorage.setItem(WattWatchStorage._getGuestKey('APPLIANCES'), JSON.stringify([
+          { id: 'app_g1', name: '  Guest Fridge  ', category: 'Kitchen', powerWatts: 150, dailyHours: 24, operatingDays: 30, quantity: 1 },
+          { id: 'app_g2', name: 'Guest Lamp', category: 'Lighting', powerWatts: 20, dailyHours: 6, operatingDays: 30, quantity: 2 }
+        ]));
+
+        btnMigrateGuest.click();
+        let userApps = WattWatchStorage.getAppliances();
+        let userHist = WattWatchStorage.getHistory();
+        assert(userApps.length === 2 && userApps.some(a => a.id === 'acct_app1' && a.name === 'guest fridge' && a.quantity === 2) && userApps.some(a => a.name === 'Guest Lamp'), 'SMOKE-59: Duplicate appliance skipped preserving existing account record while unique guest appliance transferred', JSON.stringify(userApps.map(a => ({ id: a.id, name: a.name, q: a.quantity }))));
+        assert(userHist.length === 1 && userHist[0].totalCost === 1600, 'SMOKE-60: Duplicate history period skipped preserving existing account snapshot cost (1600)');
+
+        // Repeat migration -> 0 added (idempotent)
+        btnMigrateGuest.click();
+        assert(WattWatchStorage.getAppliances().length === 2 && WattWatchStorage.getHistory().length === 1, 'SMOKE-61: Repeated migration transfers 0 duplicate records');
+
+        // Verify original guest records preserved intact
+        WattWatchStorage.setActiveUser(null);
+        assert(WattWatchStorage.getAppliances().length === 2 && WattWatchStorage.getHistory().length === 1, 'SMOKE-62: Original guest records remain 100% preserved after migration');
+
+        // Failed migration (QuotaExceededError) rollback & recovery + corrupt guest settings guard
+        const failUid = 'user_smoke_fail';
+        WattWatchStorage.setActiveUser(failUid);
+        WattWatchStorage.saveAppliances([
+          { id: 'u_app1', name: 'Existing Account Fan', category: 'Cooling', powerWatts: 70, dailyHours: 8, operatingDays: 30, quantity: 1 }
+        ]);
+        localStorage.setItem(WattWatchStorage._getGuestKey('SETTINGS'), JSON.stringify({
+          electricityRate: -15,
+          additionalTaxPercent: 180
+        }));
+
+        expectingFaultInjectionLog = true;
+        const origSetItem = win.localStorage.setItem.bind(win.localStorage);
+        let writeCount = 0;
+        win.localStorage.setItem = function(k, v) {
+          writeCount++;
+          if (writeCount === 2) {
+            const qErr = new Error('Simulated QuotaExceededError');
+            qErr.name = 'QuotaExceededError';
+            throw qErr;
+          }
+          return origSetItem(k, v);
+        };
+        const failRes = WattWatchStorage.migrateGuestData(failUid);
+        win.localStorage.setItem = origSetItem;
+        expectingFaultInjectionLog = false;
+
+        WattWatchStorage.invalidateCache();
+        assert(failRes.success === false && failRes.rolledBack === true && expectedFaultLogs.length === 1, 'SMOKE-63: Quota failure during migration rolls back transaction cleanly');
+        assert(WattWatchStorage.getAppliances().length === 1 && WattWatchStorage.getHistory().length === 0, 'SMOKE-64: Pre-migration user state restored intact after rollback');
+
+        const recRes = WattWatchStorage.migrateGuestData(failUid);
+        WattWatchStorage.invalidateCache();
+        assert(recRes.success === true && recRes.transferredAppliances === 2 && recRes.transferredHistory === 1, 'SMOKE-65: Recovery migration succeeds after transient quota failure clears');
+        assert(recRes.importedSettings === false && localStorage.getItem(`${testNs}wattwatch_user_${failUid}_settings`) === null, 'SMOKE-66: Corrupt guest settings rejected while valid appliances/history migrate');
+
+        // Sign-out behavior
+        WattWatchAuth.currentUser = { uid: 'user_smoke_auth', username: 'smoke_user', displayName: 'Smoke User' };
+        WattWatchAuth.chosenSessionType = 'account';
+        WattWatchAuth.hasUserChosenSession = true;
+        WattWatchStorage.setActiveUser('user_smoke_auth');
+
+        await WattWatchAuth.signOutAndSwitchToLogin();
+        assert(WattWatchAuth.currentUser === null && WattWatchAuth.chosenSessionType === null && WattWatchStorage.getActiveUser() === null, 'SMOKE-67: Sign-out clears user context and reverts active storage user to null');
+        assert(authModal.classList.contains('is-open') && appLayout.inert === true, 'SMOKE-68: Sign-out re-presents auth gate and restores inert background');
+
+        // Controlled mock Firebase signup with guest import consent checkbox checked
+        WattWatchAuth.createUserWithEmailAndPassword = async () => ({
+          user: { uid: 'user_smoke_signup', displayName: null, email: 'new_smoke_user@wattwatch.internal' }
+        });
+        WattWatchAuth.updateProfile = async () => {};
+        doc.getElementById('signupUsername').value = 'new_smoke_user';
+        doc.getElementById('signupPassword').value = 'Password123!';
+        doc.getElementById('signupPasswordConfirm').value = 'Password123!';
+        doc.getElementById('signupImportGuestData').checked = true;
+        await WattWatchAuth.handleSignupSubmit();
+        assert(WattWatchStorage.getActiveUser() === 'user_smoke_signup' && WattWatchStorage.getAppliances().length === 2, 'SMOKE-69: Mock signup with guest import transfers guest appliances to new account');
+        WattWatchStorage.setActiveUser(null);
+        WattWatchAuth.chosenSessionType = 'guest';
+        WattWatchAuth.currentUser = null;
+        WattWatchAuth.closeModal(true);
+
+        // ============================================================
+        // Phase E: Charts, Theme Switching, DOM ID Uniqueness, Accessibility & Responsive Viewports
+        // ============================================================
+        WattWatchStorage.clearAllData();
+        WattWatchApp.navigateTo('overview');
+        const cOverview = doc.getElementById('overviewTrendChart');
+        const cCategory = doc.getElementById('overviewCategoryChart');
+        assert(cOverview && cOverview.getAttribute('aria-hidden') === 'true', 'SMOKE-70: Overview trend chart has aria-hidden on empty state');
+        assert(cCategory && cCategory.getAttribute('aria-hidden') === 'true', 'SMOKE-71: Overview category chart has aria-hidden on empty state');
+
+        WattWatchStorage.saveAppliances([
+          { id: 'c1', name: 'Lamp', category: 'Lighting', powerWatts: 20, dailyHours: 5, operatingDays: 30, quantity: 1 }
+        ]);
+        WattWatchApp.refreshAll();
+        assert(!cOverview.hasAttribute('aria-hidden') && !cCategory.hasAttribute('aria-hidden'), 'SMOKE-72: Populated charts clear aria-hidden empty state attributes');
+
+        const themeBtn = doc.getElementById('themeToggleBtn');
+        themeBtn.click();
+        assert(doc.documentElement.getAttribute('data-theme') === 'dark', 'SMOKE-73: Theme switched to dark');
+        themeBtn.click();
+        assert(doc.documentElement.getAttribute('data-theme') === 'light', 'SMOKE-74: Theme switched back to light');
+
+        // Duplicate DOM IDs check in live hydrated DOM
+        const idCounts = new Map();
+        doc.querySelectorAll('[id]').forEach(el => {
+          idCounts.set(el.id, (idCounts.get(el.id) || 0) + 1);
+        });
+        const dupIds = [...idCounts.entries()].filter(([, cnt]) => cnt > 1).map(([id]) => id);
+        assert(dupIds.length === 0, 'SMOKE-75: Zero duplicate DOM IDs in live hydrated page', dupIds.join(', '));
+
+        // Accessibility check on visible form controls in Settings & Simulator
+        WattWatchStorage.saveSettings({ tariffModel: 'slab' });
+        const unlabeledVisible = [];
+        for (const viewName of ['settings', 'simulator', 'overview']) {
+          WattWatchApp.navigateTo(viewName);
+          doc.querySelectorAll(`#view-${viewName} button, #view-${viewName} input:not([type="hidden"]), #view-${viewName} select`).forEach(el => {
+            const style = win.getComputedStyle(el);
+            if (style.display === 'none' || style.visibility === 'hidden' || el.type === 'file') return;
+            const hasAria = el.hasAttribute('aria-label') || el.hasAttribute('aria-labelledby');
+            const hasForLabel = el.id && doc.querySelector(`label[for="${el.id}"]`);
+            const hasText = el.tagName === 'BUTTON' && el.textContent.trim().length > 0;
+            if (!hasAria && !hasForLabel && !hasText) {
+              unlabeledVisible.push(`${viewName}:${el.id || el.className || el.tagName}`);
+            }
+          });
+        }
+        assert(unlabeledVisible.length === 0, 'SMOKE-76: All visible interactive controls in Settings, Simulator & Overview have accessible labels', unlabeledVisible.join(', '));
+
+        // Responsive check across Mobile (390px), Tablet (768px), Desktop (1280px)
+        const widths = [390, 768, 1280];
+        const respViews = ['overview', 'settings', 'appliances', 'simulator', 'recommendations'];
+        const overflowIssues = [];
+        for (const w of widths) {
+          frame.style.width = `${w}px`;
+          for (const v of respViews) {
+            WattWatchApp.navigateTo(v);
+            const cw = doc.documentElement.clientWidth;
+            const sw = doc.documentElement.scrollWidth;
+            if (sw > cw) {
+              overflowIssues.push(`${w}px/${v}(${sw}>${cw})`);
+            }
+          }
+        }
+        frame.style.width = '1280px';
+        assert(overflowIssues.length === 0, 'SMOKE-77: Zero horizontal overflow across 390/768/1280px including Slab Settings & Recommendations', overflowIssues.join(', '));
+
+        // ============================================================
+        // Phase F: Real Page Reload Persistence Check (clean isolated profile only)
+        // ============================================================
+        if (preExistingKeys.length === 0) {
+          WattWatchStorage.setTestNamespace(null);
+          WattWatchStorage.clearAllData();
+          WattWatchStorage.saveSettings({
+            electricityRate: 9.25,
+            tariffModel: 'slab',
+            fixedCharges: 95.00,
+            additionalTaxPercent: 12.0,
+            budgetInr: 3200
+          });
+          WattWatchStorage.saveAppliances([
+            { id: 'reload_1', name: 'Persisted Fan', category: 'Cooling', powerWatts: 75, dailyHours: 8, operatingDays: 30, quantity: 1 }
+          ]);
+          WattWatchStorage.setActiveUser('reload_auth_user');
+          WattWatchStorage.saveAppliances([
+            { id: 'reload_acct_1', name: 'Persisted Account AC', category: 'Cooling', powerWatts: 1200, dailyHours: 4, operatingDays: 30, quantity: 1 }
+          ]);
+          WattWatchStorage.setActiveUser(null);
+
+          const reloadPromise = waitForFrameLoad();
+          win.location.reload();
+          await reloadPromise;
+
+          win = frame.contentWindow;
+          doc = frame.contentDocument;
+          attachIframeListeners(win);
+
+          const reloadGuestBtn = doc.querySelector('#authPane-login button[onclick*="continueAsGuest"]');
+          assert(doc.getElementById('authModal').classList.contains('is-open'), 'SMOKE-78: Auth gate appears cleanly after full page reload');
+          if (reloadGuestBtn) reloadGuestBtn.click();
+
+          const reloadedSettings = win.WattWatchStorage.getSettings();
+          const reloadedApps = win.WattWatchStorage.getAppliances();
+          win.WattWatchApp.navigateTo('settings');
+
+          assert(
+            reloadedSettings.tariffModel === 'slab' &&
+            reloadedSettings.electricityRate === 9.25 &&
+            reloadedSettings.fixedCharges === 95.00 &&
+            reloadedSettings.additionalTaxPercent === 12.0 &&
+            reloadedSettings.budgetInr === 3200,
+            'SMOKE-79: Tariff settings & budget persist accurately across full browser reload'
+          );
+          assert(reloadedApps.length === 1 && reloadedApps[0].name === 'Persisted Fan', 'SMOKE-80: Guest appliance inventory persists across full browser reload');
+          assert(
+            doc.getElementById('settingsFixedCharges').value === '95.00' &&
+            doc.getElementById('settingsTaxPercent').value === '12.0' &&
+            win.getComputedStyle(doc.getElementById('settingsActiveSlabsContainer')).display !== 'none',
+            'SMOKE-81: Reloaded Settings UI renders persisted slab table, fixed charge, and tax values'
+          );
+
+          // Verify migrated account data also survived reload and stayed isolated from guest
+          win.WattWatchStorage.setActiveUser('reload_auth_user');
+          win.WattWatchAuth.chosenSessionType = 'account';
+          win.WattWatchApp.refreshAll();
+          assert(win.WattWatchStorage.getAppliances().length === 1 && win.WattWatchStorage.getAppliances()[0].name === 'Persisted Account AC', 'SMOKE-82: Account records persist and remain isolated after full page reload');
+        } else {
+          assert(true, 'SMOKE-78..82: Skipped un-namespaced reload persistence to protect pre-existing browser data', `Found ${preExistingKeys.length} existing keys`);
+        }
+
+        // ============================================================
+        // Phase G: Runtime Console Errors & Local Network Request Check
+        // ============================================================
+        const resources = win.performance.getEntriesByType('resource') || [];
+        const localResources = resources.filter(r => r.name.startsWith(location.origin));
+        const extFailures = externalResourcesLog.length ? `External CDN/network notes: ${externalResourcesLog.join(' | ')}` : 'External requests: none failed';
+
+        assert(failedLocalResources.length === 0, 'SMOKE-83: Zero failed same-origin local network/asset requests', `Local resources loaded: ${localResources.length}; ${failedLocalResources.join(' | ')}`);
+        assert(capturedErrors.length === 0, 'SMOKE-84: Zero unexpected JS runtime errors or console.error calls', capturedErrors.length ? capturedErrors.join(' | ') : extFailures);
+
+      } catch (err) {
+        assert(false, 'SMOKE-ERROR: Unexpected smoke test exception', err.stack || err.message);
+      } finally {
+        const keysToRemove = [];
+        for (let i = 0; i < localStorage.length; i++) {
+          const k = localStorage.key(i);
+          if (k && (k.startsWith('wattwatch_e2e_smoke_test_') || (preExistingKeys.length === 0 && k.includes('wattwatch')))) {
+            keysToRemove.push(k);
+          }
+        }
+        keysToRemove.forEach(k => localStorage.removeItem(k));
+
+        const passedCount = reports.filter(r => r.passed).length;
+        const totalCount = reports.length;
+        const allPassed = passedCount === totalCount;
+
+        const resEl = document.getElementById('results');
+        let html = `<div id="summary-line" class="${allPassed ? 'summary-pass' : 'summary-fail'}">`;
+        html += `TEST_RESULTS: TOTAL=${totalCount} PASSED=${passedCount} FAILED=${totalCount - passedCount}`;
+        html += `</div><ul>`;
+
+        reports.forEach(r => {
+          html += `<li class="${r.passed ? 'pass' : 'fail'}">`;
+          html += `<strong>${r.passed ? '[PASS]' : '[FAIL]'} ${r.name}</strong>`;
+          if (r.details) {
+            html += `<div class="details">${r.details}</div>`;
+          }
+          html += `</li>`;
+        });
+        html += `</ul>`;
+        resEl.innerHTML = html;
+      }
+    }, { once: true });
+  </script>
+</body>
+</html>

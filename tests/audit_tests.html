@@ -254,11 +254,40 @@
       <span id="signupImportGuestDataLabel"></span>
     </div>
     <span class="pacing-tile-sub" id="pacingDailyKwhSub" title="Maximum allowable daily energy under your active budget and tariff model, factoring in fixed charges and duties when applicable">Max allowance</span>
-    <input type="number" id="settingsElectricityRate" value="8.00">
+    <div id="settingsFlatRateGroup">
+      <input type="number" id="settingsElectricityRate" value="8.00">
+    </div>
+    <div id="settingsActiveSlabsContainer" style="display: none;">
+      <button type="button" id="btnSettingsSwitchToFlat"></button>
+      <table>
+        <tbody id="settingsActiveSlabsTableBody"></tbody>
+      </table>
+    </div>
+    <input type="number" id="settingsFixedCharges" value="0.00">
+    <input type="number" id="settingsTaxPercent" value="0.0">
     <input type="number" id="settingsMonthlyBudget" value="2500">
     <input type="number" id="settingsCarbonFactor" value="0.82">
     <input type="number" id="settingsFreeUnits" value="0">
     <input type="number" id="settingsBillCredit" value="0">
+    <div id="overviewBudgetWidget">
+      <div id="budgetCardAmount"></div>
+      <div id="budgetCardRemaining"></div>
+      <div id="budgetCardPercent"></div>
+      <div id="budgetCardProgressFill"></div>
+      <div id="budgetCardBadge"></div>
+      <div id="budgetForecastProjectedBill"></div>
+      <div id="budgetForecastTarget"></div>
+      <div id="budgetForecastVariance"></div>
+      <div id="budgetForecastExplanation"></div>
+      <div id="pacingDailyBudget"></div>
+      <div id="pacingDaysLabel"></div>
+      <div id="pacingDailyKwh"></div>
+      <div id="pacingConfiguredCost"></div>
+      <div id="pacingDailyKwhEst"></div>
+      <div id="pacingProjectedDelta"></div>
+      <div id="pacingDeltaSub"></div>
+      <div id="budgetPacingNote"></div>
+    </div>
   </div>
 
   <!-- Load Application Modules -->
@@ -5654,6 +5683,148 @@
             }
           }
           keysToRemove.forEach(k => localStorage.removeItem(k));
+        }
+
+        // --- 52. Comprehensive Verification Suite (Phase 5.2 Hardening) ---
+        const phase52Ns = 'wattwatch_audit_test_p52_';
+        const origNs52 = WattWatchStorage.testNamespace;
+        WattWatchStorage.setTestNamespace(phase52Ns);
+
+        try {
+          // 52.1: Budget & Pacing Tracker
+          // Target Budget: ₹2,500, Month-End Estimate: ₹0
+          const bStatusZero = WattWatchCalculations.calculateBudgetStatus(0, 2500);
+          assert(bStatusZero.hasBudget === true, 'P52.A1: calculateBudgetStatus recognizes 2500 budget with 0 estimate');
+          assert(bStatusZero.budget === 2500, 'P52.A2: Target budget is 2500');
+
+          const forecastZero = WattWatchCalculations.calculateBillForecast(0, 2500, 0, { electricityRate: 8.0, tariffModel: 'flat' }, 30);
+          assert(forecastZero.hasBudget === true, 'P52.A3: calculateBillForecast recognizes budget');
+          assert(forecastZero.variance === 2500, 'P52.A4: Variance for 2500 budget and 0 estimate is 2500');
+
+          // DOM rendering check for variance contextual labels
+          const elVariance = document.getElementById('budgetForecastVariance');
+          const elPacingDelta = document.getElementById('pacingProjectedDelta');
+          WattWatchApp.renderBudgetTracker(0, 2500, 0, { electricityRate: 8.0, tariffModel: 'flat' });
+          assert(elVariance && elVariance.textContent === '₹2,500.00 under', 'P52.A5: elVariance displays "₹2,500.00 under"');
+          assert(elPacingDelta && elPacingDelta.textContent === '₹2,500.00 surplus', 'P52.A6: elPacingDelta displays "₹2,500.00 surplus"');
+
+          // Over-budget contextual labels check
+          WattWatchApp.renderBudgetTracker(3000, 2500, 350, { electricityRate: 8.0, tariffModel: 'flat' });
+          assert(elVariance && elVariance.textContent === '+₹500.00 over', 'P52.A7: elVariance displays "+₹500.00 over" for over-budget position');
+          assert(elPacingDelta && elPacingDelta.textContent === '+₹500.00 over', 'P52.A8: elPacingDelta displays "+₹500.00 over" for over-budget position');
+
+          // Daily Budget Target: ₹83.33/day, active flat tariff ₹8/kWh -> Expected Daily Energy Target: ~10.42 kWh/day
+          const flatEnergyTarget = WattWatchCalculations.calculateDailyAllowedKwhForBudget(83.333333, { electricityRate: 8.00, tariffModel: 'flat', fixedCharges: 0, additionalTaxPercent: 0 }, 30);
+          assert(Math.abs(flatEnergyTarget - 10.41666) < 0.01, 'P52.A9: Daily energy target for ₹83.33/day budget at ₹8/kWh flat rate is ~10.42 kWh/day');
+
+          // Tiered tariff calculation using the actual tariff engine
+          const slabTiers3 = [
+            { upTo: 100, rate: 4.50 },
+            { upTo: 300, rate: 7.50 },
+            { upTo: null, rate: 10.00 }
+          ];
+          const slabAllowedKwh = WattWatchCalculations.calculateAllowedKwhForBudget(2500, {
+            tariffModel: 'slab',
+            slabConfig: slabTiers3,
+            fixedCharges: 110.00,
+            additionalTaxPercent: 5.0
+          });
+          assert(slabAllowedKwh > 300 && slabAllowedKwh < 350, 'P52.A10: Tiered tariff energy allowance accurately calculated via multi-tier inverse engine');
+          const slabRoundtrip = WattWatchCalculations.calculateAdvancedTariff(slabAllowedKwh, {
+            tariffModel: 'slab',
+            slabConfig: slabTiers3,
+            fixedCharges: 110.00,
+            additionalTaxPercent: 5.0
+          });
+          assertAlmostEqual(slabRoundtrip.totalCost, 2500, 'P52.A11: Tiered tariff inversion roundtrips accurately with calculateAdvancedTariff');
+
+          // 52.2: Settings and Tariff Sandbox Synchronization
+          // Save tariff settings from Settings inputs
+          const settFixed = document.getElementById('settingsFixedCharges');
+          const settTax = document.getElementById('settingsTaxPercent');
+          if (settFixed) {
+            settFixed.value = '75.00';
+            settFixed.dispatchEvent(new Event('change'));
+          }
+          if (settTax) {
+            settTax.value = '6.5';
+            settTax.dispatchEvent(new Event('change'));
+          }
+          const storedSett = WattWatchStorage.getSettings();
+          assert(storedSett.fixedCharges === 75.00, 'P52.B1: settingsFixedCharges updates and persists in storage');
+          assert(storedSett.additionalTaxPercent === 6.5, 'P52.B2: settingsTaxPercent updates and persists in storage');
+
+          // Simulator reflects shared settings
+          const simFixed = document.getElementById('calcFixedCharges');
+          const simTax = document.getElementById('calcTaxPercent');
+          assert(simFixed && simFixed.value === '75.00', 'P52.B3: Simulator calcFixedCharges reflects updated settings');
+          assert(simTax && simTax.value === '6.5', 'P52.B4: Simulator calcTaxPercent reflects updated settings');
+
+          // Switch to slab mode and verify Settings displays active slab table
+          WattWatchStorage.saveSettings({ tariffModel: 'slab', slabConfig: slabTiers3 });
+          WattWatchApp.refreshAll();
+          const activeSlabsBox = document.getElementById('settingsActiveSlabsContainer');
+          const flatRateBox = document.getElementById('settingsFlatRateGroup');
+          const activeSlabsTbody = document.getElementById('settingsActiveSlabsTableBody');
+          assert(activeSlabsBox && activeSlabsBox.style.display !== 'none', 'P52.B5: Settings displays active slabs container in slab mode');
+          assert(flatRateBox && flatRateBox.style.display === 'none', 'P52.B6: Settings hides flat rate stepper in slab mode');
+          assert(activeSlabsTbody && activeSlabsTbody.children.length === 3, 'P52.B7: Settings renders 3 active tiers in table');
+
+          // Switch back to flat mode via Settings button
+          const btnSwitchFlat = document.getElementById('btnSettingsSwitchToFlat');
+          if (btnSwitchFlat) {
+            btnSwitchFlat.dispatchEvent(new Event('click'));
+          }
+          const afterSwitchSettings = WattWatchStorage.getSettings();
+          assert(afterSwitchSettings.tariffModel === 'flat', 'P52.B8: btnSettingsSwitchToFlat switches model to flat');
+          assert(flatRateBox && flatRateBox.style.display !== 'none', 'P52.B9: Settings shows flat rate stepper after switching to flat');
+          assert(activeSlabsBox && activeSlabsBox.style.display === 'none', 'P52.B10: Settings hides slab container after switching to flat');
+
+          // 52.3: Chart Empty States and Theme Switching
+          WattWatchCharts.destroyAll();
+          const allNull = Object.values(WattWatchCharts.instances).every(i => i === null);
+          assert(allNull === true, 'P52.C1: WattWatchCharts.destroyAll leaves all 8 chart instances null');
+
+          // Render empty state on all chart areas
+          WattWatchCharts.renderOverviewCharts({ appliances: [], totalDailyKwh: 0, categoryBreakdown: {} });
+          WattWatchCharts.renderAnalyticsCharts({ appliances: [], totalMonthlyKwh: 0, categoryBreakdown: {} });
+          WattWatchCharts.renderHistoryTrendChart([]);
+          WattWatchCharts.renderComparisonChart(null);
+
+          const cOverviewTrend = document.getElementById('overviewTrendChart');
+          const cHistoryTrend = document.getElementById('historyTrendChart');
+          const cTimeline = document.getElementById('analyticsTimelineChart');
+          assert(cOverviewTrend && cOverviewTrend.getAttribute('aria-hidden') === 'true', 'P52.C2: Overview trend marked aria-hidden on empty');
+          assert(cHistoryTrend && cHistoryTrend.getAttribute('aria-hidden') === 'true', 'P52.C3: History trend marked aria-hidden on empty');
+          assert(cTimeline && cTimeline.getAttribute('aria-hidden') === 'true', 'P52.C4: Analytics timeline marked aria-hidden on empty');
+
+          // Theme palette evaluation
+          const lightPalette = WattWatchCharts.getThemeColors();
+          assert(typeof lightPalette.royalBlue === 'string' && lightPalette.royalBlue.length > 0, 'P52.C5: Light theme colors valid');
+          document.documentElement.setAttribute('data-theme', 'dark');
+          const darkPalette = WattWatchCharts.getThemeColors();
+          assert(darkPalette.isDark === true, 'P52.C6: Dark theme detected correctly');
+          document.documentElement.setAttribute('data-theme', 'light');
+
+          // 52.4: Guest migration non-slab settings domain validation & flat prompt accuracy
+          WattWatchStorage.setActiveUser(null);
+          WattWatchStorage.saveAppliances([{ id: 'p52_g1', name: 'Guest Iron', category: 'Other', powerWatts: 1000, dailyHours: 1, operatingDays: 30, quantity: 1 }]);
+          localStorage.setItem(WattWatchStorage._getGuestKey('SETTINGS'), JSON.stringify({
+            electricityRate: -12,
+            additionalTaxPercent: 150,
+            fixedCharges: -50
+          }));
+          const badSettMig = WattWatchStorage.migrateGuestData('user_p52_bad_sett');
+          assert(badSettMig.success === true && badSettMig.transferredAppliances === 1 && badSettMig.importedSettings === false, 'P52.D1: migrateGuestData rejects negative/invalid non-slab guest settings while transferring valid appliances');
+          assert(localStorage.getItem(`${phase52Ns}wattwatch_user_user_p52_bad_sett_settings`) === null, 'P52.D2: Rejected invalid non-slab guest settings not written to user settings key');
+        } finally {
+          WattWatchStorage.setTestNamespace(origNs52);
+          const keys52 = [];
+          for (let i = 0; i < localStorage.length; i++) {
+            const k = localStorage.key(i);
+            if (k && k.startsWith(phase52Ns)) keys52.push(k);
+          }
+          keys52.forEach(k => localStorage.removeItem(k));
         }
       }
 

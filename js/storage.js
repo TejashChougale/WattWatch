@@ -27,8 +27,8 @@ const DEFAULT_SETTINGS = {
     { upTo: 300, rate: 7.50 },
     { upTo: null, rate: 10.00 } // null = and above
   ],
-  fixedCharges: 110.00, // Fixed meter/sanctioned load charge (₹/month)
-  additionalTaxPercent: 5.0, // Municipal tax / electricity duty %
+  fixedCharges: 0.00, // Fixed meter/sanctioned load charge (₹/month; 0 for standard flat tariff)
+  additionalTaxPercent: 0.0, // Municipal tax / electricity duty % (0 for standard flat tariff)
   freeUnits: 0, // Free monthly electricity units quota (kWh/month)
   billCreditInr: 0, // Government subsidy or bill credit (₹/month)
   carbonEmissionFactor: 0.82 // Grid emission factor in kg CO2e / kWh (India CEA avg; null if cleared)
@@ -843,17 +843,66 @@ const WattWatchStorage = {
       // 5. Import settings only when destination account has no existing settings
       let mergedSettings = userSettings;
       let importedSettings = false;
-      if ((!userSettings || Object.keys(userSettings).length === 0) && guestSettings && typeof guestSettings === 'object') {
+      if ((!userSettings || Object.keys(userSettings).length === 0) && guestSettings && typeof guestSettings === 'object' && !Array.isArray(guestSettings)) {
         let isGuestSettingsValid = true;
+        const candidateSettings = { ...guestSettings };
 
-        if (guestSettings.tariffModel === 'slab' || Array.isArray(guestSettings.slabConfig)) {
+        const nonNegFields = ['electricityRate', 'budgetInr', 'fixedCharges', 'freeUnits', 'billCreditInr'];
+        for (const f of nonNegFields) {
+          if (candidateSettings[f] !== undefined) {
+            const v = Number(candidateSettings[f]);
+            if (typeof candidateSettings[f] === 'boolean' || isNaN(v) || v < 0 || !Number.isFinite(v)) {
+              console.warn(`[WattWatch Storage] Refusing to migrate invalid guest setting "${f}":`, candidateSettings[f]);
+              isGuestSettingsValid = false;
+              break;
+            }
+            candidateSettings[f] = v;
+          }
+        }
+
+        if (isGuestSettingsValid && candidateSettings.additionalTaxPercent !== undefined) {
+          const tax = Number(candidateSettings.additionalTaxPercent);
+          if (typeof candidateSettings.additionalTaxPercent === 'boolean' || isNaN(tax) || tax < 0 || tax > 100 || !Number.isFinite(tax)) {
+            console.warn('[WattWatch Storage] Refusing to migrate invalid guest additionalTaxPercent:', candidateSettings.additionalTaxPercent);
+            isGuestSettingsValid = false;
+          } else {
+            candidateSettings.additionalTaxPercent = tax;
+          }
+        }
+
+        if (isGuestSettingsValid && candidateSettings.carbonEmissionFactor !== undefined && candidateSettings.carbonEmissionFactor !== null) {
+          const cf = Number(candidateSettings.carbonEmissionFactor);
+          if (typeof candidateSettings.carbonEmissionFactor === 'boolean' || isNaN(cf) || cf < 0 || !Number.isFinite(cf)) {
+            console.warn('[WattWatch Storage] Refusing to migrate invalid guest carbonEmissionFactor:', candidateSettings.carbonEmissionFactor);
+            isGuestSettingsValid = false;
+          } else {
+            candidateSettings.carbonEmissionFactor = cf;
+          }
+        }
+
+        if (isGuestSettingsValid && candidateSettings.billingDays !== undefined) {
+          const bd = Number(candidateSettings.billingDays);
+          if (typeof candidateSettings.billingDays === 'boolean' || isNaN(bd) || !Number.isFinite(bd) || bd <= 0) {
+            console.warn('[WattWatch Storage] Refusing to migrate invalid guest billingDays:', candidateSettings.billingDays);
+            isGuestSettingsValid = false;
+          } else {
+            candidateSettings.billingDays = bd;
+          }
+        }
+
+        if (isGuestSettingsValid && candidateSettings.tariffModel !== undefined && candidateSettings.tariffModel !== 'flat' && candidateSettings.tariffModel !== 'slab') {
+          console.warn('[WattWatch Storage] Refusing to migrate invalid guest tariffModel:', candidateSettings.tariffModel);
+          isGuestSettingsValid = false;
+        }
+
+        if (isGuestSettingsValid && (candidateSettings.tariffModel === 'slab' || Array.isArray(candidateSettings.slabConfig))) {
           if (typeof WattWatchCalculations !== 'undefined' && typeof WattWatchCalculations.validateSlabConfig === 'function') {
-            const valSlab = WattWatchCalculations.validateSlabConfig(guestSettings.slabConfig, { requireOpenEnded: true });
+            const valSlab = WattWatchCalculations.validateSlabConfig(candidateSettings.slabConfig, { requireOpenEnded: true });
             if (!valSlab.valid) {
               console.warn('[WattWatch Storage] Refusing to migrate invalid guest slab configuration:', valSlab.error);
               isGuestSettingsValid = false;
             } else {
-              guestSettings.slabConfig = valSlab.sanitized;
+              candidateSettings.slabConfig = valSlab.sanitized;
             }
           } else {
             console.warn('[WattWatch Storage] Refusing to migrate guest slab configuration: WattWatchCalculations.validateSlabConfig is unavailable');
@@ -862,10 +911,10 @@ const WattWatchStorage = {
         }
 
         if (isGuestSettingsValid) {
-          mergedSettings = { ...guestSettings };
+          mergedSettings = candidateSettings;
           importedSettings = true;
         } else {
-          console.warn('[WattWatch Storage] Guest settings contained invalid slab configuration; skipping settings migration');
+          console.warn('[WattWatch Storage] Guest settings contained invalid parameters; skipping settings migration');
           mergedSettings = null;
           importedSettings = false;
         }
@@ -3051,3 +3100,7 @@ const WattWatchStorage = {
     }
   }
 };
+
+if (typeof window !== 'undefined') {
+  window.WattWatchStorage = WattWatchStorage;
+}

@@ -889,3 +889,7 @@ const WattWatchAppliances = {
       .replace(/'/g, '&#039;');
   }
 };
+
+if (typeof window !== 'undefined') {
+  window.WattWatchAppliances = WattWatchAppliances;
+}

@@ -877,3 +877,7 @@ const WattWatchHistory = {
     });
   }
 };
+
+if (typeof window !== 'undefined') {
+  window.WattWatchHistory = WattWatchHistory;
+}

@@ -1723,3 +1723,7 @@ const WattWatchCalculations = {
     return num.toLocaleString('en-IN', { minimumFractionDigits: dec, maximumFractionDigits: dec });
   }
 };
+
+if (typeof window !== 'undefined') {
+  window.WattWatchCalculations = WattWatchCalculations;
+}

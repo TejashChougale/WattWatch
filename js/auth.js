@@ -1078,3 +1078,7 @@ const WattWatchAuth = {
     }
   }
 };
+
+if (typeof window !== 'undefined') {
+  window.WattWatchAuth = WattWatchAuth;
+}

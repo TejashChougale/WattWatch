@@ -442,3 +442,7 @@ const WattWatchReport = {
     window.print();
   }
 };
+
+if (typeof window !== 'undefined') {
+  window.WattWatchReport = WattWatchReport;
+}

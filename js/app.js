@@ -564,8 +564,8 @@ const WattWatchApp = {
     if (elAmount) elAmount.textContent = WattWatchCalculations.formatCurrency(b.budget);
     if (elRemaining) {
       elRemaining.textContent = b.remaining >= 0
-        ? `₹${b.remaining.toFixed(2)} remaining`
-        : `₹${Math.abs(b.remaining).toFixed(2)} over budget`;
+        ? `${WattWatchCalculations.formatCurrency(b.remaining)} remaining`
+        : `${WattWatchCalculations.formatCurrency(Math.abs(b.remaining))} over budget`;
     }
     if (elPercent) elPercent.textContent = `${Math.min(999, b.utilizationPercent).toFixed(1)}% utilized`;
 
@@ -612,10 +612,10 @@ const WattWatchApp = {
 
     if (elVariance) {
       if (isOverBudget) {
-        elVariance.textContent = `+₹${Math.abs(variance).toFixed(2)} over`;
+        elVariance.textContent = `+${WattWatchCalculations.formatCurrency(Math.abs(variance))} over`;
         elVariance.style.color = '#ef4444';
       } else {
-        elVariance.textContent = `₹${Math.max(0, variance).toFixed(2)} under`;
+        elVariance.textContent = `${WattWatchCalculations.formatCurrency(Math.max(0, variance))} under`;
         elVariance.style.color = 'var(--emerald-primary)';
       }
     }
@@ -625,19 +625,19 @@ const WattWatchApp = {
       elExplanation.className = `budget-explanation-box ${b.status === 'exceeded' ? 'state-exceeded' : (b.status === 'critical' || b.status === 'warning') ? 'state-caution' : ''}`;
     }
 
-    if (elPacingBudget) elPacingBudget.textContent = `₹${pacing.dailyBudgetInr.toFixed(2)} / day`;
+    if (elPacingBudget) elPacingBudget.textContent = `${WattWatchCalculations.formatCurrency(pacing.dailyBudgetInr)} / day`;
     if (elPacingDays) elPacingDays.textContent = `${pacing.daysInMonth}-day target`;
     if (elPacingDailyKwh) elPacingDailyKwh.textContent = !isNaN(pacing.dailyAllowedKwh) ? `${pacing.dailyAllowedKwh.toFixed(2)} kWh / day` : '-- kWh / day';
-    if (elPacingCost) elPacingCost.textContent = `₹${pacing.dailyEstimatedCost.toFixed(2)} / day`;
+    if (elPacingCost) elPacingCost.textContent = `${WattWatchCalculations.formatCurrency(pacing.dailyEstimatedCost)} / day`;
     if (elPacingKwhEst) elPacingKwhEst.textContent = `~${pacing.dailyEstimatedKwh.toFixed(2)} kWh/day`;
 
     if (elPacingDelta) {
       if (isOverBudget) {
-        elPacingDelta.textContent = `+₹${Math.abs(variance).toFixed(2)} over`;
+        elPacingDelta.textContent = `+${WattWatchCalculations.formatCurrency(Math.abs(variance))} over`;
         elPacingDelta.style.color = '#ef4444';
         if (elPacingDeltaSub) elPacingDeltaSub.textContent = 'Projected over budget';
       } else {
-        elPacingDelta.textContent = `₹${Math.max(0, variance).toFixed(2)} surplus`;
+        elPacingDelta.textContent = `${WattWatchCalculations.formatCurrency(Math.max(0, variance))} surplus`;
         elPacingDelta.style.color = 'var(--emerald-primary)';
         if (elPacingDeltaSub) elPacingDeltaSub.textContent = 'Projected under budget';
       }
@@ -1147,7 +1147,8 @@ const WattWatchApp = {
     const btnRatePlus = document.getElementById('btnRateStepPlus');
     if (btnRateMinus && rateInput) {
       btnRateMinus.addEventListener('click', () => {
-        let current = parseFloat(rateInput.value) || 8.00;
+        const parsed = parseFloat(rateInput.value);
+        let current = !isNaN(parsed) ? parsed : 8.00;
         current = Math.max(0.5, current - 0.5);
         rateInput.value = current.toFixed(2);
         rateInput.dispatchEvent(new Event('change'));
@@ -1272,6 +1273,68 @@ const WattWatchApp = {
       });
     }
 
+    // Fixed Meter Charges Input in Settings
+    const fixedChargesInput = document.getElementById('settingsFixedCharges');
+    if (fixedChargesInput) {
+      fixedChargesInput.addEventListener('change', (e) => {
+        const raw = e.target.value;
+        const val = (typeof WattWatchCalculations !== 'undefined')
+          ? WattWatchCalculations.validateFixedCharge(raw, NaN)
+          : parseFloat(raw);
+        const curSettings = WattWatchStorage.getSettings();
+        if (isNaN(val) || val < 0 || !Number.isFinite(val)) {
+          this.showToast('Fixed meter charges must be a valid non-negative number.', 'error', 'Invalid Fixed Charges');
+          fixedChargesInput.value = Number(curSettings.fixedCharges || 0).toFixed(2);
+          return;
+        }
+        const saved = WattWatchStorage.saveSettings({ fixedCharges: val });
+        if (!saved) {
+          this.showToast('Failed to update fixed meter charges.', 'error', 'Save Failed');
+          fixedChargesInput.value = Number(curSettings.fixedCharges || 0).toFixed(2);
+          return;
+        }
+        this.refreshAll();
+        this.showToast(`Fixed meter charges set to ₹${val.toFixed(2)}/month`, 'success', 'Tariff Saved');
+      });
+    }
+
+    // Electricity Duty / Tax Input in Settings
+    const taxPercentInput = document.getElementById('settingsTaxPercent');
+    if (taxPercentInput) {
+      taxPercentInput.addEventListener('change', (e) => {
+        const raw = e.target.value;
+        const val = (typeof WattWatchCalculations !== 'undefined')
+          ? WattWatchCalculations.validateTaxPercent(raw, NaN)
+          : parseFloat(raw);
+        const curSettings = WattWatchStorage.getSettings();
+        if (isNaN(val) || val < 0 || val > 100 || !Number.isFinite(val)) {
+          this.showToast('Electricity duty/tax must be between 0% and 100%.', 'error', 'Invalid Tax Rate');
+          taxPercentInput.value = Number(curSettings.additionalTaxPercent || 0).toFixed(1);
+          return;
+        }
+        const saved = WattWatchStorage.saveSettings({ additionalTaxPercent: val });
+        if (!saved) {
+          this.showToast('Failed to update electricity duty / tax.', 'error', 'Save Failed');
+          taxPercentInput.value = Number(curSettings.additionalTaxPercent || 0).toFixed(1);
+          return;
+        }
+        this.refreshAll();
+        this.showToast(`Electricity duty set to ${val.toFixed(1)}%`, 'success', 'Tariff Saved');
+      });
+    }
+
+    // Switch to Flat Rate button in Settings
+    const btnSwitchFlat = document.getElementById('btnSettingsSwitchToFlat');
+    if (btnSwitchFlat) {
+      btnSwitchFlat.addEventListener('click', () => {
+        const saved = WattWatchStorage.saveSettings({ tariffModel: 'flat' });
+        if (saved) {
+          this.refreshAll();
+          this.showToast('Switched to uniform flat rate billing model.', 'info', 'Billing Model Updated');
+        }
+      });
+    }
+
     // Theme Selector Cards in Settings
     const themeCards = document.querySelectorAll('.theme-option-card');
     themeCards.forEach(card => {
@@ -1366,13 +1429,18 @@ const WattWatchApp = {
     if (btnMigrateGuest) {
       btnMigrateGuest.addEventListener('click', () => {
         const uid = WattWatchStorage.getActiveUser();
-        if (!uid) {
+        const isGuestSession = (typeof WattWatchAuth !== 'undefined' && WattWatchAuth.chosenSessionType === 'guest');
+        if (!uid || isGuestSession) {
           this.showToast('Please sign in to an account to transfer guest data.', 'warning', 'Sign In Required');
           return;
         }
         const res = WattWatchStorage.migrateGuestData(uid);
         if (res.success) {
-          this.showToast(`Successfully transferred ${res.transferredAppliances} appliance(s) and ${res.transferredHistory} record(s) to your account.`, 'success', 'Migration Complete');
+          if (res.transferredAppliances === 0 && res.transferredHistory === 0 && (res.skippedAppliances > 0 || res.skippedHistory > 0)) {
+            this.showToast(`All guest records already exist in your account (${res.skippedAppliances} appliance(s), ${res.skippedHistory} record(s) skipped as duplicates).`, 'info', 'Already Up to Date');
+          } else {
+            this.showToast(`Successfully transferred ${res.transferredAppliances} appliance(s) and ${res.transferredHistory} record(s) to your account.`, 'success', 'Migration Complete');
+          }
           this.refreshAll();
         } else {
           this.showToast('Migration failed: ' + (res.error || 'Unknown error'), 'error', 'Error');
@@ -1665,6 +1733,16 @@ const WattWatchApp = {
       billCreditInput.value = Number(settings.billCreditInr || 0);
     }
 
+    const fixedChargesInput = document.getElementById('settingsFixedCharges');
+    if (fixedChargesInput && document.activeElement !== fixedChargesInput) {
+      fixedChargesInput.value = Number(settings.fixedCharges || 0).toFixed(2);
+    }
+
+    const taxPercentInput = document.getElementById('settingsTaxPercent');
+    if (taxPercentInput && document.activeElement !== taxPercentInput) {
+      taxPercentInput.value = Number(settings.additionalTaxPercent || 0).toFixed(1);
+    }
+
     // Active Tariff Mode Banner updates
     const modelBadge = document.getElementById('settingsTariffModeBadge');
     const modelName = document.getElementById('settingsActiveModelName');
@@ -1674,6 +1752,35 @@ const WattWatchApp = {
     const appliances = WattWatchStorage.getAppliances();
     const summary = WattWatchCalculations.calculateHouseholdSummary(appliances, settings);
     const isSlab = settings.tariffModel === 'slab';
+
+    // Toggle Flat Rate controls vs Progressive Slab display in Settings
+    const flatGroup = document.getElementById('settingsFlatRateGroup');
+    const slabContainer = document.getElementById('settingsActiveSlabsContainer');
+    const slabTbody = document.getElementById('settingsActiveSlabsTableBody');
+
+    if (isSlab) {
+      if (flatGroup) flatGroup.style.display = 'none';
+      if (slabContainer) slabContainer.style.display = 'block';
+      if (slabTbody) {
+        slabTbody.innerHTML = '';
+        const slabs = Array.isArray(settings.slabConfig) ? settings.slabConfig : [];
+        let prevLimit = 0;
+        slabs.forEach((s, idx) => {
+          const tr = document.createElement('tr');
+          const rangeLabel = s.upTo !== null ? `${prevLimit} – ${s.upTo} kWh` : `Above ${prevLimit} kWh`;
+          prevLimit = s.upTo || prevLimit;
+          tr.innerHTML = `
+            <td style="font-weight: 600;">Tier ${idx + 1}</td>
+            <td>${rangeLabel}</td>
+            <td style="font-weight: 600; color: var(--deep-burgundy);">₹${Number(s.rate).toFixed(2)} / kWh</td>
+          `;
+          slabTbody.appendChild(tr);
+        });
+      }
+    } else {
+      if (flatGroup) flatGroup.style.display = 'block';
+      if (slabContainer) slabContainer.style.display = 'none';
+    }
 
     if (modelBadge) {
       modelBadge.className = isSlab ? 'badge badge-gold' : 'badge badge-blue';
@@ -1690,12 +1797,12 @@ const WattWatchApp = {
     const rawFixed = Number(settings.fixedCharges);
     const fixedCharges = (settings.fixedCharges !== undefined && settings.fixedCharges !== null && settings.fixedCharges !== '' && !isNaN(rawFixed))
       ? Math.max(0, rawFixed)
-      : 110.00;
+      : 0.00;
 
     const rawTax = Number(settings.additionalTaxPercent);
     const taxPercent = (settings.additionalTaxPercent !== undefined && settings.additionalTaxPercent !== null && settings.additionalTaxPercent !== '' && !isNaN(rawTax))
       ? Math.max(0, rawTax)
-      : 5.0;
+      : 0.0;
 
     if (effRateVal) {
       effRateVal.textContent = isSlab
@@ -1703,9 +1810,12 @@ const WattWatchApp = {
         : `₹${flatRate.toFixed(2)} / kWh`;
     }
     if (actionPrompt) {
+      const hasExtraFlatCharges = fixedCharges > 0 || taxPercent > 0;
       actionPrompt.innerHTML = isSlab
         ? `Progressive tiers, fixed meter charge (₹${fixedCharges.toFixed(2)}), and duty (${taxPercent.toFixed(1)}%) are active. <a href="#simulator" onclick="WattWatchApp.navigateTo('simulator'); return false;" style="color: var(--royal-blue); font-weight: 600; text-decoration: underline;">Configure Slabs in Simulator &rarr;</a>`
-        : `Current billing uses a uniform flat rate. To configure progressive tiered slabs and fixed charges, <a href="#simulator" onclick="WattWatchApp.navigateTo('simulator'); return false;" style="color: var(--royal-blue); font-weight: 600; text-decoration: underline;">Open Tariff Calculator &rarr;</a>`;
+        : hasExtraFlatCharges
+          ? `Flat rate (₹${flatRate.toFixed(2)}/kWh), fixed meter charge (₹${fixedCharges.toFixed(2)}), and duty (${taxPercent.toFixed(1)}%) are active. <a href="#simulator" onclick="WattWatchApp.navigateTo('simulator'); return false;" style="color: var(--royal-blue); font-weight: 600; text-decoration: underline;">Open Tariff Calculator &rarr;</a>`
+          : `Current billing uses a uniform flat rate. To configure progressive tiered slabs and fixed charges, <a href="#simulator" onclick="WattWatchApp.navigateTo('simulator'); return false;" style="color: var(--royal-blue); font-weight: 600; text-decoration: underline;">Open Tariff Calculator &rarr;</a>`;
     }
   },
 
