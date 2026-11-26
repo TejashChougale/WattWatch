@@ -245,7 +245,7 @@
         const modalAlign = modalBackdrop ? win390.getComputedStyle(modalBackdrop).alignItems : '';
         const modalRadiusTopLeft = modalContent ? win390.getComputedStyle(modalContent).borderTopLeftRadius : '0px';
         const modalRadiusBottomLeft = modalContent ? win390.getComputedStyle(modalContent).borderBottomLeftRadius : '0px';
-        const isBottomSheet = modalAlign === 'flex-end' && parseFloat(modalRadiusTopLeft) >= 12 && parseFloat(modalRadiusBottomLeft) === 0;
+        const isBottomSheet = (modalAlign === 'flex-end' || modalAlign === 'flow-end' || modalAlign === 'end') && parseFloat(modalRadiusTopLeft) >= 12 && parseFloat(modalRadiusBottomLeft) === 0;
         reports.push({
           id: 'REQ-9',
           name: 'Mobile modals styled as bottom sheets at 390px',

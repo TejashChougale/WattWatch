@@ -1075,8 +1075,22 @@ const WattWatchCalculations = {
       return this._createInvalidSimulationResult(baselineAppliance, 'Baseline or replacement appliance parameters are invalid');
     }
 
-    const baseMonthlyKwh = this.calculateMonthlyKwh(baseW, baseQ, baseH, baseD);
-    const newMonthlyKwh = this.calculateMonthlyKwh(newW, newQ, newH, newD);
+    const baseMetrics = this.calculateApplianceMetrics({
+      ...baselineAppliance,
+      powerWatts: baseW,
+      dailyHours: baseH,
+      operatingDays: baseD,
+      quantity: baseQ
+    });
+    const newMetrics = this.calculateApplianceMetrics({
+      powerWatts: newW,
+      dailyHours: newH,
+      operatingDays: newD,
+      quantity: newQ
+    });
+
+    const baseMonthlyKwh = baseMetrics.isValid ? baseMetrics.monthlyKwh : this.calculateMonthlyKwh(baseW, baseQ, baseH, baseD);
+    const newMonthlyKwh = newMetrics.isValid ? newMetrics.monthlyKwh : this.calculateMonthlyKwh(newW, newQ, newH, newD);
     const monthlyKwhSaved = baseMonthlyKwh - newMonthlyKwh;
     const annualKwhSaved = monthlyKwhSaved * 12;
 
@@ -1265,13 +1279,14 @@ const WattWatchCalculations = {
     let standbyWatts = 0;
     let hasAdvancedProfile = false;
 
-    // 1. Weekday vs Weekend hours
-    if (appliance.weekdayHours !== undefined && appliance.weekendHours !== undefined &&
-        appliance.weekdayHours !== null && appliance.weekendHours !== null &&
-        appliance.weekdayHours !== '') {
-      const wd = Number(appliance.weekdayHours);
-      const we = Number(appliance.weekendHours);
-      if (this.isFiniteNumber(wd) && wd >= 0 && wd <= 24 &&
+    // 1. Weekday vs Weekend hours (if either side is supplied, fallback missing side to dailyHours)
+    const hasWd = appliance.weekdayHours !== undefined && appliance.weekdayHours !== null && appliance.weekdayHours !== '';
+    const hasWe = appliance.weekendHours !== undefined && appliance.weekendHours !== null && appliance.weekendHours !== '';
+    if (hasWd || hasWe) {
+      const wd = hasWd ? Number(appliance.weekdayHours) : h;
+      const we = hasWe ? Number(appliance.weekendHours) : h;
+      if (typeof appliance.weekdayHours !== 'boolean' && typeof appliance.weekendHours !== 'boolean' &&
+          this.isFiniteNumber(wd) && wd >= 0 && wd <= 24 &&
           this.isFiniteNumber(we) && we >= 0 && we <= 24) {
         effectiveDailyHours = ((5 * wd) + (2 * we)) / 7;
         hasAdvancedProfile = true;
@@ -1279,9 +1294,9 @@ const WattWatchCalculations = {
     }
 
     // 2. Active days per week
-    if (appliance.activeDaysPerWeek !== undefined && appliance.activeDaysPerWeek !== null && appliance.activeDaysPerWeek !== '') {
+    if (operatingDays > 0 && appliance.activeDaysPerWeek !== undefined && appliance.activeDaysPerWeek !== null && appliance.activeDaysPerWeek !== '') {
       const ad = Number(appliance.activeDaysPerWeek);
-      if (this.isFiniteNumber(ad) && ad >= 1 && ad <= 7) {
+      if (typeof appliance.activeDaysPerWeek !== 'boolean' && this.isFiniteNumber(ad) && ad >= 1 && ad <= 7) {
         operatingDays = Math.min(31, Math.round((ad / 7) * 30));
         hasAdvancedProfile = true;
       }
@@ -1691,15 +1706,44 @@ const WattWatchCalculations = {
     return `${num.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} kWh`;
   },
 
+  ALLOWED_CURRENCY_SYMBOLS: ['₹', 'INR', 'Rs', 'Rs.', '$', 'USD', '€', 'EUR', '£', 'GBP', '¥', 'JPY', 'CNY', '₩', 'KRW', 'CHF', 'CAD', 'AUD', 'SGD', 'AED'],
+
   /**
-   * Formatting utility for Indian Rupee currency (always 2 decimals)
+   * Validates and sanitizes a currency symbol/code for safe display.
+   * Falls back to '₹' (or validated fallback) if the input contains HTML markup,
+   * exceeds 8 characters, or is outside the currency allowlist.
+   * @param {*} symbol
+   * @param {string} [fallback='₹']
+   * @returns {string}
+   */
+  sanitizeCurrencySymbol(symbol, fallback = '₹') {
+    const checkOne = (val) => {
+      if (typeof val !== 'string') return null;
+      const trimmed = val.trim();
+      if (!trimmed || trimmed.length > 8) return null;
+      if (/[<>"'`&;\/\\=\(\)\{\}\x00-\x1F\x7F]/.test(trimmed)) return null;
+      if (typeof WattWatchStorage !== 'undefined' && typeof WattWatchStorage.validateCurrency === 'function') {
+        const res = WattWatchStorage.validateCurrency(trimmed);
+        return res && res.valid ? res.sanitized : null;
+      }
+      return this.ALLOWED_CURRENCY_SYMBOLS.find(c => c.toLowerCase() === trimmed.toLowerCase()) || null;
+    };
+
+    const validatedSymbol = checkOne(symbol);
+    if (validatedSymbol) return validatedSymbol;
+    const validatedFallback = checkOne(fallback);
+    return validatedFallback || '₹';
+  },
+
+  /**
+   * Formatting utility for currency values (always 2 decimals)
    * Formats invalid/non-finite inputs safely as "₹--".
    * @param {number} val
    * @param {string} symbol - Defaults to ₹
    * @returns {string} e.g. "₹1,245.50" or "₹--"
    */
   formatCurrency(val, symbol = '₹') {
-    const sym = (typeof symbol === 'string' && symbol.trim()) ? symbol : '₹';
+    const sym = this.sanitizeCurrencySymbol(symbol, '₹');
     if (!this.isFiniteNumber(val) || Number(val) < 0) {
       return `${sym}--`;
     }
@@ -1723,3 +1767,7 @@ const WattWatchCalculations = {
     return num.toLocaleString('en-IN', { minimumFractionDigits: dec, maximumFractionDigits: dec });
   }
 };
+
+if (typeof window !== 'undefined') {
+  window.WattWatchCalculations = WattWatchCalculations;
+}

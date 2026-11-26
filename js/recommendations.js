@@ -481,3 +481,7 @@ const WattWatchRecommendations = {
     };
   }
 };
+
+if (typeof window !== 'undefined') {
+  window.WattWatchRecommendations = WattWatchRecommendations;
+}

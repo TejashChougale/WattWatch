@@ -27,8 +27,8 @@ const DEFAULT_SETTINGS = {
     { upTo: 300, rate: 7.50 },
     { upTo: null, rate: 10.00 } // null = and above
   ],
-  fixedCharges: 110.00, // Fixed meter/sanctioned load charge (₹/month)
-  additionalTaxPercent: 5.0, // Municipal tax / electricity duty %
+  fixedCharges: 0.00, // Fixed meter/sanctioned load charge (₹/month; 0 for standard flat tariff)
+  additionalTaxPercent: 0.0, // Municipal tax / electricity duty % (0 for standard flat tariff)
   freeUnits: 0, // Free monthly electricity units quota (kWh/month)
   billCreditInr: 0, // Government subsidy or bill credit (₹/month)
   carbonEmissionFactor: 0.82 // Grid emission factor in kg CO2e / kWh (India CEA avg; null if cleared)
@@ -267,6 +267,31 @@ const WattWatchStorage = {
   },
 
   ALLOWED_CATEGORIES: ['Cooling', 'Lighting', 'Kitchen', 'Entertainment', 'Computing', 'Other'],
+  ALLOWED_CURRENCIES: ['₹', 'INR', 'Rs', 'Rs.', '$', 'USD', '€', 'EUR', '£', 'GBP', '¥', 'JPY', 'CNY', '₩', 'KRW', 'CHF', 'CAD', 'AUD', 'SGD', 'AED'],
+
+  /**
+   * Validates a currency symbol or short ISO code against a strict allowlist.
+   * Rejects HTML-sensitive characters, markup, and strings longer than 8 characters.
+   * @param {*} currency
+   * @returns {{ valid: boolean, sanitized: string, error?: string }}
+   */
+  validateCurrency(currency) {
+    if (typeof currency !== 'string') {
+      return { valid: false, sanitized: '₹', error: 'Currency must be a string' };
+    }
+    const trimmed = currency.trim();
+    if (!trimmed || trimmed.length > 8) {
+      return { valid: false, sanitized: '₹', error: 'Currency must be between 1 and 8 characters' };
+    }
+    if (/[<>"'`&;\/\\=\(\)\{\}\x00-\x1F\x7F]/.test(trimmed)) {
+      return { valid: false, sanitized: '₹', error: 'Currency contains disallowed characters' };
+    }
+    const matched = this.ALLOWED_CURRENCIES.find(c => c.toLowerCase() === trimmed.toLowerCase());
+    if (!matched) {
+      return { valid: false, sanitized: '₹', error: `Unsupported currency "${trimmed}"` };
+    }
+    return { valid: true, sanitized: matched };
+  },
 
   /**
    * Sets a test-only storage key prefix for isolated automated testing
@@ -843,17 +868,76 @@ const WattWatchStorage = {
       // 5. Import settings only when destination account has no existing settings
       let mergedSettings = userSettings;
       let importedSettings = false;
-      if ((!userSettings || Object.keys(userSettings).length === 0) && guestSettings && typeof guestSettings === 'object') {
+      if ((!userSettings || Object.keys(userSettings).length === 0) && guestSettings && typeof guestSettings === 'object' && !Array.isArray(guestSettings)) {
         let isGuestSettingsValid = true;
+        const candidateSettings = { ...guestSettings };
 
-        if (guestSettings.tariffModel === 'slab' || Array.isArray(guestSettings.slabConfig)) {
+        const nonNegFields = ['electricityRate', 'budgetInr', 'fixedCharges', 'freeUnits', 'billCreditInr'];
+        for (const f of nonNegFields) {
+          if (candidateSettings[f] !== undefined) {
+            const v = Number(candidateSettings[f]);
+            if (typeof candidateSettings[f] === 'boolean' || isNaN(v) || v < 0 || !Number.isFinite(v)) {
+              console.warn(`[WattWatch Storage] Refusing to migrate invalid guest setting "${f}":`, candidateSettings[f]);
+              isGuestSettingsValid = false;
+              break;
+            }
+            candidateSettings[f] = v;
+          }
+        }
+
+        if (isGuestSettingsValid && candidateSettings.additionalTaxPercent !== undefined) {
+          const tax = Number(candidateSettings.additionalTaxPercent);
+          if (typeof candidateSettings.additionalTaxPercent === 'boolean' || isNaN(tax) || tax < 0 || tax > 100 || !Number.isFinite(tax)) {
+            console.warn('[WattWatch Storage] Refusing to migrate invalid guest additionalTaxPercent:', candidateSettings.additionalTaxPercent);
+            isGuestSettingsValid = false;
+          } else {
+            candidateSettings.additionalTaxPercent = tax;
+          }
+        }
+
+        if (isGuestSettingsValid && candidateSettings.carbonEmissionFactor !== undefined && candidateSettings.carbonEmissionFactor !== null) {
+          const cf = Number(candidateSettings.carbonEmissionFactor);
+          if (typeof candidateSettings.carbonEmissionFactor === 'boolean' || isNaN(cf) || cf < 0 || !Number.isFinite(cf)) {
+            console.warn('[WattWatch Storage] Refusing to migrate invalid guest carbonEmissionFactor:', candidateSettings.carbonEmissionFactor);
+            isGuestSettingsValid = false;
+          } else {
+            candidateSettings.carbonEmissionFactor = cf;
+          }
+        }
+
+        if (isGuestSettingsValid && candidateSettings.billingDays !== undefined) {
+          const bd = Number(candidateSettings.billingDays);
+          if (typeof candidateSettings.billingDays === 'boolean' || isNaN(bd) || !Number.isFinite(bd) || bd <= 0) {
+            console.warn('[WattWatch Storage] Refusing to migrate invalid guest billingDays:', candidateSettings.billingDays);
+            isGuestSettingsValid = false;
+          } else {
+            candidateSettings.billingDays = bd;
+          }
+        }
+
+        if (isGuestSettingsValid && candidateSettings.currency !== undefined) {
+          const valCurrency = this.validateCurrency(candidateSettings.currency);
+          if (!valCurrency.valid) {
+            console.warn('[WattWatch Storage] Refusing to migrate invalid guest currency:', candidateSettings.currency);
+            isGuestSettingsValid = false;
+          } else {
+            candidateSettings.currency = valCurrency.sanitized;
+          }
+        }
+
+        if (isGuestSettingsValid && candidateSettings.tariffModel !== undefined && candidateSettings.tariffModel !== 'flat' && candidateSettings.tariffModel !== 'slab') {
+          console.warn('[WattWatch Storage] Refusing to migrate invalid guest tariffModel:', candidateSettings.tariffModel);
+          isGuestSettingsValid = false;
+        }
+
+        if (isGuestSettingsValid && (candidateSettings.tariffModel === 'slab' || Array.isArray(candidateSettings.slabConfig))) {
           if (typeof WattWatchCalculations !== 'undefined' && typeof WattWatchCalculations.validateSlabConfig === 'function') {
-            const valSlab = WattWatchCalculations.validateSlabConfig(guestSettings.slabConfig, { requireOpenEnded: true });
+            const valSlab = WattWatchCalculations.validateSlabConfig(candidateSettings.slabConfig, { requireOpenEnded: true });
             if (!valSlab.valid) {
               console.warn('[WattWatch Storage] Refusing to migrate invalid guest slab configuration:', valSlab.error);
               isGuestSettingsValid = false;
             } else {
-              guestSettings.slabConfig = valSlab.sanitized;
+              candidateSettings.slabConfig = valSlab.sanitized;
             }
           } else {
             console.warn('[WattWatch Storage] Refusing to migrate guest slab configuration: WattWatchCalculations.validateSlabConfig is unavailable');
@@ -862,10 +946,10 @@ const WattWatchStorage = {
         }
 
         if (isGuestSettingsValid) {
-          mergedSettings = { ...guestSettings };
+          mergedSettings = candidateSettings;
           importedSettings = true;
         } else {
-          console.warn('[WattWatch Storage] Guest settings contained invalid slab configuration; skipping settings migration');
+          console.warn('[WattWatch Storage] Guest settings contained invalid parameters; skipping settings migration');
           mergedSettings = null;
           importedSettings = false;
         }
@@ -1167,10 +1251,21 @@ const WattWatchStorage = {
         console.error('[WattWatch Storage] Refusing to overwrite appliance data because invalid records could not be backed up.');
         return false;
       }
-      const sanitized = appliances.map(item => {
-        const val = this.validateAppliance(item);
-        return val.valid ? val.sanitized : item;
-      });
+      const sanitized = [];
+      const seenIds = new Set();
+      for (let i = 0; i < appliances.length; i++) {
+        const val = this.validateAppliance(appliances[i]);
+        if (!val.valid) {
+          console.warn('[WattWatch Storage] Refusing to persist invalid appliance record:', val.error, appliances[i]);
+          return false;
+        }
+        if (seenIds.has(val.sanitized.id)) {
+          console.warn('[WattWatch Storage] Refusing to persist duplicate appliance ID:', val.sanitized.id);
+          return false;
+        }
+        seenIds.add(val.sanitized.id);
+        sanitized.push(val.sanitized);
+      }
       localStorage.setItem(this._getKey('APPLIANCES'), JSON.stringify(sanitized));
       this.invalidateCache();
       return true;
@@ -1201,7 +1296,12 @@ const WattWatchStorage = {
       if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
         throw new Error('Stored settings payload is not a valid object');
       }
-      this._cachedSettings = { ...DEFAULT_SETTINGS, ...parsed };
+      const mergedSettings = { ...DEFAULT_SETTINGS, ...parsed };
+      if (parsed.currency !== undefined) {
+        const valCurr = this.validateCurrency(parsed.currency);
+        mergedSettings.currency = valCurr.valid ? valCurr.sanitized : DEFAULT_SETTINGS.currency;
+      }
+      this._cachedSettings = mergedSettings;
       this._cachedSettingsRaw = data;
       return { ...this._cachedSettings };
     } catch (e) {
@@ -1310,6 +1410,15 @@ const WattWatchStorage = {
           return false;
         }
         merged.billingDays = bd;
+      }
+
+      if (settings.currency !== undefined) {
+        const valCurr = this.validateCurrency(settings.currency);
+        if (!valCurr.valid) {
+          console.warn('[WattWatch Storage] Refusing to persist invalid currency:', settings.currency);
+          return false;
+        }
+        merged.currency = valCurr.sanitized;
       }
 
       if (merged.tariffModel === 'slab') {
@@ -1812,17 +1921,25 @@ const WattWatchStorage = {
   sanitizeImportPayload(obj) {
     if (!obj || typeof obj !== 'object') return obj;
     const sensitiveKeys = ['password', 'token', 'authdomain', 'apikey', 'secret', 'credentials', 'privatekey', 'accesstoken', 'uid'];
+    const protoKeys = ['__proto__', 'constructor', 'prototype'];
     if (Array.isArray(obj)) {
       return obj.map(item => this.sanitizeImportPayload(item));
     }
     const clean = {};
     for (const [key, val] of Object.entries(obj)) {
-      if (sensitiveKeys.includes(key.toLowerCase())) continue;
-      if (val && typeof val === 'object') {
-        clean[key] = this.sanitizeImportPayload(val);
-      } else {
-        clean[key] = val;
+      const lowerKey = key.toLowerCase();
+      if (protoKeys.includes(key) || protoKeys.includes(lowerKey) || sensitiveKeys.includes(lowerKey)) {
+        continue;
       }
+      const sanitizedVal = (val && typeof val === 'object')
+        ? this.sanitizeImportPayload(val)
+        : val;
+      Object.defineProperty(clean, key, {
+        value: sanitizedVal,
+        writable: true,
+        enumerable: true,
+        configurable: true
+      });
     }
     return clean;
   },
@@ -2107,8 +2224,12 @@ const WattWatchStorage = {
           }
         }
 
-        if (parsed.settings.currency && typeof parsed.settings.currency === 'string') {
-          newSettings.currency = parsed.settings.currency;
+        if (parsed.settings.currency !== undefined) {
+          const valCurr = this.validateCurrency(parsed.settings.currency);
+          if (!valCurr.valid) {
+            return { success: false, error: `Invalid currency in backup settings: ${valCurr.error}` };
+          }
+          newSettings.currency = valCurr.sanitized;
         }
 
         let importedSlabConfigValid = true;
@@ -2679,10 +2800,10 @@ const WattWatchStorage = {
       return { valid: false, error: 'Meter tracking data must be a valid JSON object' };
     }
 
-    // Helper to validate optional non-negative numeric fields
+    // Helper to validate optional non-negative numeric fields (preserves blank as null)
     const validateNonNegativeNumber = (val, fieldName, max = 10000000) => {
-      if (val === null || val === undefined || val === '') {
-        return { valid: true, value: 0, specified: false };
+      if (val === null || val === undefined || val === '' || (typeof val === 'string' && val.trim() === '')) {
+        return { valid: true, value: null, specified: false };
       }
       if (typeof val === 'boolean') {
         return { valid: false, error: `${fieldName} must be a number, not boolean` };
@@ -2858,8 +2979,23 @@ const WattWatchStorage = {
    * @returns {{ success: boolean, totalRows: number, validRecords: Array, errors: Array }}
    */
   parseAppliancesCSV(csvText) {
+    const MAX_CSV_BYTES = 5 * 1024 * 1024;
+    const MAX_CSV_ROWS = 500;
+
     if (typeof csvText !== 'string' || !csvText.trim()) {
       return { success: false, totalRows: 0, validRecords: [], errors: ['CSV content is empty or invalid'] };
+    }
+
+    const byteSize = typeof TextEncoder !== 'undefined'
+      ? new TextEncoder().encode(csvText).length
+      : csvText.length;
+    if (csvText.length > MAX_CSV_BYTES || byteSize > MAX_CSV_BYTES) {
+      return {
+        success: false,
+        totalRows: 0,
+        validRecords: [],
+        errors: ['CSV file exceeds the maximum allowed size of 5 MB']
+      };
     }
 
     // Strip BOM
@@ -2888,6 +3024,9 @@ const WattWatchStorage = {
         }
       } else {
         if (c === '"') {
+          if (curVal.length > 0) {
+            return { success: false, totalRows: 0, validRecords: [], errors: ['Malformed CSV: unexpected quote inside unquoted field'] };
+          }
           inQuotes = true;
         } else if (c === ',') {
           curRow.push(curVal.trim());
@@ -2907,6 +3046,11 @@ const WattWatchStorage = {
         }
       }
     }
+
+    if (inQuotes) {
+      return { success: false, totalRows: rows.length, validRecords: [], errors: ['Malformed CSV: unclosed quoted field detected'] };
+    }
+
     if (curVal.length > 0 || curRow.length > 0) {
       curRow.push(curVal.trim());
       if (curRow.some(cell => cell.length > 0)) {
@@ -2918,7 +3062,18 @@ const WattWatchStorage = {
       return { success: false, totalRows: rows.length, validRecords: [], errors: ['CSV file must contain a header row and at least one data row'] };
     }
 
+    const dataRowCount = rows.length - 1;
+    if (dataRowCount > MAX_CSV_ROWS) {
+      return {
+        success: false,
+        totalRows: dataRowCount,
+        validRecords: [],
+        errors: [`CSV file contains ${dataRowCount} data rows (maximum ${MAX_CSV_ROWS} appliances allowed)`]
+      };
+    }
+
     const headers = rows[0].map(h => h.toLowerCase().trim().replace(/[\r\n]+/g, ''));
+    const idIdx = headers.findIndex(h => h === 'id' || h === 'appliance id' || h === 'appliance_id');
     const nameIdx = headers.findIndex(h => h === 'name' || h === 'appliance' || h === 'appliance name');
     const catIdx = headers.findIndex(h => h === 'category');
     const wattsIdx = headers.findIndex(h => h.includes('watt') || h.includes('power'));
@@ -2934,7 +3089,7 @@ const WattWatchStorage = {
     if (nameIdx === -1 || wattsIdx === -1 || hoursIdx === -1) {
       return {
         success: false,
-        totalRows: rows.length - 1,
+        totalRows: dataRowCount,
         validRecords: [],
         errors: ['CSV is missing required headers. Required: Name, Power Watts, Daily Hours (Optional: Category, Operating Days, Quantity)']
       };
@@ -2942,92 +3097,98 @@ const WattWatchStorage = {
 
     const validRecords = [];
     const errors = [];
-    const validCategories = ['Cooling', 'Kitchen', 'Lighting', 'Entertainment', 'Computing', 'Other'];
+    const seenIds = new Set();
+
+    const parseNumericCell = (raw) => {
+      if (raw === undefined || raw === null) return undefined;
+      const trimmed = String(raw).trim();
+      if (trimmed === '') return undefined;
+      const num = Number(trimmed);
+      return num;
+    };
 
     for (let r = 1; r < rows.length; r++) {
       const row = rows[r];
       const lineNum = r + 1;
       const rowErrors = [];
 
-      const rawName = row[nameIdx];
-      const rawWatts = row[wattsIdx];
-      const rawHours = row[hoursIdx];
-      const rawDays = daysIdx !== -1 ? row[daysIdx] : '30';
-      const rawQty = qtyIdx !== -1 ? row[qtyIdx] : '1';
-      const rawCat = catIdx !== -1 ? row[catIdx] : 'Other';
+      const rawId = idIdx !== -1 && row[idIdx] !== undefined ? String(row[idIdx]).trim() : '';
+      const rawName = row[nameIdx] !== undefined ? String(row[nameIdx]).trim() : '';
+      const rawWattsStr = row[wattsIdx] !== undefined ? String(row[wattsIdx]).trim() : '';
+      const rawHoursStr = row[hoursIdx] !== undefined ? String(row[hoursIdx]).trim() : '';
+      const rawDaysStr = daysIdx !== -1 && row[daysIdx] !== undefined ? String(row[daysIdx]).trim() : '';
+      const rawQtyStr = qtyIdx !== -1 && row[qtyIdx] !== undefined ? String(row[qtyIdx]).trim() : '';
+      const rawCatStr = catIdx !== -1 && row[catIdx] !== undefined ? String(row[catIdx]).trim() : '';
 
-      if (!rawName || !rawName.trim()) {
-        rowErrors.push('Appliance name cannot be empty');
+      let assignedId = `app_csv_${Date.now()}_${r}_${Math.random().toString(36).substr(2, 5)}`;
+      if (rawId !== '') {
+        if (!/^[a-zA-Z0-9_\-]{1,80}$/.test(rawId)) {
+          rowErrors.push(`Invalid appliance ID "${rawId}" (must be 1-80 alphanumeric, underscore, or hyphen characters)`);
+        } else if (seenIds.has(rawId)) {
+          rowErrors.push(`Duplicate appliance ID "${rawId}"`);
+        } else {
+          assignedId = rawId;
+        }
       }
 
-      const pWatts = Number(rawWatts);
-      if (isNaN(pWatts) || pWatts <= 0 || pWatts > 50000) {
-        rowErrors.push(`Power rating (${rawWatts}) must be between 1 and 50,000 W`);
+      if (!rawName) {
+        rowErrors.push('Appliance name is required');
+      }
+      if (rawWattsStr === '') {
+        rowErrors.push('Power rating is required');
+      }
+      if (rawHoursStr === '') {
+        rowErrors.push('Daily usage hours is required');
       }
 
-      const dHours = Number(rawHours);
-      if (isNaN(dHours) || dHours < 0 || dHours > 24) {
-        rowErrors.push(`Daily hours (${rawHours}) must be between 0 and 24`);
-      }
-
-      const oDays = rawDays ? Number(rawDays) : 30;
-      if (isNaN(oDays) || oDays < 0 || oDays > 31 || !Number.isInteger(oDays)) {
-        rowErrors.push(`Operating days (${rawDays}) must be an integer between 0 and 31`);
-      }
-
-      const qty = rawQty ? Number(rawQty) : 1;
-      if (isNaN(qty) || qty < 1 || qty > 1000 || !Number.isInteger(qty)) {
-        rowErrors.push(`Quantity (${rawQty}) must be an integer >= 1`);
-      }
-
-      let category = 'Other';
-      if (rawCat && rawCat.trim()) {
-        const matched = validCategories.find(c => c.toLowerCase() === rawCat.trim().toLowerCase());
-        category = matched || 'Other';
-      }
-
-      const record = {
-        id: `app_csv_${Date.now()}_${r}_${Math.random().toString(36).substr(2, 5)}`,
-        name: rawName ? rawName.trim().slice(0, 100) : `Appliance #${r}`,
-        category,
-        powerWatts: pWatts,
-        dailyHours: dHours,
-        operatingDays: oDays,
-        quantity: qty,
+      const candidate = {
+        id: assignedId,
+        name: rawName,
+        category: (catIdx !== -1 && rawCatStr !== '') ? rawCatStr : 'Other',
+        powerWatts: rawWattsStr === '' ? NaN : Number(rawWattsStr),
+        dailyHours: rawHoursStr === '' ? NaN : Number(rawHoursStr),
+        operatingDays: (daysIdx !== -1 && rawDaysStr !== '') ? Number(rawDaysStr) : 30,
+        quantity: (qtyIdx !== -1 && rawQtyStr !== '') ? Number(rawQtyStr) : 1,
         createdAt: Date.now() - ((rows.length - r) * 1000)
       };
 
-      if (standbyIdx !== -1 && row[standbyIdx]) {
-        const sb = Number(row[standbyIdx]);
-        if (!isNaN(sb) && sb >= 0 && sb <= 500) record.standbyWatts = sb;
+      if (standbyIdx !== -1) {
+        const sb = parseNumericCell(row[standbyIdx]);
+        if (sb !== undefined) candidate.standbyWatts = sb;
       }
-      if (dutyIdx !== -1 && row[dutyIdx]) {
-        const dc = Number(row[dutyIdx]);
-        if (!isNaN(dc) && dc > 0 && dc <= 100) record.dutyCyclePercent = dc;
+      if (dutyIdx !== -1) {
+        const dc = parseNumericCell(row[dutyIdx]);
+        if (dc !== undefined) candidate.dutyCyclePercent = dc;
       }
-      if (weekdayIdx !== -1 && row[weekdayIdx]) {
-        const wd = Number(row[weekdayIdx]);
-        if (!isNaN(wd) && wd >= 0 && wd <= 24) record.weekdayHours = wd;
+      if (weekdayIdx !== -1) {
+        const wd = parseNumericCell(row[weekdayIdx]);
+        if (wd !== undefined) candidate.weekdayHours = wd;
       }
-      if (weekendIdx !== -1 && row[weekendIdx]) {
-        const we = Number(row[weekendIdx]);
-        if (!isNaN(we) && we >= 0 && we <= 24) record.weekendHours = we;
+      if (weekendIdx !== -1) {
+        const we = parseNumericCell(row[weekendIdx]);
+        if (we !== undefined) candidate.weekendHours = we;
       }
-      if (activeDaysIdx !== -1 && row[activeDaysIdx]) {
-        const ad = Number(row[activeDaysIdx]);
-        if (!isNaN(ad) && ad >= 1 && ad <= 7) record.activeDaysPerWeek = Math.round(ad);
+      if (activeDaysIdx !== -1) {
+        const ad = parseNumericCell(row[activeDaysIdx]);
+        if (ad !== undefined) candidate.activeDaysPerWeek = ad;
       }
 
       if (rowErrors.length > 0) {
         errors.push(`Row ${lineNum}: ${rowErrors.join(', ')}`);
       } else {
-        validRecords.push(record);
+        const validation = this.validateAppliance(candidate);
+        if (!validation.valid) {
+          errors.push(`Row ${lineNum}: ${validation.error}`);
+        } else {
+          seenIds.add(validation.sanitized.id);
+          validRecords.push(validation.sanitized);
+        }
       }
     }
 
     return {
       success: errors.length === 0,
-      totalRows: rows.length - 1,
+      totalRows: dataRowCount,
       validRecords,
       errors
     };
@@ -3051,3 +3212,7 @@ const WattWatchStorage = {
     }
   }
 };
+
+if (typeof window !== 'undefined') {
+  window.WattWatchStorage = WattWatchStorage;
+}

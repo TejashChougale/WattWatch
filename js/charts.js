@@ -896,3 +896,7 @@ const WattWatchCharts = {
     }
   }
 };
+
+if (typeof window !== 'undefined') {
+  window.WattWatchCharts = WattWatchCharts;
+}

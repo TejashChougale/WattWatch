@@ -206,6 +206,10 @@ const WattWatchAuth = {
                 this.chosenSessionType = 'guest';
                 this.hasUserChosenSession = true;
                 WattWatchStorage.setActiveUser(null);
+                this.clearAuthFormInputs();
+                if (typeof WattWatchHistory !== 'undefined' && typeof WattWatchHistory.clearMeterTrackingInputs === 'function') {
+                  WattWatchHistory.clearMeterTrackingInputs();
+                }
                 this.updateTopbarState();
                 if (typeof WattWatchApp !== 'undefined') {
                   if (WattWatchApp.refreshAll) WattWatchApp.refreshAll();
@@ -531,6 +535,60 @@ const WattWatchAuth = {
   },
 
   /**
+   * Clears all transient auth form credentials, resets password visibility toggles to hidden,
+   * and clears account/resume identity fields from DOM to prevent post-logout leakage.
+   */
+  clearAuthFormInputs() {
+    const fieldIds = [
+      'loginUsername',
+      'loginPassword',
+      'signupUsername',
+      'signupPassword',
+      'signupPasswordConfirm',
+      'recoveryUsername'
+    ];
+    fieldIds.forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.value = '';
+    });
+
+    const importChk = document.getElementById('signupImportGuestData');
+    if (importChk) importChk.checked = false;
+
+    const passwordIds = ['loginPassword', 'signupPassword', 'signupPasswordConfirm'];
+    const hiddenEyeSvg = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>';
+    passwordIds.forEach(id => {
+      const input = document.getElementById(id);
+      if (input && input.type !== 'password') {
+        input.type = 'password';
+      }
+      const btn = document.querySelector(`.password-toggle-btn[data-target="${id}"]`);
+      if (btn) {
+        btn.setAttribute('aria-label', 'Show password');
+        btn.setAttribute('title', 'Show password');
+        btn.innerHTML = hiddenEyeSvg;
+      }
+    });
+
+    if (!this.currentUser) {
+      const accName = document.getElementById('accountDisplayName');
+      const accUser = document.getElementById('accountUsernameSub');
+      const accLetter = document.getElementById('accountAvatarLetter');
+      const resName = document.getElementById('resumeDisplayName');
+      const resUser = document.getElementById('resumeUsernameSub');
+      const resLetter = document.getElementById('resumeAvatarLetter');
+      if (accName) accName.textContent = '';
+      if (accUser) accUser.textContent = '';
+      if (accLetter) accLetter.textContent = 'W';
+      if (resName) resName.textContent = '';
+      if (resUser) resUser.textContent = '';
+      if (resLetter) resLetter.textContent = 'U';
+    }
+
+    this.clearAlert();
+  },
+
+  /**
    * Closes the authentication modal.
    * Blocks closing when the startup auth gate has not been explicitly resolved,
    * unless force=true is passed by an explicit session choice.
@@ -556,7 +614,7 @@ const WattWatchAuth = {
     }
 
     document.body.classList.remove('auth-gate-active');
-    this.clearAlert();
+    this.clearAuthFormInputs();
     this.updateCloseButtonsVisibility();
     this.updateTopbarState();
 
@@ -699,8 +757,12 @@ const WattWatchAuth = {
     this.chosenSessionType = null;
     document.body.classList.add('auth-gate-active');
     this.setInertBackground(true);
+    this.clearAuthFormInputs();
     this.updateCloseButtonsVisibility();
     WattWatchStorage.setActiveUser(null);
+    if (typeof WattWatchHistory !== 'undefined' && typeof WattWatchHistory.clearMeterTrackingInputs === 'function') {
+      WattWatchHistory.clearMeterTrackingInputs();
+    }
     this.updateTopbarState();
     this.openAuthModal('login');
     this.updateCloseButtonsVisibility();
@@ -1078,3 +1140,7 @@ const WattWatchAuth = {
     }
   }
 };
+
+if (typeof window !== 'undefined') {
+  window.WattWatchAuth = WattWatchAuth;
+}

@@ -1132,12 +1132,12 @@
 
                 <div class="form-group">
                   <label for="calcFixedCharges" class="form-label">Fixed Meter Charges (₹/mo):</label>
-                  <input type="number" id="calcFixedCharges" class="form-control" step="10" min="0" value="110.00">
+                  <input type="number" id="calcFixedCharges" class="form-control" step="10" min="0" value="0.00">
                 </div>
 
                 <div class="form-group">
                   <label for="calcTaxPercent" class="form-label">Electricity Duty / Tax (%):</label>
-                  <input type="number" id="calcTaxPercent" class="form-control" step="0.5" min="0" max="50" value="5.0">
+                  <input type="number" id="calcTaxPercent" class="form-control" step="0.5" min="0" max="100" value="0.0">
                 </div>
 
                 <div class="form-group">
@@ -1310,26 +1310,53 @@
                 </div>
               </div>
 
-              <div class="form-group">
-                <label for="settingsElectricityRate" class="form-label">
-                  Flat Electricity Rate (₹ per kWh / Unit):
-                </label>
-                <div class="rate-stepper-wrap">
-                  <button type="button" class="btn btn-secondary btn-icon" id="btnRateStepMinus" title="Decrease rate by ₹0.50">-</button>
-                  <input type="number" id="settingsElectricityRate" class="form-control" step="0.25" min="0.5" max="100" value="8.00" style="font-family: var(--font-serif); font-size: 1.25rem; font-weight: 700; text-align: center;">
-                  <button type="button" class="btn btn-secondary btn-icon" id="btnRateStepPlus" title="Increase rate by ₹0.50">+</button>
+              <div id="settingsFlatRateGroup">
+                <div class="form-group">
+                  <label for="settingsElectricityRate" class="form-label">
+                    Flat Electricity Rate (₹ per kWh / Unit):
+                  </label>
+                  <div class="rate-stepper-wrap">
+                    <button type="button" class="btn btn-secondary btn-icon" id="btnRateStepMinus" title="Decrease rate by ₹0.50">-</button>
+                    <input type="number" id="settingsElectricityRate" class="form-control" step="0.25" min="0.5" max="100" value="8.00" style="font-family: var(--font-serif); font-size: 1.25rem; font-weight: 700; text-align: center;">
+                    <button type="button" class="btn btn-secondary btn-icon" id="btnRateStepPlus" title="Increase rate by ₹0.50">+</button>
+                  </div>
+                  <div class="form-hint">Enter your utility's flat electricity rate per kWh (consult your electricity bill; for multi-tier slab tariffs, visit the Simulators section).</div>
                 </div>
-                <div class="form-hint">Enter your utility's flat electricity rate per kWh (consult your electricity bill; for multi-tier slab tariffs, visit the Simulators section).</div>
+
+                <!-- Quick rate presets -->
+                <div style="margin-top: 1rem;">
+                  <span style="font-size: 0.78rem; font-weight: 600; color: var(--text-secondary); text-transform: uppercase;">Quick Presets:</span>
+                  <div class="rate-presets-group">
+                    <button type="button" class="preset-chip rate-preset-btn" data-rate="6.50">₹6.50 / unit</button>
+                    <button type="button" class="preset-chip rate-preset-btn" data-rate="8.00">₹8.00 / unit (Default)</button>
+                    <button type="button" class="preset-chip rate-preset-btn" data-rate="10.00">₹10.00 / unit</button>
+                    <button type="button" class="preset-chip rate-preset-btn" data-rate="12.50">₹12.50 / unit</button>
+                  </div>
+                </div>
               </div>
 
-              <!-- Quick rate presets -->
-              <div style="margin-top: 1rem;">
-                <span style="font-size: 0.78rem; font-weight: 600; color: var(--text-secondary); text-transform: uppercase;">Quick Presets:</span>
-                <div class="rate-presets-group">
-                  <button type="button" class="preset-chip rate-preset-btn" data-rate="6.50">₹6.50 / unit</button>
-                  <button type="button" class="preset-chip rate-preset-btn" data-rate="8.00">₹8.00 / unit (Default)</button>
-                  <button type="button" class="preset-chip rate-preset-btn" data-rate="10.00">₹10.00 / unit</button>
-                  <button type="button" class="preset-chip rate-preset-btn" data-rate="12.50">₹12.50 / unit</button>
+              <!-- Active Slab Tiers Details (Shown when slab mode is active) -->
+              <div id="settingsActiveSlabsContainer" style="display: none; margin-bottom: 1.25rem;">
+                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.5rem; flex-wrap: wrap; gap: 0.5rem;">
+                  <span style="font-size: 0.825rem; font-weight: 700; color: var(--text-primary); text-transform: uppercase;">Active Slab Tiers Breakdown:</span>
+                  <button type="button" class="btn btn-secondary btn-sm" id="btnSettingsSwitchToFlat" title="Switch billing model to flat rate">Switch to Flat Rate</button>
+                </div>
+                <div class="table-responsive">
+                  <table class="appliance-table" style="font-size: 0.85rem; margin-bottom: 0.5rem;">
+                    <thead>
+                      <tr>
+                        <th>Tier</th>
+                        <th>Consumption Range</th>
+                        <th>Rate (₹/kWh)</th>
+                      </tr>
+                    </thead>
+                    <tbody id="settingsActiveSlabsTableBody">
+                      <!-- Populated via app.js -->
+                    </tbody>
+                  </table>
+                </div>
+                <div style="font-size: 0.8rem; color: var(--text-secondary); margin-top: 0.4rem;">
+                  Tier boundaries and progressive rates are configured in the <a href="#simulator" onclick="WattWatchApp.navigateTo('simulator'); return false;" style="color: var(--royal-blue); font-weight: 600; text-decoration: underline;">Tariff Calculator &amp; Sandbox</a>.
                 </div>
               </div>
 
@@ -1344,6 +1371,20 @@
                   <label for="settingsBillCredit" class="form-label">Bill Credit / Subsidy (₹):</label>
                   <input type="number" id="settingsBillCredit" class="form-control" step="50" min="0" value="0">
                   <div class="form-hint">Direct subsidy in ₹</div>
+                </div>
+              </div>
+
+              <!-- Fixed Charges & Electricity Duty -->
+              <div style="margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--border-subtle); display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                <div class="form-group" style="margin-bottom: 0;">
+                  <label for="settingsFixedCharges" class="form-label">Fixed Meter Charges (₹/mo):</label>
+                  <input type="number" id="settingsFixedCharges" class="form-control" step="10" min="0" value="0.00">
+                  <div class="form-hint">Sanctioned load / meter rent</div>
+                </div>
+                <div class="form-group" style="margin-bottom: 0;">
+                  <label for="settingsTaxPercent" class="form-label">Electricity Duty / Tax (%):</label>
+                  <input type="number" id="settingsTaxPercent" class="form-control" step="0.5" min="0" max="100" value="0.0">
+                  <div class="form-hint">State electricity duty / cess</div>
                 </div>
               </div>
             </div>
