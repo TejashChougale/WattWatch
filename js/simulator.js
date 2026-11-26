@@ -52,6 +52,8 @@ const WattWatchSimulator = {
       select.value = curVal;
     } else if (appliances.length > 0) {
       select.value = appliances[0].id;
+    } else {
+      select.value = '';
     }
 
     this.handleApplianceSelect();
@@ -68,38 +70,63 @@ const WattWatchSimulator = {
     const appliances = WattWatchStorage.getAppliances();
     const app = appliances.find(a => a.id === id);
 
+    const hoursInput = document.getElementById('simAltHours');
+    const daysInput = document.getElementById('simAltDays');
+    const qtyInput = document.getElementById('simAltQty');
+    const wattsInput = document.getElementById('simAltWatts');
+    const costInput = document.getElementById('simPurchaseCost');
+
     const baseInfo = document.getElementById('simBaselineInfo');
     if (!app) {
       if (baseInfo) baseInfo.innerHTML = '<span style="color: var(--text-secondary);">Select an appliance to view current baseline ratings.</span>';
+      if (appliances.length === 0) {
+        if (wattsInput) wattsInput.value = '';
+        if (hoursInput) hoursInput.value = '';
+        if (daysInput) daysInput.value = '';
+        if (qtyInput) qtyInput.value = '1';
+        if (costInput) costInput.value = '';
+      }
+      this._autofilledBaseline = null;
+      this.calculateReplacement();
       return;
     }
 
     const settings = WattWatchStorage.getSettings();
-    const curAppliances = WattWatchStorage.getAppliances();
-    const curSummary = WattWatchCalculations.calculateHouseholdSummary(curAppliances, settings);
+    const curSummary = WattWatchCalculations.calculateHouseholdSummary(appliances, settings);
     const enriched = curSummary.appliances.find(a => a.id === id) || WattWatchCalculations.enrichAppliance(app, curSummary.effectiveRatePerKwh);
 
+    const prevAutofill = this._autofilledBaseline;
+    const shouldSyncField = (input, prevVal) => {
+      if (!input) return false;
+      if (!input.value) return true;
+      return prevAutofill && prevVal !== undefined && input.value === String(prevVal);
+    };
+
+    if (shouldSyncField(hoursInput, prevAutofill?.hours)) hoursInput.value = app.dailyHours;
+    if (shouldSyncField(daysInput, prevAutofill?.days)) daysInput.value = app.operatingDays;
+    if (shouldSyncField(qtyInput, prevAutofill?.qty)) qtyInput.value = app.quantity;
+
+    this._autofilledBaseline = {
+      id: app.id,
+      hours: app.dailyHours,
+      days: app.operatingDays,
+      qty: app.quantity
+    };
+
     if (baseInfo) {
+      const hasAdv = enriched.metrics && enriched.metrics.hasAdvancedProfile;
+      const advTag = hasAdv ? ' <span class="badge badge-cooling" style="font-size: 0.65rem; margin-left: 0.35rem;">Advanced Profile</span>' : '';
       baseInfo.innerHTML = `
         <div style="font-weight: 600; color: var(--text-primary); font-size: 1rem; margin-bottom: 0.35rem;">
-          ${WattWatchAppliances.escapeHtml(app.name)}
+          ${WattWatchAppliances.escapeHtml(app.name)}${advTag}
         </div>
         <div style="font-size: 0.825rem; color: var(--text-secondary); line-height: 1.5;">
           <strong>${Number(app.powerWatts) || 0} Watts</strong> · ${Number(app.dailyHours) || 0} hrs/day · ${Number(app.operatingDays) || 30} days/mo · ${Number(app.quantity) || 1} unit(s)<br>
           Current Monthly Energy: <strong style="color: var(--royal-blue);">${WattWatchCalculations.formatKwh(enriched.monthlyKwh)}</strong><br>
-          Current Monthly Cost: <strong style="color: var(--deep-burgundy);">${WattWatchCalculations.formatCurrency(enriched.monthlyCost)}</strong>${settings.tariffModel === 'slab' ? ` <span style="font-size: 0.72rem; color: var(--text-secondary);">(at ₹${curSummary.effectiveRatePerKwh.toFixed(2)}/u eff.)</span>` : ''}
+          Current Monthly Cost: <strong style="color: var(--deep-burgundy);">${WattWatchAppliances.escapeHtml(WattWatchCalculations.formatCurrency(enriched.monthlyCost))}</strong>${settings.tariffModel === 'slab' ? ` <span style="font-size: 0.72rem; color: var(--text-secondary);">(at ₹${curSummary.effectiveRatePerKwh.toFixed(2)}/u eff.)</span>` : ''}
         </div>
       `;
     }
-
-    // Default replacement inputs to baseline operational schedule if empty
-    const hoursInput = document.getElementById('simAltHours');
-    const daysInput = document.getElementById('simAltDays');
-    const qtyInput = document.getElementById('simAltQty');
-
-    if (hoursInput && !hoursInput.value) hoursInput.value = app.dailyHours;
-    if (daysInput && !daysInput.value) daysInput.value = app.operatingDays;
-    if (qtyInput && !qtyInput.value) qtyInput.value = app.quantity;
 
     this.calculateReplacement();
   },
@@ -184,14 +211,14 @@ const WattWatchSimulator = {
       <div class="metrics-grid" style="grid-template-columns: repeat(4, 1fr); margin-bottom: 1.5rem;">
         <div class="metric-card">
           <span class="metric-title">Baseline Model</span>
-          <div class="metric-value">${WattWatchCalculations.formatCurrency(sim.baseline.monthlyCost)}</div>
+          <div class="metric-value">${WattWatchAppliances.escapeHtml(WattWatchCalculations.formatCurrency(sim.baseline.monthlyCost))}</div>
           <div class="metric-subtext">${sim.baseline.monthlyKwh.toFixed(2)} kWh/mo · ${sim.baseline.watts}W</div>
         </div>
 
         <div class="metric-card">
           <span class="metric-title">Replacement Model</span>
           <div class="metric-value" style="color: ${isSaving ? 'var(--royal-blue)' : 'var(--deep-burgundy)'};">
-            ${WattWatchCalculations.formatCurrency(sim.replacement.monthlyCost)}
+            ${WattWatchAppliances.escapeHtml(WattWatchCalculations.formatCurrency(sim.replacement.monthlyCost))}
           </div>
           <div class="metric-subtext">${sim.replacement.monthlyKwh.toFixed(2)} kWh/mo · ${sim.replacement.watts}W</div>
         </div>
@@ -202,7 +229,7 @@ const WattWatchSimulator = {
             <span class="badge ${isSaving ? 'badge-cooling' : 'badge-burgundy'}">${isSaving ? '▼ ' + percentStr : '▲ Higher'}</span>
           </div>
           <div class="metric-value" style="color: ${isSaving ? 'var(--deep-burgundy)' : 'var(--text-primary)'};">
-            ${isSaving ? '+' : '-'}${WattWatchCalculations.formatCurrency(Math.abs(sim.savings.monthlyCostSaved))}
+            ${isSaving ? '+' : '-'}${WattWatchAppliances.escapeHtml(WattWatchCalculations.formatCurrency(Math.abs(sim.savings.monthlyCostSaved)))}
           </div>
           <div class="metric-subtext">${isSaving ? (sim.tariffMode === 'slab' ? `Slab marginal savings (${sim.savings.monthlyKwhSaved.toFixed(1)} kWh)` : `Saves ${sim.savings.monthlyKwhSaved.toFixed(1)} kWh/mo`) : 'Consumes more energy'}</div>
         </div>
@@ -213,7 +240,7 @@ const WattWatchSimulator = {
             <span class="badge badge-gold">12 Months</span>
           </div>
           <div class="metric-value" style="color: var(--text-gold);">
-            ${isSaving ? '+' : '-'}${WattWatchCalculations.formatCurrency(Math.abs(sim.savings.annualCostSaved))}
+            ${isSaving ? '+' : '-'}${WattWatchAppliances.escapeHtml(WattWatchCalculations.formatCurrency(Math.abs(sim.savings.annualCostSaved)))}
           </div>
           <div class="metric-subtext">${isSaving ? 'Saves ' + sim.savings.annualKwhSaved.toFixed(1) + ' kWh/year' : 'Additional yearly cost'}</div>
         </div>
@@ -545,7 +572,7 @@ const WattWatchSimulator = {
     const subsidyBanner = (result.subsidyApplied > 0 || result.freeUnitsApplied > 0)
       ? `<div style="background: var(--bg-surface); border: 1px dashed var(--emerald-primary, #10b981); border-radius: var(--radius-md); padding: 0.75rem 1rem; margin-bottom: 1.25rem; font-size: 0.85rem; color: var(--text-primary);">
           ${result.freeUnitsApplied > 0 ? `<div><strong>Lifeline Allowance:</strong> ${result.freeUnitsApplied.toFixed(1)} kWh billed at ₹0.00 (${result.billableKwh.toFixed(1)} billable units).</div>` : ''}
-          ${result.subsidyApplied > 0 ? `<div><strong>Govt Subsidy / Bill Credit Applied:</strong> -${WattWatchCalculations.formatCurrency(result.subsidyApplied)} (Gross Bill: ${WattWatchCalculations.formatCurrency(result.grossCost)} &rarr; Net Payable: ${WattWatchCalculations.formatCurrency(result.totalCost)}).</div>` : ''}
+          ${result.subsidyApplied > 0 ? `<div><strong>Govt Subsidy / Bill Credit Applied:</strong> -${WattWatchAppliances.escapeHtml(WattWatchCalculations.formatCurrency(result.subsidyApplied))} (Gross Bill: ${WattWatchAppliances.escapeHtml(WattWatchCalculations.formatCurrency(result.grossCost))} &rarr; Net Payable: ${WattWatchAppliances.escapeHtml(WattWatchCalculations.formatCurrency(result.totalCost))}).</div>` : ''}
         </div>`
       : '';
 
@@ -554,17 +581,17 @@ const WattWatchSimulator = {
       <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; margin-bottom: 1.25rem;">
         <div style="background: var(--soft-blue); padding: 0.85rem; border-radius: var(--radius-md);">
           <div style="font-size: 0.72rem; color: var(--text-secondary); text-transform: uppercase;">Energy Base Cost</div>
-          <div style="font-family: var(--font-serif); font-size: 1.35rem; font-weight: 700; color: var(--royal-blue);">${WattWatchCalculations.formatCurrency(result.energyCharges)}</div>
+          <div style="font-family: var(--font-serif); font-size: 1.35rem; font-weight: 700; color: var(--royal-blue);">${WattWatchAppliances.escapeHtml(WattWatchCalculations.formatCurrency(result.energyCharges))}</div>
         </div>
 
         <div style="background: var(--antique-gold-subtle); padding: 0.85rem; border-radius: var(--radius-md);">
           <div style="font-size: 0.72rem; color: var(--text-secondary); text-transform: uppercase;">Fixed + Duty (${result.taxPercent}%)</div>
-          <div style="font-family: var(--font-serif); font-size: 1.35rem; font-weight: 700; color: var(--text-gold);">${WattWatchCalculations.formatCurrency(result.fixedCharge + result.taxCharges)}</div>
+          <div style="font-family: var(--font-serif); font-size: 1.35rem; font-weight: 700; color: var(--text-gold);">${WattWatchAppliances.escapeHtml(WattWatchCalculations.formatCurrency(result.fixedCharge + result.taxCharges))}</div>
         </div>
 
         <div style="background: var(--light-burgundy); padding: 0.85rem; border-radius: var(--radius-md);">
           <div style="font-size: 0.72rem; color: var(--text-secondary); text-transform: uppercase;">Total Payable Bill</div>
-          <div style="font-family: var(--font-serif); font-size: 1.35rem; font-weight: 700; color: var(--deep-burgundy);">${WattWatchCalculations.formatCurrency(result.totalCost)}</div>
+          <div style="font-family: var(--font-serif); font-size: 1.35rem; font-weight: 700; color: var(--deep-burgundy);">${WattWatchAppliances.escapeHtml(WattWatchCalculations.formatCurrency(result.totalCost))}</div>
           <div style="font-size: 0.75rem; color: var(--text-secondary); margin-top: 0.2rem;">Effective Rate: ₹${result.effectiveRatePerKwh.toFixed(2)}/kWh</div>
         </div>
       </div>

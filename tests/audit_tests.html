@@ -2545,10 +2545,11 @@
       assert(WattWatchStorage.getHistory().length === initialHistCount, 'Invalid snapshot is not added to storage');
 
       // E. CSV Exports Handling of Invalid Values
-      WattWatchStorage.saveAppliances([
+      localStorage.setItem(WattWatchStorage._getKey('APPLIANCES'), JSON.stringify([
         { id: 'app_valid', name: 'Working Lamp', category: 'Lighting', powerWatts: 25, dailyHours: 4, operatingDays: 30, quantity: 1 },
         { id: 'app_broken', name: 'Corrupt Device', category: 'Other', powerWatts: -100, dailyHours: 4, operatingDays: 30, quantity: 1 }
-      ]);
+      ]));
+      WattWatchStorage.invalidateCache();
       const appCsvCorrupt = WattWatchStorage.generateAppliancesCSV();
       assert(appCsvCorrupt.includes('N/A'), 'generateAppliancesCSV formats invalid appliance energy and cost as N/A');
       assert(!appCsvCorrupt.includes('"Corrupt Device","Other",-100,4,30,1,0.00,0.00'), 'generateAppliancesCSV does not fallback corrupted device to 0.00');
@@ -5825,6 +5826,284 @@
             if (k && k.startsWith(phase52Ns)) keys52.push(k);
           }
           keys52.forEach(k => localStorage.removeItem(k));
+        }
+      }
+
+      // ==========================================
+      // SECTION 53: Phase 6.1 + 6.2 Security & Core Functionality Regressions
+      // ==========================================
+      {
+        const p6Ns = 'wattwatch_audit_test_p6_';
+        const origNs6 = WattWatchStorage.testNamespace;
+        const origActiveUser6 = WattWatchStorage.getActiveUser();
+        const origAuthUser6 = WattWatchAuth.currentUser;
+        const origAuthChosen6 = WattWatchAuth.hasUserChosenSession;
+        const origAuthType6 = WattWatchAuth.chosenSessionType;
+        const origFirebaseAuth6 = WattWatchAuth.auth;
+        const origFirebaseSignOut6 = WattWatchAuth.firebaseSignOut;
+        const origShowToast6 = WattWatchApp.showToast;
+        const origConfirm6 = WattWatchApp.openConfirmDialog;
+
+        WattWatchApp.showToast = () => {};
+        WattWatchAuth.auth = { currentUser: null };
+        WattWatchAuth.firebaseSignOut = async () => {};
+        WattWatchStorage.setTestNamespace(p6Ns);
+        WattWatchStorage.setActiveUser(null);
+
+        try {
+          // --- SEC-01: Currency validation allowlist, length <= 8, & XSS neutralization ---
+          assert(WattWatchStorage.validateCurrency('₹').valid === true, 'P6.SEC01.1: INR symbol ₹ is accepted');
+          assert(WattWatchStorage.validateCurrency('INR').valid === true, 'P6.SEC01.2: INR code is accepted');
+          assert(WattWatchStorage.validateCurrency('USD').valid === true, 'P6.SEC01.3: Supported code USD is accepted');
+          assert(WattWatchCalculations.formatCurrency(1234.5, '₹') === '₹1,234.50', 'P6.SEC01.4: Legitimate INR formatting preserved');
+          assert(WattWatchCalculations.formatCurrency(1234.5, 'INR') === 'INR1,234.50', 'P6.SEC01.5: Legitimate currency code formatting preserved');
+
+          const maliciousCurrencies = [
+            '<img src=x onerror="window.__xssP6Sec01=1">',
+            '<svg onload="window.__xssP6Sec01=1">',
+            '<script>window.__xssP6Sec01=1<' + '/script>',
+            '"\'&<>',
+            'LONGCURRENCYNAME',
+            'XYZ'
+          ];
+          window.__xssP6Sec01 = false;
+          maliciousCurrencies.forEach((badCurr, idx) => {
+            assert(WattWatchStorage.validateCurrency(badCurr).valid === false, `P6.SEC01.6.${idx}: validateCurrency rejects malicious/invalid string`);
+            assert(WattWatchStorage.saveSettings({ currency: badCurr }) === false, `P6.SEC01.7.${idx}: saveSettings refuses invalid currency`);
+            const impCurrRes = WattWatchStorage.importDataJSON(JSON.stringify({ version: '2.0', appliances: [], settings: { currency: badCurr } }), { mode: 'replace' });
+            assert(impCurrRes.success === false, `P6.SEC01.8.${idx}: importDataJSON rejects invalid currency`);
+            const formatted = WattWatchCalculations.formatCurrency(100, badCurr);
+            assert(formatted === '₹100.00' && !formatted.includes('<') && !formatted.includes('>'), `P6.SEC01.9.${idx}: formatCurrency falls back safely to ₹ on invalid currency`);
+          });
+
+          // Render Overview Insights & Comparison even with pre-poisoned settings object
+          const p6TestApp = { id: 'p6_xss_app', name: 'Fan & Light', category: 'Cooling', powerWatts: 100, dailyHours: 10, operatingDays: 30, quantity: 1 };
+          const p6Summary = WattWatchCalculations.calculateHouseholdSummary([p6TestApp], 8.0);
+          WattWatchApp.setInsightsTimeframe('weekly');
+          WattWatchApp.renderOverviewInsights(p6Summary, p6Summary.totalMonthlyCost, { currency: '<img src=x onerror="window.__xssP6Sec01=true">', budgetInr: 2500 }, p6Summary.advancedTariff);
+          WattWatchApp.setInsightsTimeframe('monthly');
+          WattWatchApp.renderOverviewInsights(p6Summary, p6Summary.totalMonthlyCost, { currency: '<svg onload="window.__xssP6Sec01=true">', budgetInr: 2500 }, p6Summary.advancedTariff);
+          WattWatchApp.renderOverviewApplianceComparison(p6Summary, { currency: '<img src=x onerror="window.__xssP6Sec01=true">' });
+
+          const insightsEl = document.getElementById('overviewInsightsContent');
+          const compEl = document.getElementById('overviewApplianceComparisonContent');
+          assert(window.__xssP6Sec01 === false, 'P6.SEC01.10: Malicious currency payload never executes JS');
+          assert(insightsEl && insightsEl.querySelectorAll('img, svg[onload], script').length === 0, 'P6.SEC01.11: No injected markup in overviewInsightsContent');
+          assert(compEl && compEl.querySelectorAll('img, svg[onload], script').length === 0, 'P6.SEC01.12: No injected markup in overviewApplianceComparisonContent');
+          delete window.__xssP6Sec01;
+
+          // Migrate guest settings with malicious currency rejects invalid settings cleanly
+          WattWatchStorage.setActiveUser(null);
+          WattWatchStorage.saveAppliances([p6TestApp]);
+          localStorage.setItem(WattWatchStorage._getGuestKey('SETTINGS'), JSON.stringify({ electricityRate: 8, currency: '<img src=x>' }));
+          const sec01Mig = WattWatchStorage.migrateGuestData('p6_sec01_user');
+          assert(sec01Mig.success === true && sec01Mig.importedSettings === false, 'P6.SEC01.13: migrateGuestData refuses guest settings with malicious currency');
+
+          // --- SEC-02: Prototype-key sanitization in JSON import ---
+          const protoPayload = '{"version":"2.0","appliances":[{"id":"p6_app","name":"Bulb","category":"Lighting","powerWatts":15,"dailyHours":5,"operatingDays":30,"quantity":1,"__proto__":{"pollutedApp":true},"constructor":{"prototype":{"evil":1}}}],"__proto__":{"pollutedTop":true},"constructor":{"evil":2},"prototype":{"evil":3},"settings":{"__proto__":{"tariffModel":"slab","pollutedSetting":"yes","currency":"<u>CURR</u>"},"constructor":{"evil":4}}}';
+          const parsedProtoRaw = JSON.parse(protoPayload);
+          const cleanedProto = WattWatchStorage.sanitizeImportPayload(parsedProtoRaw);
+          assert(Object.getPrototypeOf(cleanedProto) === Object.prototype, 'P6.SEC02.1: Top-level prototype unchanged');
+          assert(Object.getPrototypeOf(cleanedProto.settings) === Object.prototype, 'P6.SEC02.2: Nested settings prototype unchanged');
+          assert(!('pollutedTop' in cleanedProto) && !('pollutedSetting' in cleanedProto.settings), 'P6.SEC02.3: __proto__ properties not inherited');
+          assert(!Object.prototype.hasOwnProperty.call(cleanedProto, 'constructor') && !Object.prototype.hasOwnProperty.call(cleanedProto, 'prototype'), 'P6.SEC02.4: constructor & prototype keys stripped');
+          assert(!Object.prototype.hasOwnProperty.call(cleanedProto.appliances[0], 'constructor') && !('pollutedApp' in cleanedProto.appliances[0]), 'P6.SEC02.5: Array nested items stripped of prototype keys');
+
+          WattWatchStorage.setActiveUser(null);
+          WattWatchStorage.saveSettings({ tariffModel: 'flat', electricityRate: 8.0, currency: '₹' });
+          const protoImportRes = WattWatchStorage.importDataJSON(protoPayload, { mode: 'replace' });
+          assert(protoImportRes.success === true, 'P6.SEC02.6: Clean fields in payload still import successfully');
+          const afterProtoSett = WattWatchStorage.getSettings();
+          assert(afterProtoSett.tariffModel === 'flat' && afterProtoSett.currency === '₹', 'P6.SEC02.7: Prototype-injected tariffModel and currency do not affect imported settings');
+          assert(({}).pollutedTop === undefined && ({}).pollutedSetting === undefined && ({}).evil === undefined, 'P6.SEC02.8: Global Object.prototype remains unpolluted');
+
+          // --- SEC-03: Credential & Meter DOM Isolation Across Logout & Account Switch [Controlled Mock Auth] ---
+          WattWatchStorage.setActiveUser('p6_user_a');
+          WattWatchStorage.saveMeterTracking({
+            cycleStartDate: '2026-10-01',
+            cycleEndDate: '2026-10-31',
+            startReading: 10000,
+            currentReading: 10250,
+            actualCost: 2200,
+            notes: 'UserA Private Meter Note'
+          });
+          WattWatchStorage.setActiveUser('p6_user_b');
+          WattWatchStorage.saveMeterTracking({
+            cycleStartDate: '2026-10-05',
+            cycleEndDate: '2026-11-04',
+            startReading: 5000,
+            currentReading: 5120,
+            actualCost: 960,
+            notes: 'UserB Private Note'
+          });
+          WattWatchStorage.setActiveUser(null);
+          localStorage.removeItem(WattWatchStorage._getKey('METER'));
+
+          // Switch UI to User A & fill credentials + toggle password visibility
+          WattWatchStorage.setActiveUser('p6_user_a');
+          WattWatchAuth.currentUser = { uid: 'p6_user_a', username: 'usera', displayName: 'User A' };
+          WattWatchAuth.chosenSessionType = 'account';
+          WattWatchAuth.hasUserChosenSession = true;
+          WattWatchApp.refreshAll();
+
+          const signupU = document.getElementById('signupUsername');
+          const signupP = document.getElementById('signupPassword');
+          const signupPC = document.getElementById('signupPasswordConfirm');
+          if (signupU) signupU.value = 'usera_new';
+          if (signupP) { signupP.value = 'SecretNew123!'; signupP.type = 'text'; }
+          if (signupPC) signupPC.value = 'SecretNew123!';
+
+          assert(document.getElementById('meterStartReading').value === '10000', 'P6.SEC03.1: User A meter start reading loaded');
+          assert(document.getElementById('meterNotes').value === 'UserA Private Meter Note', 'P6.SEC03.2: User A meter notes loaded');
+
+          // Mock signOutAndSwitchToLogin (non-Firebase local transition)
+          await WattWatchAuth.signOutAndSwitchToLogin();
+          assert(signupU.value === '' && signupP.value === '' && signupPC.value === '', 'P6.SEC03.3: Auth signup inputs cleared on signOut');
+          assert(signupP.type === 'password' && signupPC.type === 'password', 'P6.SEC03.4: Signup password inputs reset to type="password"');
+          assert(document.getElementById('meterStartReading').value === '' && document.getElementById('meterActualCost').value === '' && document.getElementById('meterNotes').value === '', 'P6.SEC03.5: User A meter form values cleared from DOM after sign-out into empty Guest state');
+          const guestMeterSummaryText = document.getElementById('meterComparisonSummary')?.textContent || '';
+          assert(!guestMeterSummaryText.includes('250.0 kWh') && !guestMeterSummaryText.includes('2,200'), 'P6.SEC03.6: User A meter summary cleared after sign-out');
+
+          // Switch to User B and back to User A repeatedly
+          WattWatchStorage.setActiveUser('p6_user_b');
+          WattWatchApp.refreshAll();
+          assert(document.getElementById('meterStartReading').value === '5000' && document.getElementById('meterNotes').value === 'UserB Private Note', 'P6.SEC03.7: Switching to User B loads User B meter data');
+          WattWatchStorage.setActiveUser(null);
+          WattWatchApp.refreshAll();
+          assert(document.getElementById('meterStartReading').value === '' && document.getElementById('meterNotes').value === '', 'P6.SEC03.8: Switching back to empty Guest clears User B meter DOM');
+          WattWatchStorage.setActiveUser('p6_user_a');
+          assert(WattWatchStorage.getMeterTracking()?.startReading === 10000, 'P6.SEC03.9: User A persistent localStorage meter record remained intact');
+          WattWatchAuth.closeModal(true);
+          WattWatchStorage.setActiveUser(null);
+
+          // --- BUG-01: CSV Import Hardening & Validation Parity ---
+          const baseValidApp = { id: 'p6_valid_existing', name: 'Existing TV', category: 'Entertainment', powerWatts: 100, dailyHours: 4, operatingDays: 30, quantity: 1 };
+          WattWatchStorage.saveAppliances([baseValidApp]);
+          const preCsvBackupCount = WattWatchStorage.getInvalidApplianceBackups().length;
+
+          // Bad CSV variations
+          const csvBadOpDaysZero = 'Name,Category,Power Watts,Daily Hours,Operating Days,Quantity\nFan,Cooling,75,8,0,1';
+          const csvBadQtyHigh = 'Name,Category,Power Watts,Daily Hours,Operating Days,Quantity\nBulb,Lighting,10,5,30,250';
+          const csvBadCat = 'Name,Category,Power Watts,Daily Hours,Operating Days,Quantity\nGadget,AlienCategory,100,5,30,1';
+          const csvBadDecAdw = 'Name,Category,Power Watts,Daily Hours,Operating Days,Quantity,Active Days Per Week\nFan,Cooling,75,8,30,1,3.5';
+          const csvBadAdvOob = 'Name,Category,Power Watts,Daily Hours,Operating Days,Quantity,Standby Power (Watts)\nTV,Entertainment,100,4,30,1,999';
+          const csvDupId = 'ID,Name,Category,Power Watts,Daily Hours,Operating Days,Quantity\ndup1,Fan 1,Cooling,75,8,30,1\ndup1,Fan 2,Cooling,80,8,30,1';
+          const csvUnclosedQuote = 'Name,Category,Power Watts,Daily Hours\n"Unclosed Quote,Cooling,75,8';
+          const csvTooManyRows = ['Name,Category,Power Watts,Daily Hours,Operating Days,Quantity']
+            .concat(Array.from({ length: 501 }, (_, i) => `Device ${i},Other,100,2,30,1`)).join('\n');
+          const csvOver5Mb = 'Name,Category,Power Watts,Daily Hours\n' + 'A'.repeat(5 * 1024 * 1024 + 100) + ',Other,100,2';
+
+          [
+            ['zero operatingDays', csvBadOpDaysZero],
+            ['quantity > 100', csvBadQtyHigh],
+            ['unknown category', csvBadCat],
+            ['decimal activeDaysPerWeek', csvBadDecAdw],
+            ['out-of-range standbyWatts', csvBadAdvOob],
+            ['duplicate IDs', csvDupId],
+            ['unclosed quote', csvUnclosedQuote],
+            ['> 500 rows', csvTooManyRows],
+            ['> 5 MB file', csvOver5Mb]
+          ].forEach(([label, payload]) => {
+            const r = WattWatchStorage.parseAppliancesCSV(payload);
+            assert(r.success === false && r.errors.length > 0, `P6.BUG01: parseAppliancesCSV rejects ${label}`);
+          });
+
+          // Partial failure CSV must NOT overwrite or quarantine valid inventory via confirmCsvImport
+          const csvPartial = 'Name,Category,Power Watts,Daily Hours,Operating Days,Quantity\nValid Fan,Cooling,75,8,30,1\nInvalid Days,Cooling,75,8,0,1';
+          const partialParsed = WattWatchStorage.parseAppliancesCSV(csvPartial);
+          assert(partialParsed.success === false && partialParsed.validRecords.length === 1 && partialParsed.errors.length === 1, 'P6.BUG01: Partial CSV flags success=false with error');
+          WattWatchApp.openCsvPreviewModal(partialParsed);
+          assert(document.getElementById('btnConfirmCsvImport').disabled === true, 'P6.BUG01: Preview modal disables Confirm Import when CSV has validation errors');
+          WattWatchApp.confirmCsvImport();
+          const postBadCsvApps = WattWatchStorage.getAppliances();
+          assert(postBadCsvApps.length === 1 && postBadCsvApps[0].id === 'p6_valid_existing', 'P6.BUG01: Failed/partial CSV import preserves existing inventory unchanged');
+          assert(WattWatchStorage.getInvalidApplianceBackups().length === preCsvBackupCount, 'P6.BUG01: Rejected CSV creates zero localStorage quarantine backups');
+
+          // Direct saveAppliances rejects invalid items and duplicate IDs without persisting
+          assert(WattWatchStorage.saveAppliances([baseValidApp, { id: 'bad_item', name: 'Bad', category: 'Other', powerWatts: -10, dailyHours: 4, operatingDays: 30, quantity: 1 }]) === false, 'P6.BUG01: saveAppliances rejects collection containing invalid item');
+          assert(WattWatchStorage.saveAppliances([baseValidApp, { ...baseValidApp }]) === false, 'P6.BUG01: saveAppliances rejects duplicate IDs');
+          assert(WattWatchStorage.getAppliances().length === 1 && WattWatchStorage.getAppliances()[0].id === 'p6_valid_existing', 'P6.BUG01: Existing inventory untouched after rejected saveAppliances');
+
+          // --- BUG-03: Meter Blank Optional Fields Stay Null, Explicit Zero Preserved ---
+          const blankMeterVal = WattWatchStorage.validateMeterTracking({ cycleStartDate: '2026-10-01', cycleEndDate: '2026-10-31', notes: 'Dates only' });
+          assert(blankMeterVal.valid === true, 'P6.BUG03.1: Dates-only meter payload validates');
+          assert(blankMeterVal.sanitized.startReading === null && blankMeterVal.sanitized.currentReading === null && blankMeterVal.sanitized.actualUnits === null && blankMeterVal.sanitized.actualCost === null, 'P6.BUG03.2: Blank optional meter fields remain null (not 0)');
+
+          const whitespaceMeterVal = WattWatchStorage.validateMeterTracking({ startReading: '   ', currentReading: '', actualCost: '  ' });
+          assert(whitespaceMeterVal.valid === true && whitespaceMeterVal.sanitized.startReading === null && whitespaceMeterVal.sanitized.actualCost === null, 'P6.BUG03.3: Whitespace blank optional meter fields remain null');
+
+          const explicitZeroMeterVal = WattWatchStorage.validateMeterTracking({ startReading: 0, currentReading: 0, actualCost: 0 });
+          assert(explicitZeroMeterVal.valid === true && explicitZeroMeterVal.sanitized.startReading === 0 && explicitZeroMeterVal.sanitized.currentReading === 0 && explicitZeroMeterVal.sanitized.actualUnits === 0 && explicitZeroMeterVal.sanitized.actualCost === 0, 'P6.BUG03.4: Explicit numeric zeros preserved accurately');
+
+          document.getElementById('meterCycleStart').value = '2026-10-01';
+          document.getElementById('meterCycleEnd').value = '2026-10-31';
+          document.getElementById('meterStartReading').value = '';
+          document.getElementById('meterCurrentReading').value = '';
+          document.getElementById('meterActualCost').value = '';
+          document.getElementById('meterNotes').value = 'UI Blank Save';
+          WattWatchHistory.saveMeterTracking();
+          WattWatchHistory.renderMeterTrackingCard();
+          assert(document.getElementById('meterStartReading').value === '' && document.getElementById('meterCurrentReading').value === '' && document.getElementById('meterActualCost').value === '', 'P6.BUG03.5: UI meter inputs stay blank after saving and re-rendering blank optional fields');
+
+          // --- BUG-04: Simulator Stale State & Canonical Profile Consistency ---
+          const advAc = {
+            id: 'p6_adv_ac',
+            name: 'Inverter Split AC',
+            category: 'Cooling',
+            powerWatts: 1500,
+            dailyHours: 8,
+            operatingDays: 30,
+            quantity: 1,
+            dutyCyclePercent: 60,
+            standbyWatts: 10
+          };
+          // Expected baseline kWh: active = 1.5 * 0.6 * 8 * 30 = 216.0; standby = 0.01 * (24-8) * 30 = 4.8; total = 220.8 kWh
+          WattWatchStorage.saveSettings({ tariffModel: 'flat', electricityRate: 8.0 });
+          WattWatchStorage.saveAppliances([advAc]);
+          WattWatchApp.refreshAll();
+
+          const advMetrics = WattWatchCalculations.calculateApplianceMetrics(advAc);
+          assertAlmostEqual(advMetrics.monthlyKwh, 220.8, 'P6.BUG04.1: calculateApplianceMetrics computes 220.8 kWh (216 active + 4.8 standby)');
+          const simAdv = WattWatchCalculations.simulateReplacement(advAc, 1000, 8, 30, 1, { electricityRate: 8.0, tariffModel: 'flat' });
+          assert(simAdv.isValid === true, 'P6.BUG04.2: simulateReplacement succeeds for advanced profile baseline');
+          assertAlmostEqual(simAdv.baseline.monthlyKwh, 220.8, 'P6.BUG04.3: simulateReplacement baseline matches calculateApplianceMetrics (220.8 kWh)');
+          assertAlmostEqual(simAdv.baseline.monthlyCost, 220.8 * 8, 'P6.BUG04.4: simulateReplacement baseline cost matches canonical engine');
+
+          // Single-sided weekdayHours fallback in calculateApplianceMetrics
+          const singleWdMetrics = WattWatchCalculations.calculateApplianceMetrics({ powerWatts: 1000, quantity: 1, dailyHours: 4, operatingDays: 30, weekdayHours: 10 });
+          assertAlmostEqual(singleWdMetrics.effectiveDailyHours, (5 * 10 + 2 * 4) / 7, 'P6.BUG04.5: Single-sided weekdayHours uses dailyHours for weekend days cleanly');
+
+          // Active days per week + duty cycle + weekday/weekend consistency in simulateReplacement
+          const adwApp = { id: 'p6_adw_app', name: 'Office Fan', category: 'Cooling', powerWatts: 1000, dailyHours: 4, operatingDays: 20, quantity: 1, activeDaysPerWeek: 5 };
+          const adwMetrics = WattWatchCalculations.calculateApplianceMetrics(adwApp);
+          assertAlmostEqual(adwMetrics.monthlyKwh, 84.0, 'P6.BUG04.6: calculateApplianceMetrics computes 84.0 kWh for activeDaysPerWeek=5 even when operatingDays=20');
+          const simAdw = WattWatchCalculations.simulateReplacement(adwApp, 500, 4, 20, 1, { electricityRate: 8.0, tariffModel: 'flat' });
+          assertAlmostEqual(simAdw.baseline.monthlyKwh, 84.0, 'P6.BUG04.7: simulateReplacement baseline uses 84.0 kWh consistent with canonical engine');
+
+          // Render Recommendations What-If while inventory present, then Delete All and verify What-If hides
+          WattWatchApp.renderRecommendationsView(WattWatchStorage.getAppliances(), WattWatchStorage.getSettings());
+          assert(document.getElementById('whatIfScenariosCard')?.style.display !== 'none', 'P6.BUG04.8: What-If scenarios card visible when populated');
+          WattWatchAppliances.deleteAppliance('p6_adv_ac');
+          assert(document.getElementById('whatIfScenariosCard')?.style.display === 'none' && document.getElementById('whatIfScenariosList')?.innerHTML === '', 'P6.BUG04.9: Deleting last appliance hides and clears #whatIfScenariosCard');
+        } finally {
+          WattWatchApp.showToast = origShowToast6;
+          WattWatchApp.openConfirmDialog = origConfirm6;
+          WattWatchAuth.currentUser = origAuthUser6;
+          WattWatchAuth.hasUserChosenSession = origAuthChosen6;
+          WattWatchAuth.chosenSessionType = origAuthType6;
+          WattWatchAuth.auth = origFirebaseAuth6;
+          WattWatchAuth.firebaseSignOut = origFirebaseSignOut6;
+          WattWatchAuth.closeModal(true);
+          WattWatchAuth.clearAuthFormInputs();
+          WattWatchHistory.clearMeterTrackingInputs();
+          WattWatchStorage.setActiveUser(origActiveUser6);
+          WattWatchStorage.setTestNamespace(origNs6);
+          const keysP6 = [];
+          for (let i = 0; i < localStorage.length; i++) {
+            const k = localStorage.key(i);
+            if (k && k.startsWith(p6Ns)) keysP6.push(k);
+          }
+          keysP6.forEach(k => localStorage.removeItem(k));
         }
       }
 

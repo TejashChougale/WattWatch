@@ -603,6 +603,104 @@
           win.WattWatchAuth.chosenSessionType = 'account';
           win.WattWatchApp.refreshAll();
           assert(win.WattWatchStorage.getAppliances().length === 1 && win.WattWatchStorage.getAppliances()[0].name === 'Persisted Account AC', 'SMOKE-82: Account records persist and remain isolated after full page reload');
+
+          // Phase 6 E2E Reload Regression: blank optional meter fields remain blank across full reload
+          win.WattWatchStorage.setActiveUser(null);
+          win.WattWatchApp.navigateTo('history');
+          doc.getElementById('meterCycleStart').value = '2026-11-01';
+          doc.getElementById('meterCycleEnd').value = '2026-11-30';
+          doc.getElementById('meterStartReading').value = '';
+          doc.getElementById('meterCurrentReading').value = '';
+          doc.getElementById('meterActualCost').value = '';
+          doc.getElementById('meterNotes').value = 'Reload blank meter verify';
+          win.WattWatchHistory.saveMeterTracking();
+
+          const reloadPromise2 = waitForFrameLoad();
+          win.location.reload();
+          await reloadPromise2;
+          win = frame.contentWindow;
+          doc = frame.contentDocument;
+          attachIframeListeners(win);
+          const reloadGuestBtn2 = doc.querySelector('#authPane-login button[onclick*="continueAsGuest"]');
+          if (reloadGuestBtn2) reloadGuestBtn2.click();
+          win.WattWatchApp.navigateTo('history');
+
+          assert(
+            doc.getElementById('meterStartReading').value === '' &&
+            doc.getElementById('meterCurrentReading').value === '' &&
+            doc.getElementById('meterActualCost').value === '' &&
+            doc.getElementById('meterNotes').value === 'Reload blank meter verify',
+            'SMOKE-82B: Blank optional meter fields stay blank across full page reload (BUG-03)'
+          );
+
+          // Phase 6 E2E Full DOM Regression: SEC-03 all 5 auth inputs + toggle reset, BUG-04 modal preview + edit + simulator clear
+          doc.getElementById('loginUsername').value = 'e2e_user_a';
+          doc.getElementById('loginPassword').value = 'E2eSecret!123';
+          doc.getElementById('loginPassword').type = 'text';
+          doc.getElementById('signupUsername').value = 'e2e_signup';
+          doc.getElementById('signupPassword').value = 'E2eSignup!123';
+          doc.getElementById('signupPassword').type = 'text';
+          doc.getElementById('signupPasswordConfirm').value = 'E2eSignup!123';
+          const origSmokeAuth = win.WattWatchAuth.auth;
+          const origSmokeSignOut = win.WattWatchAuth.firebaseSignOut;
+          win.WattWatchAuth.auth = { currentUser: null };
+          win.WattWatchAuth.firebaseSignOut = async () => {};
+          try {
+            await win.WattWatchAuth.signOutAndSwitchToLogin();
+          } finally {
+            win.WattWatchAuth.auth = origSmokeAuth;
+            win.WattWatchAuth.firebaseSignOut = origSmokeSignOut;
+          }
+          assert(
+            doc.getElementById('loginUsername').value === '' &&
+            doc.getElementById('loginPassword').value === '' &&
+            doc.getElementById('loginPassword').type === 'password' &&
+            doc.getElementById('signupUsername').value === '' &&
+            doc.getElementById('signupPassword').value === '' &&
+            doc.getElementById('signupPassword').type === 'password' &&
+            doc.getElementById('signupPasswordConfirm').value === '',
+            'SMOKE-82C: Sign-out clears all 5 auth fields & re-masks password inputs in full DOM (SEC-03)'
+          );
+          const guestBtnP6 = doc.querySelector('#authPane-login button[onclick*="continueAsGuest"]');
+          if (guestBtnP6) guestBtnP6.click();
+
+          // Verify modal preview parity (BUG-04) and Simulator edit/delete synchronization
+          win.WattWatchAppliances.openModal();
+          doc.getElementById('modalApplianceName').value = 'E2E Advanced AC';
+          doc.getElementById('modalCategory').value = 'Cooling';
+          doc.getElementById('modalPowerWatts').value = '1500';
+          doc.getElementById('modalQuantity').value = '1';
+          doc.getElementById('modalDailyHours').value = '8';
+          doc.getElementById('modalOperatingDays').value = '30';
+          doc.getElementById('modalDutyCycle').value = '60';
+          doc.getElementById('modalStandbyWatts').value = '10';
+          win.WattWatchAppliances.updateModalLivePreview();
+          const modalPrevP6 = doc.getElementById('previewMonthlyKwh').textContent;
+          win.WattWatchAppliances.handleFormSubmit();
+          const addedAdvAc = win.WattWatchStorage.getAppliances().find(a => a.name === 'E2E Advanced AC');
+          assert(modalPrevP6 === '220.80 kWh' && addedAdvAc !== undefined, 'SMOKE-82D: Modal live preview matches canonical advanced profile calculation (220.80 kWh)');
+
+          win.WattWatchApp.navigateTo('simulator');
+          doc.getElementById('simApplianceSelect').value = addedAdvAc.id;
+          win.WattWatchSimulator.handleApplianceSelect();
+          doc.getElementById('simAltWatts').value = '1000';
+          win.WattWatchSimulator.calculateReplacement();
+          assert(doc.getElementById('simResultsContainer').textContent.includes('220.80 kWh/mo'), 'SMOKE-82E: Simulator replacement uses canonical advanced baseline (220.80 kWh/mo)');
+
+          // Edit away standbyWatts -> updates simulator immediately
+          win.WattWatchAppliances.openModal(addedAdvAc.id);
+          doc.getElementById('modalStandbyWatts').value = '';
+          win.WattWatchAppliances.handleFormSubmit();
+          assert(doc.getElementById('simResultsContainer').textContent.includes('216.00 kWh/mo'), 'SMOKE-82F: Editing appliance clears removed standby and refreshes Simulator (216.00 kWh/mo)');
+
+          // Delete all -> clears simulator stale values & hides What-If card
+          win.WattWatchStorage.saveAppliances([]);
+          win.WattWatchApp.refreshAll();
+          assert(
+            !doc.getElementById('simResultsContainer').textContent.includes('216.00 kWh/mo') &&
+            doc.getElementById('whatIfScenariosCard').style.display === 'none',
+            'SMOKE-82G: Clearing inventory resets simulator UI and hides #whatIfScenariosCard (BUG-04)'
+          );
         } else {
           assert(true, 'SMOKE-78..82: Skipped un-namespaced reload persistence to protect pre-existing browser data', `Found ${preExistingKeys.length} existing keys`);
         }

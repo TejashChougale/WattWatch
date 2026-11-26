@@ -197,7 +197,7 @@ const WattWatchReport = {
           <td>${safeQty}</td>
           <td>${safeHours} hrs/day</td>
           <td>${WattWatchCalculations.formatKwh(app.monthlyKwh)}</td>
-          <td><strong>${WattWatchCalculations.formatCurrency(app.monthlyCost)}</strong></td>
+          <td><strong>${WattWatchAppliances.escapeHtml(WattWatchCalculations.formatCurrency(app.monthlyCost))}</strong></td>
         </tr>
       `;
     });
@@ -207,7 +207,7 @@ const WattWatchReport = {
       tipsHtml += `
         <div style="border-left: 3px solid var(--antique-gold); padding: 0.5rem 0.85rem; background: rgba(185, 154, 98, 0.08); margin-bottom: 0.5rem; font-size: 0.825rem;">
           <strong>${WattWatchAppliances.escapeHtml(tip.applianceName)}:</strong> ${WattWatchAppliances.escapeHtml(tip.suggestedAction)} 
-          <span style="color: var(--deep-burgundy); font-weight: 600;">(Potential savings: ${WattWatchCalculations.formatCurrency(tip.savedCostMonthly)}/mo)</span>
+          <span style="color: var(--deep-burgundy); font-weight: 600;">(Potential savings: ${WattWatchAppliances.escapeHtml(WattWatchCalculations.formatCurrency(tip.savedCostMonthly))}/mo)</span>
         </div>
       `;
     });
@@ -223,7 +223,7 @@ const WattWatchReport = {
               <td style="padding: 6px 8px;">Tier ${s.tier}: ${WattWatchAppliances.escapeHtml(s.label)}</td>
               <td style="padding: 6px 8px; text-align: right;">${WattWatchCalculations.formatKwh(s.units)}</td>
               <td style="padding: 6px 8px; text-align: right;">₹${Number(s.rate).toFixed(2)} / kWh</td>
-              <td style="padding: 6px 8px; text-align: right; font-weight: 600;">${WattWatchCalculations.formatCurrency(s.cost)}</td>
+              <td style="padding: 6px 8px; text-align: right; font-weight: 600;">${WattWatchAppliances.escapeHtml(WattWatchCalculations.formatCurrency(s.cost))}</td>
             </tr>
           `;
         });
@@ -248,21 +248,21 @@ const WattWatchReport = {
               ${slabRows}
               <tr style="border-top: 1px solid #172B55; font-weight: 600;">
                 <td colspan="3" style="padding: 6px 8px;">Energy Charges Subtotal</td>
-                <td style="padding: 6px 8px; text-align: right;">${WattWatchCalculations.formatCurrency(reportData.tariffDetails.energyCharges)}</td>
+                <td style="padding: 6px 8px; text-align: right;">${WattWatchAppliances.escapeHtml(WattWatchCalculations.formatCurrency(reportData.tariffDetails.energyCharges))}</td>
               </tr>
               <tr style="border-bottom: 1px solid rgba(23, 43, 85, 0.08);">
                 <td colspan="3" style="padding: 6px 8px;">Fixed Utility / Meter Charges</td>
-                <td style="padding: 6px 8px; text-align: right;">${WattWatchCalculations.formatCurrency(reportData.tariffDetails.fixedCharge)}</td>
+                <td style="padding: 6px 8px; text-align: right;">${WattWatchAppliances.escapeHtml(WattWatchCalculations.formatCurrency(reportData.tariffDetails.fixedCharge))}</td>
               </tr>
               <tr style="border-bottom: 1px solid rgba(23, 43, 85, 0.08);">
                 <td colspan="3" style="padding: 6px 8px;">Electricity Duty &amp; Taxes (${Number(reportData.tariffDetails.taxPercent || 0)}%)</td>
-                <td style="padding: 6px 8px; text-align: right;">${WattWatchCalculations.formatCurrency(reportData.tariffDetails.taxCharges)}</td>
+                <td style="padding: 6px 8px; text-align: right;">${WattWatchAppliances.escapeHtml(WattWatchCalculations.formatCurrency(reportData.tariffDetails.taxCharges))}</td>
               </tr>
             </tbody>
             <tfoot>
               <tr style="background: #E5EAF2; border-top: 2px solid #172B55; font-weight: 700;">
                 <td colspan="3" style="padding: 8px; color: #172B55;">Total Estimated Electricity Bill</td>
-                <td style="padding: 8px; text-align: right; color: #6E293F; font-size: 0.95rem;">${WattWatchCalculations.formatCurrency(reportData.totalCost)}</td>
+                <td style="padding: 8px; text-align: right; color: #6E293F; font-size: 0.95rem;">${WattWatchAppliances.escapeHtml(WattWatchCalculations.formatCurrency(reportData.totalCost))}</td>
               </tr>
             </tfoot>
           </table>
@@ -283,7 +283,7 @@ const WattWatchReport = {
             <td style="padding: 6px 8px; text-align: center;">${c.count}</td>
             <td style="padding: 6px 8px; text-align: right;">${WattWatchCalculations.formatKwh(c.kwh)}</td>
             <td style="padding: 6px 8px; text-align: right;">${Number(c.percentage || 0).toFixed(1)}%</td>
-            <td style="padding: 6px 8px; text-align: right; font-weight: 600;">${WattWatchCalculations.formatCurrency(c.cost)}</td>
+            <td style="padding: 6px 8px; text-align: right; font-weight: 600;">${WattWatchAppliances.escapeHtml(WattWatchCalculations.formatCurrency(c.cost))}</td>
           </tr>
         `;
       }
@@ -339,7 +339,7 @@ const WattWatchReport = {
 
           <div style="background: #FAF7F0; border: 1px solid rgba(185, 154, 98, 0.35); padding: 0.85rem; border-radius: 6px;">
             <div style="font-size: 0.7rem; text-transform: uppercase; color: #687386; font-weight: 600;">Estimated Bill</div>
-            <div style="font-family: var(--font-heading); font-size: 1.4rem; font-weight: 700; color: #6E293F;">${WattWatchCalculations.formatCurrency(reportData.totalCost)}</div>
+            <div style="font-family: var(--font-heading); font-size: 1.4rem; font-weight: 700; color: #6E293F;">${WattWatchAppliances.escapeHtml(WattWatchCalculations.formatCurrency(reportData.totalCost))}</div>
           </div>
 
           <div style="background: #FAF7F0; border: 1px solid rgba(185, 154, 98, 0.35); padding: 0.85rem; border-radius: 6px;">
@@ -363,7 +363,7 @@ const WattWatchReport = {
             <div style="font-size: 0.75rem; font-weight: 700; color: #172B55; text-transform: uppercase; margin-bottom: 0.25rem;">Budget Utilization</div>
             <div style="font-size: 0.85rem; color: #172B55;">
               ${budgetStatus.hasBudget
-                ? `Budget: <strong>${WattWatchCalculations.formatCurrency(budgetStatus.budget)}</strong> · Used: <strong>${budgetStatus.utilizationPercent.toFixed(1)}%</strong> (${budgetStatus.statusLabel})`
+                ? `Budget: <strong>${WattWatchAppliances.escapeHtml(WattWatchCalculations.formatCurrency(budgetStatus.budget))}</strong> · Used: <strong>${budgetStatus.utilizationPercent.toFixed(1)}%</strong> (${WattWatchAppliances.escapeHtml(budgetStatus.statusLabel)})`
                 : 'No monthly electricity budget currently set.'}
             </div>
           </div>
@@ -411,7 +411,7 @@ const WattWatchReport = {
                 <td style="padding: 8px; text-align: center;">${reportData.totalUnits} Units</td>
                 <td style="padding: 8px;">--</td>
                 <td style="padding: 8px; font-weight: 700;">${WattWatchCalculations.formatKwh(reportData.totalKwh)}</td>
-                <td style="padding: 8px; color: #6E293F; font-weight: 700;">${WattWatchCalculations.formatCurrency(reportData.totalCost)}</td>
+                <td style="padding: 8px; color: #6E293F; font-weight: 700;">${WattWatchAppliances.escapeHtml(WattWatchCalculations.formatCurrency(reportData.totalCost))}</td>
               </tr>
             </tfoot>
           </table>

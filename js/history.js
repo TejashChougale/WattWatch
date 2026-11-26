@@ -276,10 +276,10 @@ const WattWatchHistory = {
           }
         </td>
         <td>
-          <span class="cost-val">${WattWatchCalculations.formatCurrency(record.totalCost)}</span>
+          <span class="cost-val">${this.escapeHtml(WattWatchCalculations.formatCurrency(record.totalCost))}</span>
           ${(record.actualCost !== null && record.actualCost !== undefined)
             ? `<div style="font-size: 0.72rem; color: var(--text-secondary); margin-top: 0.15rem;">
-                Actual: <strong>${WattWatchCalculations.formatCurrency(record.actualCost)}</strong>
+                Actual: <strong>${this.escapeHtml(WattWatchCalculations.formatCurrency(record.actualCost))}</strong>
                 ${(record.actualCost > record.totalCost)
                   ? `<span style="color: #ef4444; font-weight: 600;">(+₹${(record.actualCost - record.totalCost).toFixed(0)})</span>`
                   : `<span style="color: var(--emerald-primary, #10b981); font-weight: 600;">(-₹${(record.totalCost - record.actualCost).toFixed(0)})</span>`
@@ -328,9 +328,49 @@ const WattWatchHistory = {
   },
 
   /**
+   * Clears transient meter tracking DOM inputs and resets summary banner cleanly
+   */
+  clearMeterTrackingInputs() {
+    const ids = [
+      'meterCycleStart',
+      'meterCycleEnd',
+      'meterStartReading',
+      'meterCurrentReading',
+      'meterActualCost',
+      'meterNotes'
+    ];
+    ids.forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.value = '';
+    });
+
+    const progressFill = document.getElementById('meterCycleProgressFill');
+    if (progressFill) progressFill.style.width = '0%';
+    const daysBadge = document.getElementById('meterCycleDaysBadge');
+    if (daysBadge) {
+      daysBadge.textContent = 'Cycle Tracking';
+      daysBadge.className = 'badge badge-outline';
+    }
+    const summaryBox = document.getElementById('meterComparisonSummary');
+    if (summaryBox) {
+      summaryBox.innerHTML = `
+        <div style="font-size: 0.85rem; color: var(--text-secondary);">
+          Enter your billing cycle dates and meter readings above to compare actual utility consumption with WattWatch projections.
+        </div>
+      `;
+    }
+  },
+
+  /**
    * Initializes and renders active meter tracking card inputs and live comparison
    */
   renderMeterTrackingCard() {
+    const currentKey = typeof WattWatchStorage._getKey === 'function'
+      ? WattWatchStorage._getKey('METER')
+      : 'wattwatch_meter_v1';
+    const userChanged = this._lastMeterKey !== undefined && this._lastMeterKey !== currentKey;
+    this._lastMeterKey = currentKey;
+
     const meter = WattWatchStorage.getMeterTracking();
     const startInput = document.getElementById('meterCycleStart');
     const endInput = document.getElementById('meterCycleEnd');
@@ -339,13 +379,32 @@ const WattWatchHistory = {
     const actualCostInput = document.getElementById('meterActualCost');
     const notesInput = document.getElementById('meterNotes');
 
-    if (meter) {
-      if (startInput && !startInput.value && meter.cycleStartDate) startInput.value = meter.cycleStartDate;
-      if (endInput && !endInput.value && meter.cycleEndDate) endInput.value = meter.cycleEndDate;
-      if (startReadInput && !startReadInput.value && meter.startReading !== null) startReadInput.value = meter.startReading;
-      if (curReadInput && !curReadInput.value && meter.currentReading !== null) curReadInput.value = meter.currentReading;
-      if (actualCostInput && !actualCostInput.value && meter.actualCost !== null) actualCostInput.value = meter.actualCost;
-      if (notesInput && !notesInput.value && meter.notes) notesInput.value = meter.notes;
+    const meterInputs = [startInput, endInput, startReadInput, curReadInput, actualCostInput, notesInput];
+    const activeInMeter = typeof document !== 'undefined' && meterInputs.includes(document.activeElement);
+
+    if (userChanged || !activeInMeter) {
+      if (meter) {
+        if (startInput) startInput.value = meter.cycleStartDate || '';
+        if (endInput) endInput.value = meter.cycleEndDate || '';
+        if (startReadInput) {
+          startReadInput.value = (meter.startReading !== null && meter.startReading !== undefined && Number.isFinite(Number(meter.startReading)))
+            ? meter.startReading
+            : '';
+        }
+        if (curReadInput) {
+          curReadInput.value = (meter.currentReading !== null && meter.currentReading !== undefined && Number.isFinite(Number(meter.currentReading)))
+            ? meter.currentReading
+            : '';
+        }
+        if (actualCostInput) {
+          actualCostInput.value = (meter.actualCost !== null && meter.actualCost !== undefined && Number.isFinite(Number(meter.actualCost)))
+            ? meter.actualCost
+            : '';
+        }
+        if (notesInput) notesInput.value = meter.notes || '';
+      } else {
+        this.clearMeterTrackingInputs();
+      }
     }
 
     this.updateMeterPreview();
@@ -437,9 +496,9 @@ const WattWatchHistory = {
       costVarianceHtml = `
         <div style="flex: 1; min-width: 180px;">
           <div style="font-size: 0.72rem; color: var(--text-secondary); text-transform: uppercase;">Actual Bill Charge</div>
-          <div style="font-family: var(--font-serif); font-size: 1.25rem; font-weight: 700; color: var(--deep-burgundy);">${WattWatchCalculations.formatCurrency(actualCost)}</div>
+          <div style="font-family: var(--font-serif); font-size: 1.25rem; font-weight: 700; color: var(--deep-burgundy);">${this.escapeHtml(WattWatchCalculations.formatCurrency(actualCost))}</div>
           <div style="font-size: 0.78rem; color: ${costColor}; font-weight: 600;">
-            ${costSign}${WattWatchCalculations.formatCurrency(diffCost)} vs estimate (${WattWatchCalculations.formatCurrency(expectedElapsedCost)})
+            ${costSign}${this.escapeHtml(WattWatchCalculations.formatCurrency(diffCost))} vs estimate (${this.escapeHtml(WattWatchCalculations.formatCurrency(expectedElapsedCost))})
           </div>
         </div>
       `;
@@ -665,13 +724,13 @@ const WattWatchHistory = {
       <div class="metrics-grid" style="grid-template-columns: repeat(4, 1fr); margin-bottom: 1.5rem;">
         <div class="metric-card">
           <span class="metric-title">${this.escapeHtml(comp.periodLabelA)} (Baseline)</span>
-          <div class="metric-value">${WattWatchCalculations.formatCurrency(comp.costA)}</div>
+          <div class="metric-value">${this.escapeHtml(WattWatchCalculations.formatCurrency(comp.costA))}</div>
           <div class="metric-subtext">${comp.kwhA.toFixed(2)} kWh · ₹${Number(snapA.effectiveRate ?? snapA.tariffBreakdown?.effectiveRatePerKwh ?? snapA.electricityRate ?? 0).toFixed(2)}/u${snapA.tariffModel === 'slab' ? ' (eff.)' : ''}</div>
         </div>
 
         <div class="metric-card">
           <span class="metric-title">${this.escapeHtml(comp.periodLabelB)} (Target)</span>
-          <div class="metric-value">${WattWatchCalculations.formatCurrency(comp.costB)}</div>
+          <div class="metric-value">${this.escapeHtml(WattWatchCalculations.formatCurrency(comp.costB))}</div>
           <div class="metric-subtext">${comp.kwhB.toFixed(2)} kWh · ₹${Number(snapB.effectiveRate ?? snapB.tariffBreakdown?.effectiveRatePerKwh ?? snapB.electricityRate ?? 0).toFixed(2)}/u${snapB.tariffModel === 'slab' ? ' (eff.)' : ''}</div>
         </div>
 
@@ -681,7 +740,7 @@ const WattWatchHistory = {
             <span class="badge ${badgeCostColor}">${costIcon} ${Math.abs(comp.costPercentDiff).toFixed(1)}%</span>
           </div>
           <div class="metric-value" style="color: ${isCostInc ? 'var(--deep-burgundy)' : 'var(--text-primary)'};">
-            ${isCostInc ? '+' : (comp.costDiff < 0 ? '-' : '')}${WattWatchCalculations.formatCurrency(Math.abs(comp.costDiff))}
+            ${isCostInc ? '+' : (comp.costDiff < 0 ? '-' : '')}${this.escapeHtml(WattWatchCalculations.formatCurrency(Math.abs(comp.costDiff)))}
           </div>
           <div class="metric-subtext">${isCostInc ? 'Increase in electricity bill' : (comp.costDiff < 0 ? 'Decrease in bill' : 'Identical bill amount')}</div>
         </div>
@@ -739,7 +798,7 @@ const WattWatchHistory = {
             <td>${safeQty}</td>
             <td>${safeHours}h/day</td>
             <td><strong>${WattWatchCalculations.formatKwh(app.monthlyKwh)}</strong></td>
-            <td><strong>${WattWatchCalculations.formatCurrency(app.monthlyCost)}</strong></td>
+            <td><strong>${this.escapeHtml(WattWatchCalculations.formatCurrency(app.monthlyCost))}</strong></td>
           </tr>
         `;
       });
@@ -759,13 +818,13 @@ const WattWatchHistory = {
               <div>
                 <span style="font-size: 0.72rem; color: var(--text-secondary);">Actual Utility Bill:</span>
                 <div style="font-weight: 700; color: var(--deep-burgundy); font-size: 1.05rem;">
-                  ${snap.actualCost !== null && snap.actualCost !== undefined ? WattWatchCalculations.formatCurrency(snap.actualCost) : 'N/A'}
+                  ${snap.actualCost !== null && snap.actualCost !== undefined ? this.escapeHtml(WattWatchCalculations.formatCurrency(snap.actualCost)) : 'N/A'}
                 </div>
               </div>
               <div>
                 <span style="font-size: 0.72rem; color: var(--text-secondary);">Bill Variance vs Estimate:</span>
                 <div style="font-weight: 700; font-size: 1.05rem; color: ${(snap.actualCost !== null && snap.actualCost !== undefined && snap.actualCost > snap.totalCost) ? '#ef4444' : 'var(--emerald-primary, #10b981)'};">
-                  ${snap.actualCost !== null && snap.actualCost !== undefined ? ((snap.actualCost > snap.totalCost ? '+' : '') + WattWatchCalculations.formatCurrency(snap.actualCost - snap.totalCost)) : 'N/A'}
+                  ${snap.actualCost !== null && snap.actualCost !== undefined ? ((snap.actualCost > snap.totalCost ? '+' : '') + this.escapeHtml(WattWatchCalculations.formatCurrency(snap.actualCost - snap.totalCost))) : 'N/A'}
                 </div>
               </div>
             </div>
@@ -781,7 +840,7 @@ const WattWatchHistory = {
             </div>
             <div style="background: var(--light-burgundy); padding: 0.85rem; border-radius: var(--radius-md);">
               <div style="font-size: 0.72rem; color: var(--text-secondary); text-transform: uppercase;">Total Bill</div>
-              <div style="font-family: var(--font-serif); font-size: 1.35rem; font-weight: 700; color: var(--deep-burgundy);">${WattWatchCalculations.formatCurrency(snap.totalCost)}</div>
+              <div style="font-family: var(--font-serif); font-size: 1.35rem; font-weight: 700; color: var(--deep-burgundy);">${this.escapeHtml(WattWatchCalculations.formatCurrency(snap.totalCost))}</div>
             </div>
             <div style="background: var(--antique-gold-subtle); padding: 0.85rem; border-radius: var(--radius-md);">
               <div style="font-size: 0.72rem; color: var(--text-secondary); text-transform: uppercase;">Tariff Applied</div>

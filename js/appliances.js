@@ -257,7 +257,7 @@ const WattWatchAppliances = {
     if (typeof WattWatchCalculations !== 'undefined' && typeof WattWatchCalculations.calculateApplianceMetrics === 'function') {
       const metrics = WattWatchCalculations.calculateApplianceMetrics(candidate);
       dailyKwh = metrics.dailyKwh;
-      monthlyKwh = (days && days !== 30 && Number.isFinite(days)) ? (dailyKwh * days) : metrics.monthlyKwh;
+      monthlyKwh = metrics.monthlyKwh;
     } else {
       dailyKwh = WattWatchCalculations.calculateDailyKwh(power, qty, hours);
       monthlyKwh = WattWatchCalculations.calculateMonthlyKwh(power, qty, hours, days);
@@ -276,8 +276,14 @@ const WattWatchAppliances = {
       if (candidate.standbyWatts !== undefined && candidate.standbyWatts > 0) {
         parts.push(`${candidate.standbyWatts}W standby draw`);
       }
-      if (candidate.weekdayHours !== undefined && candidate.weekendHours !== undefined && candidate.weekdayHours !== candidate.weekendHours) {
-        parts.push(`${candidate.weekdayHours}h weekday / ${candidate.weekendHours}h weekend`);
+      const hasWd = candidate.weekdayHours !== undefined && Number.isFinite(candidate.weekdayHours);
+      const hasWe = candidate.weekendHours !== undefined && Number.isFinite(candidate.weekendHours);
+      if (hasWd || hasWe) {
+        const wdDisp = hasWd ? candidate.weekdayHours : hours;
+        const weDisp = hasWe ? candidate.weekendHours : hours;
+        if (wdDisp !== weDisp) {
+          parts.push(`${wdDisp}h weekday / ${weDisp}h weekend`);
+        }
       }
       if (candidate.activeDaysPerWeek !== undefined && candidate.activeDaysPerWeek < 7) {
         parts.push(`${candidate.activeDaysPerWeek} active days/week`);
@@ -564,12 +570,14 @@ const WattWatchAppliances = {
     const appliances = WattWatchStorage.getAppliances();
 
     if (this.editingApplianceId) {
-      // Update existing
+      // Update existing (rebuild cleanly so cleared optional advanced fields are not retained)
       const index = appliances.findIndex(a => a.id === this.editingApplianceId);
       if (index !== -1) {
+        const existing = appliances[index];
         appliances[index] = {
-          ...appliances[index],
           ...payload,
+          id: existing.id,
+          createdAt: existing.createdAt,
           updatedAt: Date.now()
         };
         const saved = WattWatchStorage.saveAppliances(appliances);
@@ -746,9 +754,11 @@ const WattWatchAppliances = {
       const safeCat = this.escapeHtml(app.category || 'Other');
       const badgeClass = `badge-${encodeURIComponent(String(app.category || 'other').toLowerCase().replace(/[^a-z0-9]/g, ''))}`;
       const isHighLoad = (Number(app.sharePercentage) || 0) >= 20;
+      const hasSplitHours = (app.weekdayHours !== undefined || app.weekendHours !== undefined) &&
+        ((app.weekdayHours !== undefined ? app.weekdayHours : app.dailyHours) !== (app.weekendHours !== undefined ? app.weekendHours : app.dailyHours));
       const hasAdv = (app.dutyCyclePercent !== undefined && app.dutyCyclePercent < 100) ||
         (app.standbyWatts !== undefined && app.standbyWatts > 0) ||
-        (app.weekdayHours !== undefined && app.weekendHours !== undefined && app.weekdayHours !== app.weekendHours) ||
+        hasSplitHours ||
         (app.activeDaysPerWeek !== undefined && app.activeDaysPerWeek < 7);
 
       let advDesc = '';
@@ -756,7 +766,11 @@ const WattWatchAppliances = {
         const parts = [];
         if (app.dutyCyclePercent !== undefined && app.dutyCyclePercent < 100) parts.push(`${app.dutyCyclePercent}% duty`);
         if (app.standbyWatts !== undefined && app.standbyWatts > 0) parts.push(`${app.standbyWatts}W standby`);
-        if (app.weekdayHours !== undefined && app.weekendHours !== undefined && app.weekdayHours !== app.weekendHours) parts.push(`${app.weekdayHours}h/${app.weekendHours}h`);
+        if (hasSplitHours) {
+          const wd = app.weekdayHours !== undefined ? app.weekdayHours : app.dailyHours;
+          const we = app.weekendHours !== undefined ? app.weekendHours : app.dailyHours;
+          parts.push(`${wd}h/${we}h`);
+        }
         if (app.activeDaysPerWeek !== undefined && app.activeDaysPerWeek < 7) parts.push(`${app.activeDaysPerWeek}d/wk`);
         if (parts.length > 0) advDesc = parts.join(' · ');
       }
@@ -788,7 +802,7 @@ const WattWatchAppliances = {
           <div style="font-size: 0.72rem; color: var(--text-secondary);">${WattWatchCalculations.isFiniteNumber(app.dailyKwh) ? Number(app.dailyKwh).toFixed(2) : '--'} kWh/day</div>
         </td>
         <td>
-          <span class="cost-val">${WattWatchCalculations.formatCurrency(app.monthlyCost)}</span>
+          <span class="cost-val">${this.escapeHtml(WattWatchCalculations.formatCurrency(app.monthlyCost))}</span>
           <div style="font-size: 0.72rem; color: var(--text-secondary);">${WattWatchCalculations.isFiniteNumber(app.sharePercentage) ? Number(app.sharePercentage).toFixed(1) : '0.0'}% of bill</div>
         </td>
         <td>

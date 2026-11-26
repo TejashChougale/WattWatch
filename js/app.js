@@ -351,6 +351,9 @@ const WattWatchApp = {
     let effectiveRate = NaN;
     let rateStr = '-- / kWh';
 
+    const safeCurr = (typeof WattWatchCalculations !== 'undefined' && WattWatchCalculations.sanitizeCurrencySymbol)
+      ? WattWatchCalculations.sanitizeCurrencySymbol(settings.currency, '₹')
+      : '₹';
     if (isSlab) {
       if (advancedTariff && advancedTariff.isValid) {
         effectiveRate = advancedTariff.effectiveRatePerKwh;
@@ -366,7 +369,7 @@ const WattWatchApp = {
         : Number(settings.electricityRate || 8.00);
       if (Number.isFinite(validRate) && validRate >= 0) {
         effectiveRate = validRate;
-        rateStr = `${settings.currency || '₹'}${effectiveRate.toFixed(2)} / kWh`;
+        rateStr = `${safeCurr}${effectiveRate.toFixed(2)} / kWh`;
       } else {
         rateStr = 'Invalid Flat Rate';
       }
@@ -383,7 +386,7 @@ const WattWatchApp = {
       if (Number.isFinite(effectiveRate)) {
         sidebarRate.textContent = isSlab
           ? `₹${effectiveRate.toFixed(2)}/u`
-          : `${settings.currency || '₹'}${effectiveRate.toFixed(2)}`;
+          : `${safeCurr}${effectiveRate.toFixed(2)}`;
         sidebarRate.title = isSlab
           ? `Progressive Slab Tariff: Effective rate is ₹${effectiveRate.toFixed(2)}/kWh across ${Number.isFinite(summary.totalMonthlyKwh) ? summary.totalMonthlyKwh.toFixed(1) : 0} kWh`
           : `Uniform Flat Rate: ₹${effectiveRate.toFixed(2)} per kWh`;
@@ -701,7 +704,8 @@ const WattWatchApp = {
     }
 
     const timeframe = this.currentInsightsTimeframe || 'daily';
-    const currency = settings.currency || 'INR';
+    const rawCurrency = (settings && settings.currency) ? settings.currency : 'INR';
+    const currency = WattWatchCalculations.sanitizeCurrencySymbol(rawCurrency, 'INR');
     const totalDailyKwh = summary.totalDailyKwh;
     const totalMonthlyKwh = summary.totalMonthlyKwh;
     const daysInMonth = WattWatchCalculations.getDaysInCurrentMonth();
@@ -725,7 +729,7 @@ const WattWatchApp = {
       };
       kpi3 = {
         label: 'Peak Load Driver',
-        val: topApp ? WattWatchAppliances.escapeHtml(topApp.name) : 'None',
+        val: topApp ? topApp.name : 'None',
         sub: topApp ? `${Number(topApp.powerWatts) || 0}W · ${Number(topApp.dailyHours) || 0}h/day (${Number(topApp.sharePercentage || 0).toFixed(1)}% load)` : 'No active load'
       };
 
@@ -772,7 +776,7 @@ const WattWatchApp = {
           <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
         </svg>
         <div class="insights-tip-text">
-          <strong>Weekly Projection:</strong> At your current operating pace, weekly household electricity consumption projects to ${WattWatchCalculations.formatKwh(weeklyKwh)} costing approximately ${WattWatchCalculations.formatCurrency(weeklyCost, currency)}.
+          <strong>Weekly Projection:</strong> At your current operating pace, weekly household electricity consumption projects to ${WattWatchCalculations.formatKwh(weeklyKwh)} costing approximately ${WattWatchAppliances.escapeHtml(WattWatchCalculations.formatCurrency(weeklyCost, currency))}.
         </div>
       </div>`;
     } else { // monthly
@@ -802,7 +806,7 @@ const WattWatchApp = {
               <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
             </svg>
             <div class="insights-tip-text">
-              <strong>Monthly Conservation Opportunity:</strong> Implementing top recommendations can unlock up to <strong>${WattWatchCalculations.formatCurrency(recs.totalPotentialSavingsCost, currency)}/month</strong> in savings (${WattWatchCalculations.formatKwh(recs.totalPotentialSavingsKwh)}).
+              <strong>Monthly Conservation Opportunity:</strong> Implementing top recommendations can unlock up to <strong>${WattWatchAppliances.escapeHtml(WattWatchCalculations.formatCurrency(recs.totalPotentialSavingsCost, currency))}/month</strong> in savings (${WattWatchCalculations.formatKwh(recs.totalPotentialSavingsKwh)}).
             </div>
           </div>`
         : `<div class="insights-tip-banner">
@@ -829,7 +833,7 @@ const WattWatchApp = {
         </div>
         <div class="insights-kpi-card">
           <span class="insights-kpi-label">${WattWatchAppliances.escapeHtml(kpi3.label)}</span>
-          <span class="insights-kpi-val" style="font-size: 1.25rem; font-weight: 600;">${kpi3.val}</span>
+          <span class="insights-kpi-val" style="font-size: 1.25rem; font-weight: 600;">${WattWatchAppliances.escapeHtml(kpi3.val)}</span>
           <span class="insights-kpi-sub">${WattWatchAppliances.escapeHtml(kpi3.sub)}</span>
         </div>
       </div>
@@ -853,7 +857,8 @@ const WattWatchApp = {
       return;
     }
 
-    const currency = settings.currency || 'INR';
+    const rawCurrency = (settings && settings.currency) ? settings.currency : 'INR';
+    const currency = WattWatchCalculations.sanitizeCurrencySymbol(rawCurrency, 'INR');
     const sorted = [...summary.appliances].sort((a, b) => (b.monthlyKwh || 0) - (a.monthlyKwh || 0));
     const topItems = sorted.slice(0, 5);
 
@@ -883,7 +888,7 @@ const WattWatchApp = {
                 <div style="font-size: 0.72rem; color: var(--text-secondary);">${share.toFixed(1)}% of total load</div>
               </div>
               <div>
-                <div class="appliance-load-cost">${WattWatchCalculations.formatCurrency(app.monthlyCost, currency)}</div>
+                <div class="appliance-load-cost">${WattWatchAppliances.escapeHtml(WattWatchCalculations.formatCurrency(app.monthlyCost, currency))}</div>
                 <div style="font-size: 0.72rem; color: var(--text-secondary);">per month</div>
               </div>
             </div>
@@ -983,7 +988,7 @@ const WattWatchApp = {
         <td>${safeWatts} W</td>
         <td>${safeHours} h / day (${safeDays} d)</td>
         <td><strong>${WattWatchCalculations.formatKwh(app.monthlyKwh)}</strong></td>
-        <td><strong style="color: var(--deep-burgundy);">${WattWatchCalculations.formatCurrency(app.monthlyCost)}</strong> <span style="font-size: 0.75rem; color: var(--text-secondary);">(${(Number(app.sharePercentage) || 0).toFixed(1)}%)</span></td>
+        <td><strong style="color: var(--deep-burgundy);">${WattWatchAppliances.escapeHtml(WattWatchCalculations.formatCurrency(app.monthlyCost))}</strong> <span style="font-size: 0.75rem; color: var(--text-secondary);">(${(Number(app.sharePercentage) || 0).toFixed(1)}%)</span></td>
       `;
       tbody.appendChild(tr);
     });
@@ -996,6 +1001,8 @@ const WattWatchApp = {
     const analysis = WattWatchRecommendations.generateRecommendations(appliances, rate);
     const container = document.getElementById('tipsGridContainer');
     const emptyState = document.getElementById('tipsEmptyState');
+    const whatIfCard = document.getElementById('whatIfScenariosCard');
+    const whatIfList = document.getElementById('whatIfScenariosList');
 
     const totalSavedCostEl = document.getElementById('tipsTotalSavingsCost');
     const totalSavedKwhEl = document.getElementById('tipsTotalSavingsKwh');
@@ -1003,11 +1010,75 @@ const WattWatchApp = {
     if (totalSavedCostEl) totalSavedCostEl.textContent = WattWatchCalculations.formatCurrency(analysis.totalPotentialSavingsCost);
     if (totalSavedKwhEl) totalSavedKwhEl.textContent = WattWatchCalculations.formatKwh(analysis.totalPotentialSavingsKwh);
 
-    if (!container) return;
+    const renderWhatIfSection = () => {
+      if (!whatIfList) return;
+      const hasAppliances = Array.isArray(appliances) && appliances.length > 0;
+      const whatIfData = (hasAppliances && typeof WattWatchRecommendations !== 'undefined' && typeof WattWatchRecommendations.generateWhatIfScenarios === 'function')
+        ? WattWatchRecommendations.generateWhatIfScenarios(appliances, rate)
+        : null;
+
+      if (!whatIfData || !whatIfData.scenarios || whatIfData.scenarios.length === 0) {
+        whatIfList.innerHTML = '';
+        if (whatIfCard) whatIfCard.style.display = 'none';
+        return;
+      }
+
+      if (whatIfCard) whatIfCard.style.display = 'block';
+      whatIfList.innerHTML = '';
+      whatIfData.scenarios.forEach(sc => {
+        const card = document.createElement('div');
+        card.className = 'tip-card';
+        card.innerHTML = `
+          <div>
+            <div class="tip-card-header">
+              <div>
+                <span class="badge ${sc.badgeClass || 'badge-gold'}">${WattWatchAppliances.escapeHtml(sc.badge || 'Scenario')}</span>
+                <h3 class="tip-appliance-title" style="margin-top: 0.4rem;">${WattWatchAppliances.escapeHtml(sc.title)}</h3>
+              </div>
+              <span class="badge badge-outline">Rank #${sc.rank} Consumer</span>
+            </div>
+            <div class="tip-reason" style="margin-top: 0.5rem;">
+              ${WattWatchAppliances.escapeHtml(sc.description)}
+            </div>
+          </div>
+          <div class="tip-savings-row" style="margin-top: 1rem;">
+            <div>
+              <div style="font-size: 0.72rem; color: var(--text-secondary); text-transform: uppercase;">Projected Monthly Reduction</div>
+              <div class="tip-savings-pill">${WattWatchAppliances.escapeHtml(WattWatchCalculations.formatCurrency(sc.savedCostMonthly))} <span style="font-size: 0.78rem; font-family: var(--font-sans); color: var(--royal-blue); font-weight: 500;">(${WattWatchCalculations.formatKwh(sc.savedKwhMonthly)})</span></div>
+            </div>
+            <div style="text-align: right;">
+              <div style="font-size: 0.72rem; color: var(--text-secondary); text-transform: uppercase;">Est. Annual Savings</div>
+              <div style="font-family: var(--font-serif); font-size: 1rem; font-weight: 600; color: var(--text-gold);">${WattWatchAppliances.escapeHtml(WattWatchCalculations.formatCurrency(sc.annualSavingsCost))}</div>
+            </div>
+          </div>
+          <div style="margin-top: 0.85rem; padding-top: 0.65rem; border-top: 1px solid var(--border-subtle);">
+            <button type="button" class="btn btn-primary btn-sm" style="width: 100%;" data-action="apply-whatif" data-id="${WattWatchAppliances.escapeHtml(sc.id)}">
+              Apply to Simulator &rarr;
+            </button>
+          </div>
+        `;
+        const btn = card.querySelector('[data-action="apply-whatif"]');
+        if (btn) {
+          btn.addEventListener('click', () => {
+            if (typeof WattWatchSimulator !== 'undefined' && WattWatchSimulator.applyScenario) {
+              WattWatchSimulator.applyScenario(sc);
+            }
+          });
+        }
+        whatIfList.appendChild(card);
+      });
+    };
+
+    if (!container) {
+      renderWhatIfSection();
+      return;
+    }
 
     if (analysis.tips.length === 0) {
+      container.innerHTML = '';
       container.style.display = 'none';
       if (emptyState) emptyState.style.display = 'flex';
+      renderWhatIfSection();
       return;
     }
 
@@ -1040,11 +1111,11 @@ const WattWatchApp = {
         <div class="tip-savings-row">
           <div>
             <div style="font-size: 0.72rem; color: var(--text-secondary); text-transform: uppercase;">Potential Monthly Savings</div>
-            <div class="tip-savings-pill">${WattWatchCalculations.formatCurrency(tip.savedCostMonthly)} <span style="font-size: 0.78rem; font-family: var(--font-sans); color: var(--royal-blue); font-weight: 500;">(${WattWatchCalculations.formatKwh(tip.savedKwhMonthly)})</span></div>
+            <div class="tip-savings-pill">${WattWatchAppliances.escapeHtml(WattWatchCalculations.formatCurrency(tip.savedCostMonthly))} <span style="font-size: 0.78rem; font-family: var(--font-sans); color: var(--royal-blue); font-weight: 500;">(${WattWatchCalculations.formatKwh(tip.savedKwhMonthly)})</span></div>
           </div>
           <div style="text-align: right;">
             <div style="font-size: 0.72rem; color: var(--text-secondary); text-transform: uppercase;">Est. Annual Savings</div>
-            <div style="font-family: var(--font-serif); font-size: 1rem; font-weight: 600; color: var(--text-gold);">${WattWatchCalculations.formatCurrency(tip.annualSavingsCost)}</div>
+            <div style="font-family: var(--font-serif); font-size: 1rem; font-weight: 600; color: var(--text-gold);">${WattWatchAppliances.escapeHtml(WattWatchCalculations.formatCurrency(tip.annualSavingsCost))}</div>
           </div>
         </div>
         <div style="margin-top: 0.85rem; padding-top: 0.65rem; border-top: 1px solid var(--border-subtle);">
@@ -1056,63 +1127,7 @@ const WattWatchApp = {
       container.appendChild(card);
     });
 
-    // Render Dynamic What-If Scenarios derived from top-consuming appliances
-    const whatIfCard = document.getElementById('whatIfScenariosCard');
-    const whatIfList = document.getElementById('whatIfScenariosList');
-    if (whatIfList) {
-      const whatIfData = (typeof WattWatchRecommendations !== 'undefined' && typeof WattWatchRecommendations.generateWhatIfScenarios === 'function')
-        ? WattWatchRecommendations.generateWhatIfScenarios(appliances, rate)
-        : null;
-
-      if (!whatIfData || !whatIfData.scenarios || whatIfData.scenarios.length === 0) {
-        if (whatIfCard) whatIfCard.style.display = 'none';
-      } else {
-        if (whatIfCard) whatIfCard.style.display = 'block';
-        whatIfList.innerHTML = '';
-        whatIfData.scenarios.forEach(sc => {
-          const card = document.createElement('div');
-          card.className = 'tip-card';
-          card.innerHTML = `
-            <div>
-              <div class="tip-card-header">
-                <div>
-                  <span class="badge ${sc.badgeClass || 'badge-gold'}">${WattWatchAppliances.escapeHtml(sc.badge || 'Scenario')}</span>
-                  <h3 class="tip-appliance-title" style="margin-top: 0.4rem;">${WattWatchAppliances.escapeHtml(sc.title)}</h3>
-                </div>
-                <span class="badge badge-outline">Rank #${sc.rank} Consumer</span>
-              </div>
-              <div class="tip-reason" style="margin-top: 0.5rem;">
-                ${WattWatchAppliances.escapeHtml(sc.description)}
-              </div>
-            </div>
-            <div class="tip-savings-row" style="margin-top: 1rem;">
-              <div>
-                <div style="font-size: 0.72rem; color: var(--text-secondary); text-transform: uppercase;">Projected Monthly Reduction</div>
-                <div class="tip-savings-pill">${WattWatchCalculations.formatCurrency(sc.savedCostMonthly)} <span style="font-size: 0.78rem; font-family: var(--font-sans); color: var(--royal-blue); font-weight: 500;">(${WattWatchCalculations.formatKwh(sc.savedKwhMonthly)})</span></div>
-              </div>
-              <div style="text-align: right;">
-                <div style="font-size: 0.72rem; color: var(--text-secondary); text-transform: uppercase;">Est. Annual Savings</div>
-                <div style="font-family: var(--font-serif); font-size: 1rem; font-weight: 600; color: var(--text-gold);">${WattWatchCalculations.formatCurrency(sc.annualSavingsCost)}</div>
-              </div>
-            </div>
-            <div style="margin-top: 0.85rem; padding-top: 0.65rem; border-top: 1px solid var(--border-subtle);">
-              <button type="button" class="btn btn-primary btn-sm" style="width: 100%;" data-action="apply-whatif" data-id="${WattWatchAppliances.escapeHtml(sc.id)}">
-                Apply to Simulator &rarr;
-              </button>
-            </div>
-          `;
-          const btn = card.querySelector('[data-action="apply-whatif"]');
-          if (btn) {
-            btn.addEventListener('click', () => {
-              if (typeof WattWatchSimulator !== 'undefined' && WattWatchSimulator.applyScenario) {
-                WattWatchSimulator.applyScenario(sc);
-              }
-            });
-          }
-          whatIfList.appendChild(card);
-        });
-      }
-    }
+    renderWhatIfSection();
   },
 
   /**
@@ -1557,11 +1572,21 @@ const WattWatchApp = {
         const file = e.target.files?.[0];
         if (!file) return;
 
+        if (file.size > 5 * 1024 * 1024) {
+          this.showToast('CSV file exceeds the 5 MB limit. Please select a smaller file.', 'error', 'Import Error');
+          csvFileInput.value = '';
+          return;
+        }
+
         const reader = new FileReader();
         reader.onload = (event) => {
           const rawText = event.target.result;
           const parsed = WattWatchStorage.parseAppliancesCSV(rawText);
           this.openCsvPreviewModal(parsed);
+          csvFileInput.value = '';
+        };
+        reader.onerror = () => {
+          this.showToast('Unable to read the selected CSV file.', 'error', 'Import Error');
           csvFileInput.value = '';
         };
         reader.readAsText(file);
@@ -1588,12 +1613,13 @@ const WattWatchApp = {
     const btnConfirm = document.getElementById('btnConfirmCsvImport');
 
     if (banner) {
+      const hasErrors = parsedResult.errors && parsedResult.errors.length > 0;
       banner.innerHTML = `
         <div style="font-weight: 600; color: var(--text-primary); margin-bottom: 0.2rem;">
           CSV Analysis: Found ${parsedResult.validRecords.length} valid appliance record(s) out of ${parsedResult.totalRows} data rows.
         </div>
         <div style="font-size: 0.78rem; color: var(--text-secondary);">
-          ${parsedResult.errors.length > 0 ? `${parsedResult.errors.length} issue(s) detected during parsing.` : 'All rows passed schema validation.'}
+          ${hasErrors ? `${parsedResult.errors.length} issue(s) detected during parsing. Resolve validation issues before importing; your current inventory remains unchanged.` : 'All rows passed schema validation.'}
         </div>
       `;
     }
@@ -1610,13 +1636,20 @@ const WattWatchApp = {
       }
     }
 
+    const canConfirmImport = Boolean(
+      parsedResult.success &&
+      (!parsedResult.errors || parsedResult.errors.length === 0) &&
+      parsedResult.validRecords &&
+      parsedResult.validRecords.length > 0
+    );
+
     if (tableBody) {
       tableBody.innerHTML = '';
       if (parsedResult.validRecords.length === 0) {
         tableBody.innerHTML = '<tr><td colspan="6" style="text-align: center; color: var(--text-secondary); padding: 1rem;">No valid records to preview.</td></tr>';
         if (btnConfirm) btnConfirm.disabled = true;
       } else {
-        if (btnConfirm) btnConfirm.disabled = false;
+        if (btnConfirm) btnConfirm.disabled = !canConfirmImport;
         parsedResult.validRecords.slice(0, 25).forEach(r => {
           const tr = document.createElement('tr');
           tr.innerHTML = `
@@ -1635,6 +1668,8 @@ const WattWatchApp = {
           tableBody.appendChild(tr);
         }
       }
+    } else if (btnConfirm) {
+      btnConfirm.disabled = !canConfirmImport;
     }
 
     if (this.modalManager) {
@@ -1658,14 +1693,31 @@ const WattWatchApp = {
   },
 
   confirmCsvImport() {
-    if (!this._pendingCsv || !this._pendingCsv.validRecords || this._pendingCsv.validRecords.length === 0) {
+    if (!this._pendingCsv || !this._pendingCsv.success || (Array.isArray(this._pendingCsv.errors) && this._pendingCsv.errors.length > 0)) {
+      const firstErr = this._pendingCsv?.errors?.[0] || 'CSV validation failed.';
+      this.showToast(`CSV import rejected: ${firstErr}`, 'error', 'Import Rejected');
+      this.closeCsvPreviewModal();
+      return;
+    }
+
+    if (!this._pendingCsv.validRecords || this._pendingCsv.validRecords.length === 0) {
       this.showToast('No valid appliance records to import.', 'warning', 'Import Skipped');
       this.closeCsvPreviewModal();
       return;
     }
 
     const mode = document.querySelector('input[name="csvImportAction"]:checked')?.value || 'merge';
-    const validRecords = this._pendingCsv.validRecords;
+    const rawRecords = this._pendingCsv.validRecords;
+    const validRecords = [];
+    for (let i = 0; i < rawRecords.length; i++) {
+      const check = WattWatchStorage.validateAppliance(rawRecords[i]);
+      if (!check.valid) {
+        this.showToast(`CSV import rejected: ${check.error}`, 'error', 'Import Rejected');
+        this.closeCsvPreviewModal();
+        return;
+      }
+      validRecords.push(check.sanitized);
+    }
 
     if (mode === 'replace') {
       const saved = WattWatchStorage.saveAppliances(validRecords);
@@ -1683,13 +1735,23 @@ const WattWatchApp = {
         const normName = newItem.name.toLowerCase().trim();
         const matchIdx = existing.findIndex(e => e.name.toLowerCase().trim() === normName && Number(e.powerWatts) === Number(newItem.powerWatts));
         if (matchIdx !== -1) {
-          existing[matchIdx] = { ...existing[matchIdx], ...newItem };
+          existing[matchIdx] = { ...existing[matchIdx], ...newItem, id: existing[matchIdx].id };
           updated++;
         } else {
-          existing.push(newItem);
+          const itemCopy = { ...newItem };
+          if (existing.some(e => e.id === itemCopy.id)) {
+            itemCopy.id = `app_csv_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
+          }
+          existing.push(itemCopy);
           added++;
         }
       });
+
+      if (existing.length > 500) {
+        this.showToast(`CSV merge would exceed the 500 appliance limit (${existing.length} total).`, 'error', 'Import Rejected');
+        this.closeCsvPreviewModal();
+        return;
+      }
 
       const saved = WattWatchStorage.saveAppliances(existing);
       if (!saved) {
