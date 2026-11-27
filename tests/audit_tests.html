@@ -24,7 +24,11 @@
     <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://www.gstatic.com https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; img-src 'self' data: https: blob:; font-src 'self'; connect-src 'self' https://*.googleapis.com https://*.firebaseio.com https://*.firebaseapp.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://firestore.googleapis.com https://www.gstatic.com https://cdn.jsdelivr.net; frame-src 'self'; object-src 'none'; base-uri 'self';">
     <div id="authModal" class="modal-backdrop">
       <button type="button" id="authModalCloseX" style="display: none;"></button>
-      <div class="auth-nav-tabs"></div>
+      <div class="auth-nav-tabs" role="tablist">
+        <button type="button" class="auth-tab-btn active" role="tab" id="authTabBtn-login" data-tab="login" aria-selected="true" tabindex="0" aria-controls="authPane-login">Log In</button>
+        <button type="button" class="auth-tab-btn" role="tab" id="authTabBtn-signup" data-tab="signup" aria-selected="false" tabindex="-1" aria-controls="authPane-signup">Create Account</button>
+        <button type="button" class="auth-tab-btn" role="tab" id="authTabBtn-recovery" data-tab="recovery" aria-selected="false" tabindex="-1" aria-controls="authPane-recovery">How Recovery Works</button>
+      </div>
       <h3 id="authModalTitle">Sign In</h3>
       <div id="authPane-login" class="auth-tab-pane active"></div>
       <div id="authPane-signup" class="auth-tab-pane"></div>
@@ -43,8 +47,6 @@
       <input id="signupUsername">
       <input id="signupPassword">
       <input id="signupPasswordConfirm">
-      <label id="signupImportGuestDataLabel"></label>
-      <div id="signupImportGuestDataWrap"></div>
       <input id="recoveryUsername">
       <button id="btnSignupSubmit"></button>
       <button type="button" id="authModalFooterClose" style="display: none;"></button>
@@ -119,7 +121,7 @@
       <button type="button" class="insights-tab" data-timeframe="weekly" role="tab" aria-selected="false" id="tabWeeklyInsights" aria-controls="overviewInsightsContent">Weekly</button>
       <button type="button" class="insights-tab" data-timeframe="monthly" role="tab" aria-selected="false" id="tabMonthlyInsights" aria-controls="overviewInsightsContent">Monthly</button>
     </div>
-    <div id="overviewInsightsContent"></div>
+    <div id="overviewInsightsContent" role="tabpanel" aria-labelledby="tabDailyInsights"></div>
     <div id="overviewApplianceComparisonContent"></div>
     <div class="filter-pills-row" id="categoryFilters" role="tablist" aria-label="Filter appliances by category">
       <button type="button" class="filter-pill active" data-category="All" role="tab" aria-selected="true">All Categories</button>
@@ -175,6 +177,7 @@
     <div id="confirmModal" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="confirmModalTitle" aria-hidden="true">
       <h3 id="confirmModalTitle"></h3>
       <p id="confirmModalMessage"></p>
+      <button type="button" id="confirmModalCancelBtn">Cancel</button>
       <button type="button" id="confirmModalOkBtn"></button>
     </div>
     <div id="applianceModal" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="modalTitle" aria-hidden="true">
@@ -211,8 +214,52 @@
       <span id="meterCycleDaysBadge"></span>
       <button id="btnSaveMeterReading"></button>
     </div>
+    <div id="recommendations-fixtures">
+      <span id="tipsSavingsCostLabel">Potential Monthly Savings</span>
+      <span id="tipsTotalSavingsCost" aria-labelledby="tipsSavingsCostLabel">₹0.00</span>
+      <span id="tipsSavingsKwhLabel">Energy Conservation</span>
+      <span id="tipsTotalSavingsKwh" aria-labelledby="tipsSavingsKwhLabel">0.00 kWh</span>
+      <p id="tipsOverlapNote" style="display: none;"></p>
+      <div id="recommendationsLiveStatus" class="sr-only" role="status" aria-live="polite"></div>
+      <div id="tipsWarningsBanner" role="alert" style="display: none;"></div>
+      <div id="tipsFilterBar" style="display: none;">
+        <div id="tipsImpactFilters" role="group" aria-label="Filter recommendations by impact level">
+          <button type="button" class="filter-pill active" data-tip-filter="all" aria-pressed="true" aria-label="Show all energy recommendations">All Tips</button>
+          <button type="button" class="filter-pill" data-tip-filter="High Impact" aria-pressed="false" aria-label="Filter by High Impact recommendations">High Impact</button>
+          <button type="button" class="filter-pill" data-tip-filter="Moderate Impact" aria-pressed="false" aria-label="Filter by Moderate Impact recommendations">Moderate Impact</button>
+          <button type="button" class="filter-pill" data-tip-filter="Optimization" aria-pressed="false" aria-label="Filter by Optimization &amp; Thermal recommendations">Optimization</button>
+        </div>
+        <span id="tipsFilterCountBadge"></span>
+      </div>
+      <div id="tipsGridContainer"></div>
+      <div id="tipsFilterEmptyState" style="display: none;">
+        <p id="tipsFilterEmptyDesc"></p>
+        <button type="button" id="btnResetTipsFilter">Show All</button>
+      </div>
+      <div id="tipsEmptyState" style="display: none;">
+        <h3 id="tipsEmptyTitle">No Recommendations Available</h3>
+        <p id="tipsEmptyDesc"></p>
+        <button type="button" id="btnEmptyWhatIfSimulator" disabled aria-describedby="tipsEmptyDesc">What-If Simulator Unavailable</button>
+      </div>
+    </div>
     <div id="whatIfScenariosCard">
       <div id="whatIfScenariosList"></div>
+    </div>
+    <div id="simulator-fixtures">
+      <select id="simApplianceSelect"></select>
+      <div id="simBaselineInfo"></div>
+      <input type="number" id="simAltWatts">
+      <input type="number" id="simAltHours">
+      <input type="number" id="simAltDays">
+      <input type="number" id="simAltQty">
+      <input type="number" id="simPurchaseCost">
+      <div id="simResultsContainer"></div>
+    </div>
+    <div id="analytics-fixtures">
+      <div id="analyticsDailyAvg"></div>
+      <div id="analyticsMonthlyTotal"></div>
+      <div id="analyticsPeakCategory"></div>
+      <div id="analyticsDailyCost"></div>
     </div>
     <div id="csvPreviewModal" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="csvPreviewTitle" aria-hidden="true">
       <h3 id="csvPreviewTitle"></h3>
@@ -4041,6 +4088,8 @@
           // H. End-to-End Workflow Verifications
           // 1. Simulator scenario application
           if (typeof WattWatchSimulator !== 'undefined' && acScenario) {
+            WattWatchStorage.saveAppliances(scenarioApps);
+            WattWatchSimulator.populateApplianceSelect();
             WattWatchSimulator.applyScenario(acScenario);
             const simSelect = document.getElementById('simApplianceSelect');
             if (simSelect) {
@@ -6104,6 +6153,1703 @@
             if (k && k.startsWith(p6Ns)) keysP6.push(k);
           }
           keysP6.forEach(k => localStorage.removeItem(k));
+        }
+      }
+
+      // ==========================================
+      // SECTION 54: Phase 7 Recommendations, What-If Scenarios, Tariff Sync, Security, A11y & Motion Polish
+      // ==========================================
+      {
+        const p7Ns = 'wattwatch_audit_test_p7_';
+        const origNs7 = WattWatchStorage.testNamespace;
+        const origActiveUser7 = WattWatchStorage.getActiveUser();
+        const origShowToast7 = WattWatchApp.showToast;
+        const origConfirm7 = WattWatchApp.openConfirmDialog;
+        const origReduceOverride7 = WattWatchApp.reduceMotionOverride;
+
+        const p7Toasts = [];
+        WattWatchApp.showToast = (msg, type, title) => { p7Toasts.push({ msg, type, title }); };
+        WattWatchStorage.setTestNamespace(p7Ns);
+        WattWatchStorage.setActiveUser(null);
+
+        try {
+          WattWatchApp.reduceMotionOverride = true;
+
+          // 1. Zero appliances empty-state consistency
+          WattWatchStorage.saveSettings({ tariffModel: 'flat', electricityRate: 8.0, fixedCharges: 0, additionalTaxPercent: 0, freeUnits: 0, billCreditInr: 0 });
+          WattWatchStorage.saveAppliances([]);
+          WattWatchApp.setRecommendationsFilter('all');
+          WattWatchApp.refreshAll();
+
+          const recsZero = WattWatchRecommendations.generateRecommendations([], WattWatchStorage.getSettings());
+          assert(recsZero.totalPotentialSavingsKwh === 0 && recsZero.totalPotentialSavingsCost === 0, 'P7.1a: Zero appliances yields 0.00 kWh and ₹0.00 savings');
+          assert(document.getElementById('tipsTotalSavingsCost').textContent === '₹0.00', 'P7.1b: Zero appliances UI cost displays ₹0.00');
+          assert(document.getElementById('tipsTotalSavingsKwh').textContent === '0.00 kWh', 'P7.1c: Zero appliances UI kWh displays 0.00 kWh');
+          assert(document.getElementById('tipsEmptyState').style.display === 'flex', 'P7.1d: Zero appliances displays #tipsEmptyState');
+          assert(document.getElementById('whatIfScenariosCard').style.display === 'none', 'P7.1e: Zero appliances hides #whatIfScenariosCard');
+          assert(document.getElementById('btnEmptyWhatIfSimulator').disabled === true, 'P7.1f: Zero appliances disables empty-state What-If button');
+          assert(document.getElementById('simApplianceSelect').disabled === true && document.getElementById('simAltWatts').disabled === true, 'P7.1g: Zero appliances disables Replacement Simulator controls cleanly');
+
+          // 2. Single appliance & 3. Multiple appliances
+          const singleAc = [{ id: 'p7_ac1', name: 'Living Room Split AC', category: 'Cooling', powerWatts: 1500, quantity: 1, dailyHours: 8, operatingDays: 30 }];
+          WattWatchStorage.saveAppliances(singleAc);
+          WattWatchApp.refreshAll();
+          const recsSingle = WattWatchRecommendations.generateRecommendations(singleAc, WattWatchStorage.getSettings());
+          assert(recsSingle.tips.length >= 2 && recsSingle.totalPotentialSavingsCost > 0, 'P7.2: Single high-draw AC produces valid recommendations & savings');
+          assert(document.getElementById('simApplianceSelect').disabled === false, 'P7.2b: Populated inventory re-enables Simulator controls');
+
+          // 4. Overlapping recommendations prevention & Water Heater precedence
+          // Single AC (360 kWh): Rule 1 runtime (-1.5h => 67.5 kWh, 18.75%) + Rule 3 eco 12% (= 43.2 kWh standalone).
+          // Naive sum = 110.7 kWh; combined achievable = 67.5 + 0.12*(360 - 67.5) = 102.60 kWh!
+          assert(recsSingle.hasOverlappingRecommendations === true, 'P7.4a: Detects overlapping optimizations on single AC');
+          assertAlmostEqual(recsSingle.totalPotentialSavingsKwh, 102.60, 'P7.4b: Reconciles overlapping AC runtime + cooling duty savings (102.60 kWh vs 110.70 kWh)');
+          assert(recsSingle.totalPotentialSavingsKwh < recsSingle.individualSumSavingsKwh, 'P7.4c: Combined kWh never inflates past unadjusted tip sum');
+          assert(recsSingle.totalPotentialSavingsKwh <= 360, 'P7.4d: Combined kWh never exceeds total appliance/household consumption');
+          assert(document.getElementById('tipsOverlapNote').style.display === 'block', 'P7.4e: UI renders #tipsOverlapNote clarifying combined vs individual totals');
+
+          // Water geyser precedence: 2000W 5h/day (<22% share alongside huge AC) must keep Rule 4 (-4.25h) instead of shadowed Rule 2 (-1.0h)
+          const geyserCombo = [
+            { id: 'p7_big_ac', name: 'Central Chiller', category: 'Cooling', powerWatts: 4000, quantity: 1, dailyHours: 12, operatingDays: 30 },
+            { id: 'p7_geyser', name: 'Storage Geyser', category: 'Other', powerWatts: 2000, quantity: 1, dailyHours: 5, operatingDays: 30 }
+          ];
+          const recsGeyser = WattWatchRecommendations.generateRecommendations(geyserCombo, 8.0);
+          const geyserTip = recsGeyser.tips.find(t => t.applianceId === 'p7_geyser');
+          assert(geyserTip && geyserTip.id === 'tip_water_p7_geyser', 'P7.4f: Sorting before deduplicating lets higher-saving Rule 4 Geyser win over Rule 2');
+
+          // 5. Flat tariff changes & immediate propagation
+          WattWatchStorage.saveAppliances(singleAc);
+          WattWatchStorage.saveSettings({ tariffModel: 'flat', electricityRate: 10.0, fixedCharges: 0, additionalTaxPercent: 0, freeUnits: 0, billCreditInr: 0 });
+          WattWatchApp.refreshAll();
+          assertAlmostEqual(
+            WattWatchRecommendations.generateRecommendations(singleAc, WattWatchStorage.getSettings()).totalPotentialSavingsCost,
+            102.60 * 10.0,
+            'P7.5: Recommendations cost updates immediately on flat tariff change (102.60 * 10 = ₹1026.00)'
+          );
+
+          // 6. Slab tariff boundary accuracy (crossing 300 kWh boundary) + Overview/Recommendations parity
+          const p7SlabSettings = {
+            tariffModel: 'slab',
+            electricityRate: 8.0,
+            slabConfig: [
+              { upTo: 100, rate: 4.5 },
+              { upTo: 300, rate: 7.5 },
+              { upTo: null, rate: 10.0 }
+            ],
+            fixedCharges: 100,
+            additionalTaxPercent: 10,
+            freeUnits: 0,
+            billCreditInr: 0
+          };
+          WattWatchStorage.saveSettings(p7SlabSettings);
+          WattWatchApp.setInsightsTimeframe('monthly');
+          WattWatchApp.refreshAll();
+          const recsSlab7 = WattWatchRecommendations.generateRecommendations(singleAc, p7SlabSettings);
+          // 360 -> 257.4 kWh crosses 300 kWh boundary: 60 kWh @ ₹10 + 42.6 kWh @ ₹7.5 = 600 + 319.5 = ₹919.50 energy * 1.10 tax = ₹1011.45
+          assertAlmostEqual(recsSlab7.totalPotentialSavingsCost, 1011.45, 'P7.6a: Slab boundary + 10% tax savings calculated precisely (₹1011.45)');
+          const overviewInsightsText = document.getElementById('overviewInsightsContent').textContent;
+          assert(overviewInsightsText.includes('1,011.45'), 'P7.6b: Overview Monthly Insights uses full slab/tax tariff matching Recommendations (₹1,011.45)', overviewInsightsText);
+
+          // 7. Lifeline free-unit boundaries (below, at, and crossing freeUnits)
+          const flatFreeCfg = { tariffModel: 'flat', electricityRate: 8.0, fixedCharges: 0, additionalTaxPercent: 0, freeUnits: 100, billCreditInr: 0 };
+          const belowFreeApp = [{ id: 'p7_free1', name: 'Ceiling Fan', category: 'Cooling', powerWatts: 1000, quantity: 1, dailyHours: 6, operatingDays: 15 }]; // 90 kWh
+          const atFreeApp = [{ id: 'p7_free2', name: 'Ceiling Fan', category: 'Cooling', powerWatts: 1000, quantity: 1, dailyHours: 5, operatingDays: 20 }]; // 100 kWh
+          const aboveFreeApp = [{ id: 'p7_free3', name: 'Heater Fan', category: 'Cooling', powerWatts: 1000, quantity: 1, dailyHours: 5, operatingDays: 23 }]; // 115 kWh (saving 23 kWh => 92 kWh -> only 15 kWh billable)
+
+          const recBelowFree = WattWatchRecommendations.generateRecommendations(belowFreeApp, flatFreeCfg);
+          const recAtFree = WattWatchRecommendations.generateRecommendations(atFreeApp, flatFreeCfg);
+          const recAboveFree = WattWatchRecommendations.generateRecommendations(aboveFreeApp, flatFreeCfg);
+          assert(recBelowFree.totalPotentialSavingsCost === 0, 'P7.7a: Below freeUnits yields ₹0.00 monetary savings');
+          assert(recAtFree.totalPotentialSavingsCost === 0, 'P7.7b: Exactly at freeUnits yields ₹0.00 monetary savings');
+          assertAlmostEqual(recAboveFree.totalPotentialSavingsCost, 15 * 8.0, 'P7.7c: Partially crossing freeUnits counts only billable 15 kWh reduction (₹120.00)');
+
+          // 8. Fixed charges & tax in flat mode + 9. Subsidy boundary
+          const flatTaxSubsidyCfg = { tariffModel: 'flat', electricityRate: 8.0, fixedCharges: 100, additionalTaxPercent: 10, freeUnits: 0, billCreditInr: 200 };
+          // 120 kWh @8 = 960 + 100 fixed = 1060 + 10% tax = 1166 - 200 = 966. Trim 30 kWh => 90*8 = 720 + 100 = 820 +10% = 902 - 200 = 702. Saved = 264.00 (30 * 8 * 1.1)
+          const subHigh = { tariffModel: 'flat', electricityRate: 8.0, fixedCharges: 100, additionalTaxPercent: 10, freeUnits: 0, billCreditInr: 5000 };
+          const recTaxSub = WattWatchRecommendations.generateRecommendations(aboveFreeApp, flatTaxSubsidyCfg);
+          const recHighSub = WattWatchRecommendations.generateRecommendations(aboveFreeApp, subHigh);
+          assertAlmostEqual(recTaxSub.totalPotentialSavingsCost, recTaxSub.totalPotentialSavingsKwh * 8.0 * 1.1, 'P7.8: Flat mode recommendations include tax multiplier consistently');
+          assert(recHighSub.totalPotentialSavingsCost === 0, 'P7.9: Huge subsidy absorbing entire gross bill produces ₹0.00 monetary savings');
+
+          // 10. Scenario handoff to simulator (preserves advanced duty/standby & never mutates saved inventory)
+          const invAc = [{ id: 'p7_inv_ac', name: 'Inverter AC', category: 'Cooling', powerWatts: 1500, quantity: 1, dailyHours: 8, operatingDays: 30, dutyCyclePercent: 60, standbyWatts: 10 }];
+          WattWatchStorage.saveSettings(p7SlabSettings);
+          WattWatchStorage.saveAppliances(invAc);
+          WattWatchApp.refreshAll();
+          const whatIfInv = WattWatchRecommendations.generateWhatIfScenarios(invAc, p7SlabSettings);
+          const runtimeSc = whatIfInv.scenarios.find(s => s.scenarioType === 'runtime');
+          const ecoSc = whatIfInv.scenarios.find(s => s.scenarioType === 'eco_cooling');
+          assert(runtimeSc && runtimeSc.targetHours === 7 && runtimeSc.savedKwhMonthly < 30, 'P7.10a: Runtime scenario honors 60% inverter duty + 10W standby');
+
+          const handoffRes = WattWatchSimulator.applyScenario(runtimeSc);
+          assert(handoffRes.success === true, 'P7.10b: applyScenario succeeds for valid appliance');
+          assert(document.getElementById('simApplianceSelect').value === 'p7_inv_ac', 'P7.10c: Simulator selects target appliance');
+          assert(document.getElementById('simAltHours').value === '7', 'P7.10d: Simulator receives scenario targetHours');
+          assert(document.getElementById('simResultsContainer').textContent.includes('Preview Only'), 'P7.10e: Simulator displays non-destructive Preview Only banner');
+          assert(WattWatchStorage.getAppliances()[0].dailyHours === 8, 'P7.10f: Saved appliance schedule remains unchanged during scenario preview');
+
+          // Verify standby & eco scenarios also show positive energy savings matching calculation
+          if (ecoSc) {
+            WattWatchSimulator.applyScenario(ecoSc);
+            assert(document.getElementById('simResultsContainer').textContent.includes('Monthly Savings'), 'P7.10g: Eco cooling scenario simulates cleanly');
+          }
+
+          // 11. Deleted & renamed appliance handling
+          WattWatchStorage.saveAppliances([{ id: 'p7_inv_ac', name: 'Renamed Master AC', category: 'Cooling', powerWatts: 1500, quantity: 1, dailyHours: 8, operatingDays: 30 }]);
+          p7Toasts.length = 0;
+          const renamedRes = WattWatchSimulator.applyScenario(runtimeSc);
+          assert(renamedRes.success === true && renamedRes.renamed === true, 'P7.11a: Renamed appliance handoff detects rename and still maps by immutable ID');
+          assert(p7Toasts.some(t => t.msg.includes('Renamed Master AC')), 'P7.11b: Renamed appliance displays helpful update toast');
+
+          WattWatchStorage.saveAppliances([]);
+          p7Toasts.length = 0;
+          const deletedRes = WattWatchSimulator.applyScenario(runtimeSc);
+          assert(deletedRes.success === false, 'P7.11c: Deleted appliance handoff fails explicitly instead of silent success');
+          assert(p7Toasts.some(t => t.type === 'error' && t.msg.includes('removed')), 'P7.11d: Deleted appliance shows explicit error notification');
+
+          // 12. Runtime reduction limits & 13. Invalid scenario values
+          const oneHourApp = [{ id: 'p7_1h', name: 'Pump', category: 'Other', powerWatts: 1500, quantity: 1, dailyHours: 1, operatingDays: 30 }];
+          const whatIf1h = WattWatchRecommendations.generateWhatIfScenarios(oneHourApp, 8.0);
+          const sc1h = whatIf1h.scenarios.find(s => s.scenarioType === 'runtime');
+          assert(!sc1h || (sc1h.targetHours >= 0 && sc1h.targetHours < 1 && sc1h.percentReduction <= 100), 'P7.12: Runtime reduction never exceeds current daily hours or 100%');
+
+          WattWatchStorage.saveAppliances(oneHourApp);
+          const badHrsRes = WattWatchSimulator.applyScenario({ applianceId: 'p7_1h', scenarioType: 'runtime', targetWatts: 1500, targetHours: 25, targetDays: 30, targetQty: 1 });
+          const exceedingHrsRes = WattWatchSimulator.applyScenario({ applianceId: 'p7_1h', scenarioType: 'runtime', targetWatts: 1500, targetHours: 5, targetDays: 30, targetQty: 1 });
+          const badMissingRes = WattWatchSimulator.applyScenario(null);
+          assert(badHrsRes.success === false && exceedingHrsRes.success === false && badMissingRes.success === false, 'P7.13: Invalid/out-of-range/null scenario inputs rejected cleanly');
+
+          // 14. XSS payloads in appliance names & 15. XSS payloads in categories
+          window.__xssP7Fired = 0;
+          const xssApps = [{
+            id: 'p7_xss_app',
+            name: '<img src=x onerror="window.__xssP7Fired++">\');window.__xssP7Fired++;//',
+            category: 'Cooling',
+            powerWatts: 1600,
+            quantity: 1,
+            dailyHours: 8,
+            operatingDays: 30
+          }];
+          WattWatchStorage.saveAppliances(xssApps);
+          WattWatchApp.renderRecommendationsView(xssApps, { tariffModel: 'flat', electricityRate: 8.0 });
+          await new Promise(r => setTimeout(r, 40));
+          const tipsDom = document.getElementById('tipsGridContainer');
+          const whatIfDom = document.getElementById('whatIfScenariosList');
+          assert(window.__xssP7Fired === 0 && !tipsDom.querySelector('img') && !whatIfDom.querySelector('img'), 'P7.14: Hostile XSS payloads in names neither execute JS nor create injected elements');
+          assert(!tipsDom.innerHTML.includes('onclick='), 'P7.14b: Zero inline onclick attributes in rendered recommendation cards');
+          assert(WattWatchApp._safeBadgeClass('badge-gold" onclick="alert(1)') === 'badge-gold', 'P7.15: Badge class allowlist rejects attribute breakout payloads');
+
+          // 16. Metric consistency & 17. Recommendation filtering & updates
+          WattWatchStorage.saveAppliances([
+            { id: 'p7_f_ac', name: 'AC', category: 'Cooling', powerWatts: 1500, quantity: 1, dailyHours: 8, operatingDays: 30 },
+            { id: 'p7_f_tv', name: 'TV', category: 'Entertainment', powerWatts: 150, quantity: 1, dailyHours: 6, operatingDays: 30, standbyWatts: 15 }
+          ]);
+          WattWatchApp.setRecommendationsFilter('High Impact');
+          const hiCards = document.querySelectorAll('#tipsGridContainer article.tip-card');
+          assert(hiCards.length >= 1 && Array.from(hiCards).every(c => c.textContent.includes('High Impact')), 'P7.17a: High Impact filter shows only High Impact tips');
+          assert(document.getElementById('tipsTotalSavingsKwh').dataset.targetText !== '0.00 kWh', 'P7.16/P7.17b: Filtering view does not corrupt household potential savings headline');
+
+          WattWatchApp.setRecommendationsFilter('Optimization');
+          const optCards = document.querySelectorAll('#tipsGridContainer article.tip-card');
+          assert(optCards.length >= 1, 'P7.17c: Optimization filter renders matching phantom standby card');
+
+          WattWatchApp.setRecommendationsFilter('all');
+          assert(document.getElementById('tipsFilterBar').style.display === 'flex', 'P7.17d: Filter toolbar visible and reset works cleanly');
+
+          // 18. Keyboard accessibility
+          const tipActionButtons = Array.from(document.querySelectorAll('#tipsGridContainer [data-action="simulate-tip"], #whatIfScenariosList [data-action="apply-whatif"]'));
+          const tipAriaLabels = tipActionButtons.map(b => b.getAttribute('aria-label')).filter(Boolean);
+          assert(
+            tipActionButtons.length >= 2 &&
+            tipAriaLabels.length === tipActionButtons.length &&
+            tipAriaLabels.every(lbl => lbl.length > 10) &&
+            new Set(tipAriaLabels).size === tipAriaLabels.length,
+            'P7.18a: Every tip and scenario action button has unique descriptive aria-label'
+          );
+          const filterGroup = document.getElementById('tipsImpactFilters');
+          const allFilterBtn = filterGroup.querySelector('[data-tip-filter="all"]');
+          allFilterBtn.focus();
+          allFilterBtn.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true }));
+          assert(WattWatchApp.currentTipFilter === 'High Impact', 'P7.18b: ArrowRight keyboard navigation switches recommendation impact filter');
+          WattWatchApp.setRecommendationsFilter('all');
+
+          // 20. Reduced-motion behavior & 21. Metric animation final-value accuracy
+          const animEl = document.getElementById('tipsTotalSavingsCost');
+          animEl.textContent = '₹0.00';
+          delete animEl.dataset.metricVal;
+          delete animEl.dataset.lastVisibleVal;
+          WattWatchApp.reduceMotionOverride = true;
+          WattWatchApp._animateMetricCounter(animEl, 1234.56, v => WattWatchCalculations.formatCurrency(v, '₹'), { setAriaLabel: false });
+          assert(animEl.textContent === '₹1,234.56', 'P7.20: Reduced-motion snaps metric synchronously without rAF loop');
+
+          WattWatchApp.reduceMotionOverride = false;
+          WattWatchApp._animateMetricCounter(animEl, 0, v => WattWatchCalculations.formatCurrency(v, '₹'), { setAriaLabel: false, duration: 80 });
+          await new Promise(r => setTimeout(r, 140));
+          assert(animEl.textContent === '₹0.00', 'P7.21a: Animated count-down finishes accurately at ₹0.00');
+          WattWatchApp._animateMetricCounter(animEl, 500, v => WattWatchCalculations.formatCurrency(v, '₹'), { setAriaLabel: false, duration: 80 });
+          assert(animEl.dataset.targetText === '₹500.00', 'P7.21b: Target text stored synchronously for immediate verification');
+          await new Promise(r => setTimeout(r, 140));
+          assert(animEl.textContent === '₹500.00', 'P7.21c: Animated count-up finishes at exact calculation result ₹500.00');
+          WattWatchApp.reduceMotionOverride = true;
+
+          // 22. Chart in-place update and cleanup
+          const cTrend = document.getElementById('overviewTrendChart');
+          const sum1 = WattWatchCalculations.calculateHouseholdSummary(WattWatchStorage.getAppliances(), 8.0);
+          WattWatchCharts.renderOverviewTrendChart(sum1);
+          const inst1 = WattWatchCharts.instances.overviewTrend;
+          const sum2 = WattWatchCalculations.calculateHouseholdSummary([{ id: 'c2', name: 'AC', category: 'Cooling', powerWatts: 2000, quantity: 1, dailyHours: 5, operatingDays: 30 }], 8.0);
+          WattWatchCharts.renderOverviewTrendChart(sum2);
+          const inst2 = WattWatchCharts.instances.overviewTrend;
+          assert(inst1 !== null && inst1 === inst2, 'P7.22a: Re-rendering Overview Trend chart updates existing Chart.js instance in-place instead of destroying');
+          WattWatchCharts.renderOverviewTrendChart({ appliances: [], totalDailyKwh: 0 });
+          assert(WattWatchCharts.instances.overviewTrend === null && (!Chart.getChart || !Chart.getChart(cTrend)), 'P7.22b: Entering empty state destroys Chart.js instance cleanly');
+
+          // 23. Empty <-> Populated transition
+          WattWatchStorage.saveAppliances([]);
+          WattWatchApp.refreshAll();
+          assert(document.getElementById('tipsEmptyState').style.display === 'flex' && document.getElementById('whatIfScenariosCard').style.display === 'none', 'P7.23: Transitioning back to 0 appliances restores clean empty states');
+        } finally {
+          WattWatchApp.reduceMotionOverride = origReduceOverride7;
+          WattWatchApp.showToast = origShowToast7;
+          WattWatchApp.openConfirmDialog = origConfirm7;
+          WattWatchStorage.setActiveUser(origActiveUser7);
+          WattWatchStorage.setTestNamespace(origNs7);
+          WattWatchCharts.destroyAll();
+          delete window.__xssP7Fired;
+          const keysP7 = [];
+          for (let i = 0; i < localStorage.length; i++) {
+            const k = localStorage.key(i);
+            if (k && k.startsWith(p7Ns)) keysP7.push(k);
+          }
+          keysP7.forEach(k => localStorage.removeItem(k));
+        }
+      }
+
+      // ==========================================
+      // SECTION 55: SimulateReplacement Tariff-Modifier Cost Allocation Regression Suite
+      // ==========================================
+      {
+        const allocIdentity = (sim, label, tol = 1e-9) => {
+          assert(sim && sim.isValid === true, `${label}: simulation result is valid`);
+          assert(Number.isFinite(sim.baseline.monthlyCost) && sim.baseline.monthlyCost >= 0, `${label}: baseline monthlyCost (${sim.baseline.monthlyCost}) is finite and non-negative`);
+          assert(Number.isFinite(sim.replacement.monthlyCost) && sim.replacement.monthlyCost >= 0, `${label}: replacement monthlyCost (${sim.replacement.monthlyCost}) is finite and non-negative`);
+          assertAlmostEqual(
+            sim.baseline.monthlyCost - sim.replacement.monthlyCost,
+            sim.savings.monthlyCostSaved,
+            `${label}: baseline.monthlyCost - replacement.monthlyCost === savings.monthlyCostSaved`,
+            tol
+          );
+        };
+
+        const acAllocApp = { id: 'alloc_ac', name: 'Alloc AC', category: 'Cooling', powerWatts: 1500, quantity: 1, dailyHours: 6, operatingDays: 30 }; // 270 kWh
+
+        // 1. Slab boundaries + fixed charges + tax (crossing Tier 3 -> Tier 2, remaining load 102 kWh)
+        const expectedBeforeSlab = WattWatchCalculations.calculateAdvancedTariff(372, slabSettings).totalCost;
+        const expectedWithoutSlab = WattWatchCalculations.calculateAdvancedTariff(102, slabSettings).totalCost;
+        const expectedAfterSlab = WattWatchCalculations.calculateAdvancedTariff(264, slabSettings).totalCost;
+        const simAllocSlab = WattWatchCalculations.simulateReplacement(acAllocApp, 900, 6, 30, 1, slabSettings, 30000, 372);
+        allocIdentity(simAllocSlab, 'ALLOC.1 Slab+Fixed+Tax');
+        assertAlmostEqual(simAllocSlab.baseline.monthlyCost, expectedBeforeSlab - expectedWithoutSlab, 'ALLOC.1a: Baseline cost equals B_before - B_without');
+        assertAlmostEqual(simAllocSlab.replacement.monthlyCost, expectedAfterSlab - expectedWithoutSlab, 'ALLOC.1b: Replacement cost equals B_after - B_without');
+        assertAlmostEqual(simAllocSlab.savings.monthlyCostSaved, expectedBeforeSlab - expectedAfterSlab, 'ALLOC.1c: Savings equal B_before - B_after');
+
+        // 2. Household consumption omitted / defaults to appliance baseline (B_without = B(0) includes fixed charges cleanly)
+        const simAllocSingle = WattWatchCalculations.simulateReplacement(acAllocApp, 900, 6, 30, 1, slabSettings, 30000, 0);
+        const s0 = WattWatchCalculations.calculateAdvancedTariff(0, slabSettings).totalCost;
+        const s270 = WattWatchCalculations.calculateAdvancedTariff(270, slabSettings).totalCost;
+        const s162 = WattWatchCalculations.calculateAdvancedTariff(162, slabSettings).totalCost;
+        allocIdentity(simAllocSingle, 'ALLOC.2 Omitted householdTotalKwh');
+        assertAlmostEqual(simAllocSingle.baseline.monthlyCost, s270 - s0, 'ALLOC.2a: Fixed charges cancel out when householdTotalKwh=0');
+        assertAlmostEqual(simAllocSingle.replacement.monthlyCost, s162 - s0, 'ALLOC.2b: Replacement incremental cost excludes household fixed charges');
+
+        // 3. Zero consumption & full appliance removal (altQty = 0 / dailyHours = 0)
+        const simRemove = WattWatchCalculations.simulateReplacement(acAllocApp, 1500, 0, 30, 0, slabSettings, 0, 372);
+        allocIdentity(simRemove, 'ALLOC.3 Full Removal');
+        assertAlmostEqual(simRemove.replacement.monthlyCost, 0, 'ALLOC.3a: Removed replacement (0 kWh) allocates ₹0.00 cost under fixed+tax slabs');
+        assertAlmostEqual(simRemove.savings.monthlyCostSaved, simRemove.baseline.monthlyCost, 'ALLOC.3b: Saving from removal equals baseline incremental cost');
+
+        const zeroAppAlloc = { id: 'alloc_z', name: 'Zero App', category: 'Other', powerWatts: 500, quantity: 1, dailyHours: 0, operatingDays: 30 };
+        const simZeroToZero = WattWatchCalculations.simulateReplacement(zeroAppAlloc, 500, 0, 30, 1, { ...slabSettings, billCreditInr: 50 }, 0, 0);
+        allocIdentity(simZeroToZero, 'ALLOC.3c Zero-to-Zero');
+        assert(simZeroToZero.baseline.monthlyCost === 0 && simZeroToZero.replacement.monthlyCost === 0 && simZeroToZero.savings.monthlyCostSaved === 0, 'ALLOC.3d: Zero consumption with modifiers yields exact zeroes');
+
+        const simZeroToPos = WattWatchCalculations.simulateReplacement(zeroAppAlloc, 1000, 2, 30, 1, slabSettings, 0, 150);
+        allocIdentity(simZeroToPos, 'ALLOC.3e Zero-to-Positive Increase');
+        assert(simZeroToPos.baseline.monthlyCost === 0 && simZeroToPos.replacement.monthlyCost > 0 && simZeroToPos.savings.monthlyCostSaved < 0, 'ALLOC.3f: Adding load from 0h allocates 0 baseline and positive replacement');
+
+        // 4. Free-unit threshold cases (entirely inside, dropping below threshold, partial crossing)
+        const freeTaxSettings = { tariffModel: 'flat', electricityRate: 8.0, fixedCharges: 100, additionalTaxPercent: 10, freeUnits: 100, billCreditInr: 0 };
+        const freeBaseApp = { id: 'alloc_fr', name: 'Heater', category: 'Kitchen', powerWatts: 1000, quantity: 1, dailyHours: 4, operatingDays: 30 }; // 120 kWh
+        // Case 4a: Entirely inside 100 freeUnits (household 90 -> alt drops total to 70)
+        const simAllFree = WattWatchCalculations.simulateReplacement({ ...freeBaseApp, powerWatts: 500, dailyHours: 2 }, 250, 2, 30, 1, freeTaxSettings, 0, 80); // base 30, other 50
+        allocIdentity(simAllFree, 'ALLOC.4a Inside Free Allowance');
+        assertAlmostEqual(simAllFree.baseline.monthlyCost, 0, 'ALLOC.4a1: Inside free allowance baseline cost is 0');
+        assertAlmostEqual(simAllFree.replacement.monthlyCost, 0, 'ALLOC.4a2: Inside free allowance replacement cost is 0');
+        assertAlmostEqual(simAllFree.savings.monthlyCostSaved, 0, 'ALLOC.4a3: Inside free allowance savings are 0');
+
+        // Case 4b: Household 180 -> 90 kWh (other load 60, alt 30 kWh; baseline 120 kWh pushed 80 units above 100 free)
+        const simCrossFreeDrop = WattWatchCalculations.simulateReplacement(freeBaseApp, 250, 4, 30, 1, freeTaxSettings, 0, 180);
+        allocIdentity(simCrossFreeDrop, 'ALLOC.4b Dropping Inside Free Allowance');
+        assertAlmostEqual(simCrossFreeDrop.baseline.monthlyCost, 80 * 8.0 * 1.1, 'ALLOC.4b1: Only 80 units above 100 free quota billed to baseline (₹704.00)');
+        assertAlmostEqual(simCrossFreeDrop.replacement.monthlyCost, 0, 'ALLOC.4b2: Replacement inside remaining free allowance costs ₹0.00');
+
+        // Case 4c: Partial crossing (household 180 -> 135 kWh, alt = 75 kWh => 35 units above free allowance)
+        const simCrossFreePartial = WattWatchCalculations.simulateReplacement(freeBaseApp, 625, 4, 30, 1, freeTaxSettings, 0, 180);
+        allocIdentity(simCrossFreePartial, 'ALLOC.4c Partial Free Threshold');
+        assertAlmostEqual(simCrossFreePartial.replacement.monthlyCost, 35 * 8.0 * 1.1, 'ALLOC.4c1: Partial replacement excess billed accurately (₹308.00)');
+
+        // 5. Subsidy thresholds (regression against old baseMonthlyKwh*effRate clamping bug)
+        const subReproCfg = { tariffModel: 'flat', electricityRate: 8.0, fixedCharges: 0, additionalTaxPercent: 0, freeUnits: 0, billCreditInr: 1800 };
+        const subApp = { id: 'alloc_sub', name: 'AC Sub', category: 'Cooling', powerWatts: 1000, quantity: 1, dailyHours: 6.6666666667, operatingDays: 30 }; // ~200 kWh
+        // Household 300 -> 2400 gross - 1800 subsidy = 600 net; other = 100 -> 800 gross < 1800 -> B_without = 0; replacement = 100 -> 1600 gross < 1800 -> B_after = 0
+        const simSubThreshold = WattWatchCalculations.simulateReplacement(subApp, 500, 6.6666666667, 30, 1, subReproCfg, 0, 300);
+        allocIdentity(simSubThreshold, 'ALLOC.5a Subsidy Absorbs Post-Replacement Bill');
+        assertAlmostEqual(simSubThreshold.baseline.monthlyCost, 600, 'ALLOC.5a1: Baseline allocates net ₹600 instead of prorated effective rate');
+        assertAlmostEqual(simSubThreshold.replacement.monthlyCost, 0, 'ALLOC.5a2: Replacement absorbed by subsidy is ₹0');
+        assertAlmostEqual(simSubThreshold.savings.monthlyCostSaved, 600, 'ALLOC.5a3: Savings match exact ₹600 net reduction');
+
+        const subHugeCfg = { ...slabSettings, billCreditInr: 15000 };
+        const simSubHuge = WattWatchCalculations.simulateReplacement(acAllocApp, 900, 6, 30, 1, subHugeCfg, 0, 372);
+        allocIdentity(simSubHuge, 'ALLOC.5b Full Subsidy Absorption');
+        assertAlmostEqual(simSubHuge.baseline.monthlyCost, 0, 'ALLOC.5b1: Baseline 0 under full subsidy');
+        assertAlmostEqual(simSubHuge.savings.monthlyCostSaved, 0, 'ALLOC.5b2: Savings 0 under full subsidy');
+
+        // 6. Replacement increases the bill across slab boundary + partial subsidy
+        const mixedIncreaseCfg = { ...slabSettings, billCreditInr: 400 };
+        const smallBaseApp = { id: 'alloc_inc', name: 'Old AC', category: 'Cooling', powerWatts: 1000, quantity: 1, dailyHours: 4, operatingDays: 30 }; // 120 kWh
+        // Household = 250 (other = 130 kWh), replace with 2000W 5h (300 kWh => household = 430 kWh crossing Tier 3 @ 10/kWh)
+        const simIncrease = WattWatchCalculations.simulateReplacement(smallBaseApp, 2000, 5, 30, 1, mixedIncreaseCfg, 10000, 250);
+        allocIdentity(simIncrease, 'ALLOC.6 Higher Consumption Increase Across Slab Boundary');
+        assert(simIncrease.replacement.monthlyCost > simIncrease.baseline.monthlyCost, 'ALLOC.6a: Higher replacement allocates strictly higher monthly cost');
+        assert(simIncrease.savings.monthlyCostSaved < 0 && simIncrease.savings.isSaving === false && simIncrease.savings.paybackMonths === null, 'ALLOC.6b: Bill increase flags negative savings and null payback');
+
+        // 7. Flat-rate compatibility & includeTaxInFlat behavior
+        const simDirectFlat = WattWatchCalculations.simulateReplacement(acAllocApp, 900, 6, 30, 1, flatSettings, 30000, 372);
+        allocIdentity(simDirectFlat, 'ALLOC.7a Direct Flat Compatibility');
+        assertAlmostEqual(simDirectFlat.savings.monthlyCostSaved, 108.0 * 8.00, 'ALLOC.7a1: Direct flat settings without includeTaxInFlat preserves ₹864.00 energy savings');
+
+        const simIncTaxFlat = WattWatchCalculations.simulateReplacement(acAllocApp, 900, 6, 30, 1, flatSettings, 30000, 372, { includeTaxInFlat: true });
+        allocIdentity(simIncTaxFlat, 'ALLOC.7b includeTaxInFlat Modifier Allocation');
+        assertAlmostEqual(simIncTaxFlat.baseline.monthlyCost, 270 * 8.0 * 1.05, 'ALLOC.7b1: includeTaxInFlat allocates baseline tax accurately without fixed-charge contamination');
+        assertAlmostEqual(simIncTaxFlat.replacement.monthlyCost, 162 * 8.0 * 1.05, 'ALLOC.7b2: includeTaxInFlat allocates replacement tax accurately');
+        assertAlmostEqual(simIncTaxFlat.savings.monthlyCostSaved, 108 * 8.0 * 1.05, 'ALLOC.7b3: includeTaxInFlat savings equal baseline minus replacement (₹907.20)');
+
+        // 8. Negative displayed cost anti-concealment guard (non-monotonic tariff mock rejected rather than hidden via Math.max)
+        const origAdvTariff = WattWatchCalculations.calculateAdvancedTariff;
+        try {
+          WattWatchCalculations.calculateAdvancedTariff = function(kwh) {
+            // Deliberately non-monotonic mock to verify negative appliance cost rejection
+            return { isValid: true, totalCost: kwh === 0 ? 500 : 200, freeUnits: 0, subsidy: 0, taxPercent: 0, fixedCharge: 0, effectiveRatePerKwh: 8 };
+          };
+          const simNonMonotonic = WattWatchCalculations.simulateReplacement(acAllocApp, 900, 6, 30, 1, slabSettings, 0, 270);
+          assert(simNonMonotonic && simNonMonotonic.isValid === false, 'ALLOC.8: Inconsistent negative appliance cost fails explicitly instead of masking via Math.max');
+        } finally {
+          WattWatchCalculations.calculateAdvancedTariff = origAdvTariff;
+        }
+      }
+
+      // ==========================================
+      // SECTION 56: Final Recommendations.js Audit Corrections Regression Suite
+      // ==========================================
+      {
+        const origNsRec = WattWatchStorage.testNamespace;
+        const origActiveRec = WattWatchStorage.getActiveUser();
+        const origReduceRec = WattWatchApp.reduceMotionOverride;
+        WattWatchStorage.setTestNamespace('wattwatch_audit_rec_rev_');
+        WattWatchStorage.setActiveUser(null);
+        WattWatchApp.reduceMotionOverride = true;
+
+        try {
+          // 1. Multiple overlapping recommendations for one appliance: per-card reconciled sum === combined total
+          const overlapAc = [{ id: 'rec_rev_ac', name: 'Master AC', category: 'Cooling', powerWatts: 1500, quantity: 1, dailyHours: 8, operatingDays: 30 }];
+          const recsOverlap = WattWatchRecommendations.generateRecommendations(overlapAc, slabSettings);
+          assert(recsOverlap.isValid === true && recsOverlap.tips.length >= 2, 'REC_REV.1a: Generates multiple tips on overlapping AC');
+          const sumReconciledKwh = recsOverlap.tips.reduce((s, t) => s + t.savedKwhMonthly, 0);
+          const sumReconciledCost = recsOverlap.tips.reduce((s, t) => s + t.savedCostMonthly, 0);
+          const sumStandaloneCost = recsOverlap.tips.reduce((s, t) => s + t.individualSavedCostMonthly, 0);
+          assertAlmostEqual(sumReconciledKwh, recsOverlap.totalPotentialSavingsKwh, 'REC_REV.1b: Sum of per-card kWh equals combined totalPotentialSavingsKwh', 0.001);
+          assertAlmostEqual(sumReconciledCost, recsOverlap.totalPotentialSavingsCost, 'REC_REV.1c: Sum of per-card rupee savings equals combined totalPotentialSavingsCost', 0.01);
+          assert(recsOverlap.tips.some(t => t.hasReconciledAdjustment && t.savedKwhMonthly < t.individualSavedKwhMonthly && t.individualSavedCostMonthly > t.savedCostMonthly), 'REC_REV.1d: Overlapping card reduces displayed combined share while preserving standalone estimate separately');
+          assertAlmostEqual(sumStandaloneCost, recsOverlap.individualSumSavingsCost, 'REC_REV.1e: Standalone individual estimates sum cleanly to individualSumSavingsCost', 0.01);
+
+          // Render UI and verify card distinction + non-inflated labels
+          WattWatchStorage.saveSettings(slabSettings);
+          WattWatchStorage.saveAppliances(overlapAc);
+          WattWatchApp.setRecommendationsFilter('all');
+          WattWatchApp.renderRecommendationsView(overlapAc, slabSettings);
+          const renderedCardsText = document.getElementById('tipsGridContainer').textContent;
+          assert(renderedCardsText.includes('Combined Household Share') && renderedCardsText.includes('Standalone if applied alone'), 'REC_REV.1f: UI distinguishes reconciled Combined Household Share from standalone estimate on card');
+
+          // 2. Explicit numeric 0, string "0", malformed standby, and unspecified standby handling
+          const tvNumZero = [{ id: 'sb_n0', name: 'TV Zero Num', category: 'Entertainment', powerWatts: 120, quantity: 1, dailyHours: 6, operatingDays: 30, standbyWatts: 0 }];
+          const tvStrZero = [{ id: 'sb_s0', name: 'TV Zero Str', category: 'Entertainment', powerWatts: 120, quantity: 1, dailyHours: 6, operatingDays: 30, standbyWatts: '0' }];
+          const tvStrPadZero = [{ id: 'sb_sp0', name: 'TV Zero Padded', category: 'Entertainment', powerWatts: 120, quantity: 1, dailyHours: 6, operatingDays: 30, standbyWatts: ' 0.0 ' }];
+          const tvMalformed = [{ id: 'sb_bad', name: 'TV Bad Standby', category: 'Entertainment', powerWatts: 120, quantity: 1, dailyHours: 6, operatingDays: 30, standbyWatts: 'not-a-number' }];
+          const tvNeg = [{ id: 'sb_neg', name: 'TV Neg Standby', category: 'Entertainment', powerWatts: 120, quantity: 1, dailyHours: 6, operatingDays: 30, standbyWatts: -15 }];
+          const tvUnspec = [{ id: 'sb_un', name: 'TV Default', category: 'Entertainment', powerWatts: 120, quantity: 1, dailyHours: 6, operatingDays: 30 }];
+
+          [
+            [tvNumZero, 'numeric 0'],
+            [tvStrZero, 'string "0"'],
+            [tvStrPadZero, 'padded " 0.0 "'],
+            [tvMalformed, 'malformed string'],
+            [tvNeg, 'negative -15']
+          ].forEach(([apps, desc]) => {
+            const r = WattWatchRecommendations.generateRecommendations(apps, 8.0);
+            const w = WattWatchRecommendations.generateWhatIfScenarios(apps, 8.0);
+            assert(r.isValid === true && !r.tips.some(t => t.actionGroup === 'standby'), `REC_REV.2: Recommendations never emit standby tip for ${desc}`);
+            assert(w.isValid === true && !w.scenarios.some(s => s.scenarioType === 'standby'), `REC_REV.2b: What-If scenarios never emit standby scenario for ${desc}`);
+          });
+          const rUnspec = WattWatchRecommendations.generateRecommendations(tvUnspec, 8.0);
+          const wUnspec = WattWatchRecommendations.generateWhatIfScenarios(tvUnspec, 8.0);
+          assert(rUnspec.tips.some(t => t.actionGroup === 'standby') && wUnspec.scenarios.some(s => s.scenarioType === 'standby' && s.baseStandbyWatts === 12), 'REC_REV.2c: Genuinely unspecified standby still applies category fallback estimate cleanly');
+
+          // 3. Invalid appliance mixed with valid appliances rejected in both Recommendations and What-If Scenarios; empty & zero preserved
+          const mixedInvalid = [
+            { id: 'v_ok', name: 'Valid AC', category: 'Cooling', powerWatts: 1500, quantity: 1, dailyHours: 8, operatingDays: 30 },
+            { id: 'bad_one', name: 'Broken Heater', category: 'Other', powerWatts: -250, quantity: 1, dailyHours: 4, operatingDays: 30 }
+          ];
+          const recsMixed = WattWatchRecommendations.generateRecommendations(mixedInvalid, 8.0);
+          const whatIfMixed = WattWatchRecommendations.generateWhatIfScenarios(mixedInvalid, 8.0);
+          assert(recsMixed.isValid === false && recsMixed.tips.length === 0 && Number.isNaN(recsMixed.totalPotentialSavingsCost) && Boolean(recsMixed.error), 'REC_REV.3a: Mixed invalid appliance rejects Recommendations explicitly instead of partial calculation');
+          assert(whatIfMixed.isValid === false && whatIfMixed.scenarios.length === 0 && Boolean(whatIfMixed.error), 'REC_REV.3b: Mixed invalid appliance rejects What-If scenarios explicitly');
+
+          const validZeroApp = [{ id: 'z_valid', name: 'Zero Usage Device', category: 'Other', powerWatts: 0, quantity: 1, dailyHours: 0, operatingDays: 30 }];
+          const recsZeroApp = WattWatchRecommendations.generateRecommendations(validZeroApp, 8.0);
+          const whatIfZeroApp = WattWatchRecommendations.generateWhatIfScenarios(validZeroApp, 8.0);
+          assert(recsZeroApp.isValid === true && recsZeroApp.tips.length === 0 && recsZeroApp.totalPotentialSavingsCost === 0, 'REC_REV.3c: Valid zero-consumption appliance preserved cleanly in Recommendations');
+          assert(whatIfZeroApp.isValid === true && whatIfZeroApp.scenarios.length === 0, 'REC_REV.3d: Valid zero-consumption appliance preserved cleanly in What-If scenarios');
+
+          // 4. Runtime reduction with standby + duty cycle accuracy, and failed post-change metric behavior (no fallback to calculateMonthlyKwh)
+          const invStandbyAc = { id: 'rt_sb', name: 'Inverter Standby AC', category: 'Cooling', powerWatts: 1500, quantity: 1, dailyHours: 8, operatingDays: 30, dutyCyclePercent: 60, standbyWatts: 20 };
+          const baseRtM = WattWatchCalculations.calculateApplianceMetrics(invStandbyAc);
+          const postRtM = WattWatchCalculations.calculateApplianceMetrics({ ...invStandbyAc, dailyHours: 6.5 });
+          const expectedRtSaved = baseRtM.monthlyKwh - postRtM.monthlyKwh;
+          const trimCalcRes = WattWatchRecommendations._computeRuntimeTrimKwh({ ...invStandbyAc, metrics: baseRtM }, baseRtM.monthlyKwh, 1.5);
+          assert(trimCalcRes.isValid === true, 'REC_REV.4a: Runtime trim calculation succeeds with duty cycle + standby');
+          assertAlmostEqual(trimCalcRes.savedKwh, expectedRtSaved, 'REC_REV.4b: Runtime trim matches baseline-minus-post metrics (respects duty cycle and increased idle standby)', 0.001);
+
+          // Simulate failed post-change metrics in runtime trim, Cooling Eco, and LED What-If scenarios
+          const origCalcMetrics = WattWatchCalculations.calculateApplianceMetrics;
+          try {
+            WattWatchCalculations.calculateApplianceMetrics = function(app) {
+              if (app && (app.dailyHours === 6.5 || app.dailyHours === 7 || app.powerWatts === 9 || app.powerWatts === Math.round(1500 * 0.85))) {
+                return { isValid: false, dailyKwh: NaN, monthlyKwh: NaN };
+              }
+              return origCalcMetrics.call(this, app);
+            };
+            const failedTrim = WattWatchRecommendations._computeRuntimeTrimKwh({ ...invStandbyAc, metrics: baseRtM }, baseRtM.monthlyKwh, 1.5);
+            assert(failedTrim.isValid === false && failedTrim.savedKwh === 0, 'REC_REV.4c: Failed post-change runtime trim returns isValid: false and 0 without simplified calculateMonthlyKwh fallback');
+
+            const ledOnlyLowHr = [{ id: 'led_fail', name: 'Halogen', category: 'Lighting', powerWatts: 60, quantity: 1, dailyHours: 0.5, operatingDays: 30 }];
+            const whatIfLedFail = WattWatchRecommendations.generateWhatIfScenarios(ledOnlyLowHr, 8.0);
+            assert(whatIfLedFail.isValid === false && !whatIfLedFail.scenarios.some(s => s.scenarioType === 'led') && whatIfLedFail.calculationIssues.length >= 1, 'REC_REV.4d: Failed LED post-change metrics omits scenario and reports calculation issue cleanly');
+
+            const acAndTv = [
+              { id: 'ac_f', name: 'AC', category: 'Cooling', powerWatts: 1500, quantity: 1, dailyHours: 8, operatingDays: 30 },
+              { id: 'tv_f', name: 'OLED TV', category: 'Entertainment', powerWatts: 120, quantity: 1, dailyHours: 6, operatingDays: 30 }
+            ];
+            const whatIfCoolFail = WattWatchRecommendations.generateWhatIfScenarios(acAndTv, 8.0);
+            assert(!whatIfCoolFail.scenarios.some(s => s.scenarioType === 'eco_cooling') && !whatIfCoolFail.scenarios.some(s => s.applianceId === 'ac_f' && s.scenarioType === 'runtime') && whatIfCoolFail.hasCalculationIssues === true, 'REC_REV.4e: Failed Cooling/Runtime post-change metrics omit broken scenarios and record calculationIssues without fallback');
+          } finally {
+            WattWatchCalculations.calculateApplianceMetrics = origCalcMetrics;
+          }
+
+          // 5. LED percentage reduction represents actual monthly energy reduction with standby consumption, keeping wattageReductionPercent separately
+          const ledStandbyApp = [{ id: 'led_sb_app', name: 'Porch Floodlight', category: 'Lighting', powerWatts: 60, quantity: 1, dailyHours: 4, operatingDays: 30, standbyWatts: 5 }];
+          // Active = 7.2 kWh, standby = 3.0 kWh => 10.2 kWh total; post 9W LED = 1.08 + 3.0 = 4.08 kWh => saved = 6.12 kWh => 60.0% energy reduction (85% active wattage reduction)
+          const whatIfLedSb = WattWatchRecommendations.generateWhatIfScenarios(ledStandbyApp, 8.0);
+          const ledSc = whatIfLedSb.scenarios.find(s => s.scenarioType === 'led');
+          assert(Boolean(ledSc), 'REC_REV.5a: LED What-If scenario generated for standby-equipped lamp');
+          assertAlmostEqual(ledSc.percentReduction, 60.0, 'REC_REV.5b: LED percentReduction equals actual monthly energy saved / baseline kWh (60.0%, not 85%)', 0.01);
+          assertAlmostEqual(ledSc.wattageReductionPercent, 85.0, 'REC_REV.5c: LED preserves wattageReductionPercent separately (85.0%)', 0.01);
+
+          // 6. Invalid tariff calculation at non-zero consumption never masks failure as ₹0.00
+          const origTariffRec = WattWatchCalculations.calculateAdvancedTariff;
+          try {
+            WattWatchCalculations.calculateAdvancedTariff = function(kwh, s) {
+              if (Number(kwh) > 0) {
+                return { isValid: false, error: 'Injected positive-kWh tariff failure', totalCost: NaN };
+              }
+              return origTariffRec.call(this, kwh, s);
+            };
+            const recsTariffFail = WattWatchRecommendations.generateRecommendations(overlapAc, flatSettings);
+            const whatIfTariffFail = WattWatchRecommendations.generateWhatIfScenarios(overlapAc, flatSettings);
+            assert(recsTariffFail.isValid === false && Number.isNaN(recsTariffFail.totalPotentialSavingsCost) && recsTariffFail.tips.length === 0, 'REC_REV.6a: Mid-calculation tariff failure invalidates recommendations instead of converting to ₹0.00');
+            assert(whatIfTariffFail.isValid === false && whatIfTariffFail.scenarios.length === 0 && Boolean(whatIfTariffFail.error), 'REC_REV.6b: Mid-calculation tariff failure invalidates What-If scenarios cleanly');
+
+            WattWatchApp.renderRecommendationsView(overlapAc, flatSettings);
+            assert(document.getElementById('tipsTotalSavingsCost').textContent === '₹--' && document.getElementById('tipsEmptyState').style.display === 'flex', 'REC_REV.6c: UI renders error placeholder ₹-- and error state instead of fake ₹0.00 when calculation fails');
+          } finally {
+            WattWatchCalculations.calculateAdvancedTariff = origTariffRec;
+          }
+
+          // 7. Strict null vs undefined vs empty array inventory validation
+          const recsUndef = WattWatchRecommendations.generateRecommendations(undefined, 8.0);
+          const recsEmptyArr = WattWatchRecommendations.generateRecommendations([], 8.0);
+          const recsNullInv = WattWatchRecommendations.generateRecommendations(null, 8.0);
+          const whatIfUndef = WattWatchRecommendations.generateWhatIfScenarios(undefined, 8.0);
+          const whatIfEmptyArr = WattWatchRecommendations.generateWhatIfScenarios([], 8.0);
+          const whatIfNullInv = WattWatchRecommendations.generateWhatIfScenarios(null, 8.0);
+
+          assert(recsUndef.isValid === true && recsUndef.tips.length === 0 && recsUndef.totalPotentialSavingsCost === 0, 'REC_REV.7a: Omitted/undefined inventory treated as valid empty in Recommendations');
+          assert(recsEmptyArr.isValid === true && recsEmptyArr.tips.length === 0 && recsEmptyArr.totalPotentialSavingsCost === 0, 'REC_REV.7b: Empty array [] accepted as valid empty inventory in Recommendations');
+          assert(recsNullInv.isValid === false && recsNullInv.tips.length === 0 && Number.isNaN(recsNullInv.totalPotentialSavingsCost) && Boolean(recsNullInv.error), 'REC_REV.7c: Explicit null inventory rejected with error in Recommendations');
+          assert(whatIfUndef.isValid === true && whatIfUndef.scenarios.length === 0, 'REC_REV.7d: Omitted/undefined inventory treated as valid empty in What-If Scenarios');
+          assert(whatIfEmptyArr.isValid === true && whatIfEmptyArr.scenarios.length === 0, 'REC_REV.7e: Empty array [] accepted as valid empty inventory in What-If Scenarios');
+          assert(whatIfNullInv.isValid === false && whatIfNullInv.scenarios.length === 0 && Boolean(whatIfNullInv.error), 'REC_REV.7f: Explicit null inventory rejected with error in What-If Scenarios');
+
+          // 8. Clean UTF-8 °C temperature strings without mojibake
+          const fridgeTempCheck = [
+            ...overlapAc,
+            { id: 'rec_rev_fr', name: 'Fridge', category: 'Kitchen', powerWatts: 200, quantity: 1, dailyHours: 24, operatingDays: 30 }
+          ];
+          const recsTemp = WattWatchRecommendations.generateRecommendations(fridgeTempCheck, 8.0);
+          const whatIfTemp = WattWatchRecommendations.generateWhatIfScenarios(fridgeTempCheck, 8.0);
+          const coolingTipTxt = recsTemp.tips.find(t => t.actionGroup === 'cooling_duty')?.suggestedAction || '';
+          const fridgeTipTxt = recsTemp.tips.find(t => t.actionGroup === 'refrigeration')?.suggestedAction || '';
+          const ecoScTxt = (whatIfTemp.scenarios.find(s => s.scenarioType === 'eco_cooling')?.title || '') + ' ' + (whatIfTemp.scenarios.find(s => s.scenarioType === 'eco_cooling')?.description || '');
+          assert(coolingTipTxt.includes('24°C') && !coolingTipTxt.includes('Â'), 'REC_REV.8a: Cooling tip displays clean UTF-8 24°C');
+          assert(fridgeTipTxt.includes('3°C to 4°C') && !fridgeTipTxt.includes('Â'), 'REC_REV.8b: Fridge tip displays clean UTF-8 3°C to 4°C');
+          assert(ecoScTxt.includes('24°C') && ecoScTxt.includes('20°C') && !ecoScTxt.includes('Â'), 'REC_REV.8c: Cooling What-If scenario displays clean UTF-8 20°C/24°C');
+
+          // 9. Malformed standby warnings exposed while preserving independently valid recommendations & scenarios
+          const badStandbyRec = WattWatchRecommendations.generateRecommendations(tvMalformed, 8.0);
+          const badStandbyWhatIf = WattWatchRecommendations.generateWhatIfScenarios(tvMalformed, 8.0);
+          assert(badStandbyRec.isValid === true && badStandbyRec.hasCalculationIssues === true && badStandbyRec.warnings.some(w => w.includes('TV Bad Standby')) && !badStandbyRec.tips.some(t => t.actionGroup === 'standby'), 'REC_REV.9a: Standalone malformed standby emits warning without generating standby tip or fallback');
+          assert(badStandbyWhatIf.isValid === true && badStandbyWhatIf.hasCalculationIssues === true && badStandbyWhatIf.warnings.some(w => w.includes('TV Bad Standby')) && !badStandbyWhatIf.scenarios.some(s => s.scenarioType === 'standby'), 'REC_REV.9b: Standalone malformed standby emits warning without generating standby scenario or fallback');
+
+          const mixedMalformedStandby = [...overlapAc, ...tvMalformed];
+          const recsMixedSb = WattWatchRecommendations.generateRecommendations(mixedMalformedStandby, 8.0);
+          const whatIfMixedSb = WattWatchRecommendations.generateWhatIfScenarios(mixedMalformedStandby, 8.0);
+          assert(recsMixedSb.isValid === true && recsMixedSb.tips.some(t => t.applianceId === 'rec_rev_ac') && !recsMixedSb.tips.some(t => t.actionGroup === 'standby') && recsMixedSb.warnings.some(w => w.includes('TV Bad Standby')), 'REC_REV.9c: Mixed malformed standby TV preserves valid AC recommendations while exposing standby warning');
+          assert(whatIfMixedSb.isValid === true && whatIfMixedSb.scenarios.some(s => s.applianceId === 'rec_rev_ac') && !whatIfMixedSb.scenarios.some(s => s.scenarioType === 'standby') && whatIfMixedSb.warnings.some(w => w.includes('TV Bad Standby')), 'REC_REV.9d: Mixed malformed standby TV preserves valid AC What-If scenarios while exposing standby warning');
+        } finally {
+          WattWatchApp.reduceMotionOverride = origReduceRec;
+          WattWatchStorage.setActiveUser(origActiveRec);
+          WattWatchStorage.setTestNamespace(origNsRec);
+          const keysRecRev = [];
+          for (let i = 0; i < localStorage.length; i++) {
+            const k = localStorage.key(i);
+            if (k && k.startsWith('wattwatch_audit_rec_rev_')) keysRecRev.push(k);
+          }
+          keysRecRev.forEach(k => localStorage.removeItem(k));
+        }
+      }
+
+      // 57. Phase 7 Final Consolidated Audit Regressions (Tariff, History/Report, Simulator, Recs, Motion & ARIA)
+      {
+        const origNs57 = WattWatchStorage.getTestNamespace();
+        const origUser57 = WattWatchStorage.getActiveUser();
+        const origRm57 = WattWatchApp.reduceMotionOverride;
+        const origOpenConfirm57 = WattWatchApp.openConfirmDialog;
+        const origCalcMetrics57 = WattWatchCalculations.calculateApplianceMetrics;
+        const origSettingsKey57 = WattWatchStorage._getKey('SETTINGS');
+        const tempNodes57 = [];
+        try {
+          WattWatchStorage.setActiveUser(null);
+          WattWatchStorage.setTestNamespace('wattwatch_audit_test_s57_');
+          WattWatchStorage.clearAllData();
+
+          // 57.1 Canonical billCreditInr & legacy subsidy alias
+          const tCan = WattWatchCalculations.calculateAdvancedTariff(100, { tariffModel: 'flat', electricityRate: 8, billCreditInr: 150, subsidy: 50 });
+          const tLegacy = WattWatchCalculations.calculateAdvancedTariff(100, { tariffModel: 'flat', electricityRate: 8, subsidy: 120 });
+          const tBadAlias = WattWatchCalculations.calculateAdvancedTariff(100, { tariffModel: 'flat', electricityRate: 8, subsidy: 'bad_sub' });
+          const bLegacy = WattWatchCalculations.calculateAllowedKwhForBudget(1000, { tariffModel: 'flat', electricityRate: 8, subsidy: 200 });
+          assert(tCan.isValid && tCan.billCreditInr === 150 && tCan.subsidyApplied === 150, 'S57.1a: Canonical billCreditInr takes precedence and is exposed on tariff result');
+          assert(tLegacy.isValid && tLegacy.billCreditInr === 120 && tLegacy.subsidyApplied === 120, 'S57.1b: Legacy subsidy alias applies cleanly when billCreditInr is omitted');
+          assert(!tBadAlias.isValid, 'S57.1c: Malformed legacy subsidy alias invalidates tariff calculation');
+          assertAlmostEqual(bLegacy, 150, 'S57.1d: calculateAllowedKwhForBudget respects legacy subsidy alias');
+
+          WattWatchStorage.saveSettings({ electricityRate: 8, subsidy: 225 });
+          const savedBcSett = WattWatchStorage.getSettings();
+          assert(savedBcSett.billCreditInr === 225 && savedBcSett.subsidy === undefined, 'S57.1e: saveSettings normalizes legacy subsidy to billCreditInr and strips alias');
+
+          localStorage.setItem(WattWatchStorage._getKey('SETTINGS'), JSON.stringify({ tariffModel: 'flat', electricityRate: 9, subsidy: 175 }));
+          WattWatchStorage.invalidateCache();
+          const hydratedSett = WattWatchStorage.getSettings();
+          assert(hydratedSett.billCreditInr === 175 && hydratedSett.subsidy === undefined, 'S57.1f: getSettings hydrates legacy subsidy to canonical billCreditInr');
+
+          const impLegacyRes = WattWatchStorage.importDataJSON(JSON.stringify({ version: '2.0', appliances: [], settings: { electricityRate: 8, subsidy: 95 } }), 'replace');
+          const impInvalidSubRes = WattWatchStorage.importDataJSON(JSON.stringify({ version: '2.0', appliances: [], settings: { electricityRate: 8, subsidy: 'bad' } }), 'replace');
+          assert(impLegacyRes.success && WattWatchStorage.getSettings().billCreditInr === 95 && WattWatchStorage.getSettings().subsidy === undefined && !impInvalidSubRes.success, 'S57.1g: importDataJSON normalizes valid legacy subsidy and rejects malformed subsidy');
+
+          // 57.2 Historical snapshots, currency isolation & report recalculation guards
+          WattWatchStorage.saveSnapshot({
+            id: 's57_full_slab',
+            period: '2026-08',
+            periodLabel: 'August 2026',
+            totalKwh: 200,
+            totalCost: 1120,
+            tariffModel: 'slab',
+            currency: '€',
+            electricityRate: 5.6,
+            tariffSettings: {
+              tariffModel: 'slab',
+              electricityRate: 8,
+              fixedCharges: 100,
+              additionalTaxPercent: 5,
+              freeUnits: 20,
+              billCreditInr: 40,
+              currency: '€',
+              slabConfig: [{ upTo: 100, rate: 5 }, { upTo: null, rate: 8 }]
+            },
+            appliancesSnapshot: [{ id: 'a1', name: 'Fridge', category: 'Kitchen', powerWatts: 150, quantity: 1, dailyHours: 24, operatingDays: 30, monthlyKwh: 108, monthlyCost: 604.8 }]
+          });
+          WattWatchStorage.invalidateCache();
+          const fullHist = WattWatchStorage.getHistory();
+          const fullSnap = fullHist.find(h => h.id === 's57_full_slab');
+          assert(
+            Boolean(fullSnap && fullSnap.currency === '€' && fullSnap.tariffSettings && fullSnap.tariffSettings.currency === '€' && fullSnap.tariffSettings.billCreditInr === 40 && Array.isArray(fullSnap.tariffSettings.slabConfig) && fullSnap.tariffSettings.slabConfig.length === 2),
+            'S57.2a: getHistory preserves full snapshot tariffSettings and recorded currency across reload/cache invalidation'
+          );
+          assert(
+            WattWatchHistory._getSnapshotCurrency(fullSnap) === '€' && WattWatchHistory._formatSnapshotMoney(1120, fullSnap).includes('€'),
+            'S57.2b: History helpers format recorded snapshot currency instead of substituting ₹'
+          );
+
+          WattWatchStorage.saveSnapshot({
+            id: 's57_legacy',
+            period: '2025-05',
+            periodLabel: 'May 2025 Legacy',
+            totalKwh: 250,
+            totalCost: 1850,
+            tariffModel: 'slab',
+            effectiveRate: 7.4,
+            appliancesSnapshot: [{ id: 'l1', name: 'Old AC', category: 'Cooling', powerWatts: 1500, quantity: 1, dailyHours: 5, operatingDays: 30, monthlyKwh: 225, monthlyCost: 1665 }]
+          });
+          WattWatchStorage.saveSettings({ tariffModel: 'flat', electricityRate: 8, currency: '$', budgetInr: 2000 });
+          const repSel = document.getElementById('reportPeriodSelect');
+          const optLeg = document.createElement('option');
+          optLeg.value = 's57_legacy';
+          repSel.appendChild(optLeg);
+          repSel.value = 's57_legacy';
+          WattWatchReport.updateReportPreview();
+          const legacyRepText = document.getElementById('reportPreviewArea').textContent || '';
+          assert(
+            legacyRepText.includes('Currency Information Unavailable') &&
+            legacyRepText.includes('Historical Recalculation Unavailable') &&
+            legacyRepText.includes('Historical Recommendations Unavailable') &&
+            legacyRepText.includes('1,850.00') &&
+            !legacyRepText.includes('$1,850.00'),
+            'S57.2c: Historical report refuses active currency leakage and flat recalculation on incomplete legacy slab snapshots'
+          );
+
+          // 57.3 Simulator canonical validation, split hours, untouched properties & onConfirm guards
+          WattWatchStorage.saveSettings({ tariffModel: 'flat', electricityRate: 8, fixedCharges: 0, additionalTaxPercent: 0, freeUnits: 0, billCreditInr: 0, currency: '₹', budgetInr: 2500 });
+          const advApp = {
+            id: 's57_adv',
+            name: 'Adv Fan <img src=x>',
+            category: 'Cooling',
+            powerWatts: 100,
+            quantity: 1,
+            dailyHours: 6,
+            weekdayHours: 4,
+            weekendHours: 11,
+            operatingDays: 30,
+            activeDaysPerWeek: 7,
+            dutyCyclePercent: 80,
+            standbyWatts: 5
+          };
+          WattWatchStorage.saveAppliances([advApp]);
+          WattWatchSimulator.populateApplianceSelect();
+
+          const badObjRes = WattWatchSimulator.applyScenario({ applianceId: 's57_adv', applianceName: { bad: 1 }, scenarioType: 123, targetWatts: 50, targetHours: 4, targetDays: 30, targetQty: 1 });
+          const badBoundsRes = WattWatchSimulator.applyScenario({ applianceId: 's57_adv', applianceName: 'Adv Fan', targetWatts: 0, targetHours: 3, targetDays: 35, targetQty: 0, targetStandbyWatts: 600 });
+          assert(badObjRes && badObjRes.success === false && badBoundsRes && badBoundsRes.success === false, 'S57.3a: applyScenario rejects type-corrupted strings and out-of-bounds parameters without mutating state');
+
+          const simPreSummary = WattWatchCalculations.calculateHouseholdSummary(WattWatchStorage.getAppliances(), WattWatchStorage.getSettings());
+          const appliedOk = WattWatchSimulator.applyScenario({
+            id: 'sc_s57_split',
+            scenarioType: 'runtime',
+            applianceId: 's57_adv',
+            applianceName: advApp.name,
+            title: 'Trim Adv Fan',
+            targetWatts: 100,
+            targetHours: 3,
+            targetDays: 30,
+            targetQty: 1,
+            preserveSplitHours: true
+          });
+          let capturedConfirmCfg = null;
+          WattWatchApp.openConfirmDialog = (cfg) => {
+            capturedConfirmCfg = cfg;
+            origOpenConfirm57.call(WattWatchApp, cfg);
+          };
+          const simContainer57 = document.getElementById('simResultsContainer');
+          const commitBtn57a = document.getElementById('btnCommitSimScenario');
+          if (commitBtn57a) commitBtn57a.click();
+          const btnCancel57 = document.getElementById('confirmModalCancelBtn');
+          const msgEl57 = document.getElementById('confirmModalMessage');
+          WattWatchApp.closeConfirmDialog();
+          assert(
+            appliedOk &&
+            appliedOk.success === true &&
+            simContainer57 &&
+            simContainer57.querySelector('.sim-results-grid') !== null &&
+            !simContainer57.querySelector('img') &&
+            capturedConfirmCfg &&
+            msgEl57 &&
+            !msgEl57.querySelector('img') &&
+            msgEl57.textContent.includes('Adv Fan <img src=x>') &&
+            capturedConfirmCfg.cancelText === 'Keep Previewing' &&
+            btnCancel57.textContent === 'Keep Previewing',
+            'S57.3b: applyScenario & #btnCommitSimScenario safely render message without DOM injection and honor cancelText'
+          );
+
+          // Confirm re-read: deleted appliance aborts cleanly without re-adding
+          WattWatchStorage.saveAppliances([]);
+          capturedConfirmCfg.onConfirm();
+          assert(WattWatchStorage.getAppliances().length === 0, 'S57.3c: onConfirm re-reads live inventory and safely aborts if appliance was deleted');
+
+          // Confirm live save: restores advApp, re-applies scenario, confirms & verifies preview == persisted savings
+          WattWatchStorage.saveAppliances([advApp]);
+          WattWatchSimulator.populateApplianceSelect();
+          WattWatchSimulator.applyScenario({
+            id: 'sc_s57_split_2',
+            scenarioType: 'runtime',
+            applianceId: 's57_adv',
+            applianceName: advApp.name,
+            title: 'Trim Adv Fan',
+            targetWatts: 100,
+            targetHours: 3,
+            targetDays: 30,
+            targetQty: 1,
+            preserveSplitHours: true
+          });
+          const saveCard57 = document.querySelectorAll('#simResultsContainer .metrics-grid .metric-card .metric-value')[2];
+          const previewSavedCost57 = Number(String(saveCard57 ? saveCard57.textContent : '0').replace(/[^0-9.\-]/g, ''));
+          const commitBtn57b = document.getElementById('btnCommitSimScenario');
+          if (commitBtn57b) commitBtn57b.click();
+          WattWatchApp.closeConfirmDialog();
+          capturedConfirmCfg.onConfirm();
+          const savedAfter57 = WattWatchStorage.getAppliances()[0];
+          const postSum57 = WattWatchCalculations.calculateHouseholdSummary([savedAfter57], WattWatchStorage.getSettings());
+          assert(
+            savedAfter57.dailyHours === 3 &&
+            Math.abs(savedAfter57.weekdayHours - 2) < 0.01 &&
+            Math.abs(savedAfter57.weekendHours - 5.5) < 0.01 &&
+            savedAfter57.dutyCyclePercent === 80 &&
+            savedAfter57.standbyWatts === 5 &&
+            Math.abs((simPreSummary.totalMonthlyCost - postSum57.totalMonthlyCost) - previewSavedCost57) < 0.02,
+            'S57.3d: Simulator commit preserves untouched advanced profile, scales weekday/weekend split, and matches preview savings'
+          );
+
+          // 57.4 Recommendations electricityRate null/'' rejection & Rule 6 non-fallback + warnings banner
+          const recRateNull = WattWatchRecommendations.generateRecommendations([advApp], { tariffModel: 'flat', electricityRate: null });
+          const whatIfEmptyRate = WattWatchRecommendations.generateWhatIfScenarios([advApp], { tariffModel: 'flat', electricityRate: '' });
+          assert(recRateNull.isValid === false && whatIfEmptyRate.isValid === false, 'S57.4a: Recommendations and What-If reject explicit null/empty electricityRate without defaulting to ₹8');
+
+          WattWatchCalculations.calculateApplianceMetrics = function(a) {
+            const baseRes = origCalcMetrics57.call(this, a);
+            if (WattWatchCalculations._triggerS57StandbyFail && a && a.id === 's57_sb_tv') {
+              if (a.metrics) {
+                return { isValid: false, dailyKwh: NaN, monthlyKwh: NaN };
+              }
+              return { ...baseRes, standbyMonthlyKwh: 0 };
+            }
+            return baseRes;
+          };
+          WattWatchCalculations._triggerS57StandbyFail = true;
+          const r6TestApp = [
+            { id: 's57_sb_tv', name: 'TV', category: 'Entertainment', powerWatts: 120, quantity: 1, dailyHours: 6, operatingDays: 30, standbyWatts: 15 },
+            { id: 's57_ac_valid', name: 'Room AC', category: 'Cooling', powerWatts: 1500, quantity: 1, dailyHours: 8, operatingDays: 30 }
+          ];
+          const r6Res = WattWatchRecommendations.generateRecommendations(r6TestApp, { tariffModel: 'flat', electricityRate: 8 });
+          WattWatchApp.renderRecommendationsView(r6TestApp, { tariffModel: 'flat', electricityRate: 8 });
+          WattWatchCalculations._triggerS57StandbyFail = false;
+          const warnBanner57 = document.getElementById('tipsWarningsBanner');
+          assert(
+            r6Res.isValid === true &&
+            !r6Res.tips.some(t => t.id === 'tip_phantom_s57_sb_tv') &&
+            r6Res.calculationIssues.some(msg => msg.includes('TV')) &&
+            r6Res.tips.some(t => t.id === 'tip_cooling_s57_ac_valid' && t.isHeuristicEstimate === true) &&
+            warnBanner57 && warnBanner57.style.display === 'block' && warnBanner57.textContent.includes('TV'),
+            'S57.4b: Failed specified-standby metrics never fall back to 8% heuristic, expose warning in UI, and tag heuristic estimates'
+          );
+
+          // 57.5 Reduced-motion counter cancellation, ARIA tablists & unique duplicate action labels
+          const tempPaneA = document.createElement('section');
+          tempPaneA.className = 'view-pane active';
+          const tempCounter = document.createElement('span');
+          tempPaneA.appendChild(tempCounter);
+          document.body.appendChild(tempPaneA);
+          tempNodes57.push(tempPaneA);
+
+          WattWatchApp.reduceMotionOverride = false;
+          tempCounter.textContent = '0.00 kWh';
+          tempCounter.dataset.metricVal = '0';
+          tempCounter.dataset.lastVisibleVal = '0';
+          WattWatchApp._animateMetricCounter(tempCounter, 750, v => WattWatchCalculations.formatKwh(v), { duration: 400 });
+          const hadTimerBeforeNav = Boolean(tempCounter._metricRafId || tempCounter._metricFallbackTimer);
+          tempPaneA.classList.remove('active');
+          WattWatchApp._cancelHiddenMetricAnimations();
+          assert(
+            hadTimerBeforeNav && !tempCounter._metricRafId && !tempCounter._metricFallbackTimer && tempCounter.textContent === '750.00 kWh',
+            'S57.5a: Hidden-pane metric animations cancel timers/rAF cleanly on navigation and display exact final value'
+          );
+
+          WattWatchApp.setInsightsTimeframe('weekly');
+          const insContent57 = document.getElementById('overviewInsightsContent');
+          assert(
+            insContent57.getAttribute('role') === 'tabpanel' && insContent57.getAttribute('aria-labelledby') === 'tabWeeklyInsights',
+            'S57.5b: #overviewInsightsContent maintains role=tabpanel and dynamic aria-labelledby on tab change'
+          );
+
+          const authPaneLogin57 = document.getElementById('authPane-login');
+          const inpLoginUser = document.createElement('input');
+          inpLoginUser.id = 'loginUsername';
+          authPaneLogin57.appendChild(inpLoginUser);
+          tempNodes57.push(inpLoginUser);
+          const authModalEl57 = document.getElementById('authModal');
+          authModalEl57.classList.add('is-open');
+          authModalEl57.inert = false;
+          const tabLogin = document.getElementById('authTabBtn-login');
+          const tabSignup = document.getElementById('authTabBtn-signup');
+          tabLogin.focus();
+          tabLogin.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true }));
+          const tabNavOk = tabSignup.getAttribute('aria-selected') === 'true' && tabSignup.getAttribute('tabindex') === '0' && tabLogin.getAttribute('tabindex') === '-1';
+          WattWatchAuth.switchTab('login', { focusInput: false });
+          inpLoginUser.focus();
+          inpLoginUser.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true }));
+          const inputFocusPreserved = document.activeElement === inpLoginUser;
+          authModalEl57.classList.remove('is-open');
+          assert(tabNavOk && inputFocusPreserved, 'S57.5c: Auth nav tabs support arrow roving tabindex without stealing focus from user inputs');
+
+          WattWatchStorage.saveAppliances([
+            { id: 'dup_ac_1', name: 'Split AC', category: 'Cooling', powerWatts: 1500, quantity: 1, dailyHours: 6, operatingDays: 30 },
+            { id: 'dup_ac_2', name: 'Split AC', category: 'Cooling', powerWatts: 2000, quantity: 1, dailyHours: 8, operatingDays: 30 }
+          ]);
+          WattWatchAppliances.renderApplianceTable();
+          const rowLabels = Array.from(document.querySelectorAll('#applianceTableBody [data-action]')).map(b => b.getAttribute('aria-label')).filter(Boolean);
+          assert(rowLabels.length === 6 && new Set(rowLabels).size === 6, 'S57.5d: Duplicate appliance names render strictly unique action button aria-labels');
+        } finally {
+          WattWatchApp.reduceMotionOverride = origRm57;
+          WattWatchApp.openConfirmDialog = origOpenConfirm57;
+          WattWatchCalculations.calculateApplianceMetrics = origCalcMetrics57;
+          delete WattWatchCalculations._triggerS57StandbyFail;
+          tempNodes57.forEach(n => { if (n && n.parentNode) n.parentNode.removeChild(n); });
+          WattWatchStorage.clearAllData();
+          WattWatchStorage.setActiveUser(origUser57);
+          WattWatchStorage.setTestNamespace(origNs57);
+        }
+      }
+
+      // 58. Historical Currency, Budget Comparison, Strict Tariff & Numeric Validation Regressions
+      {
+        const origNs58 = WattWatchStorage.getTestNamespace();
+        const origUser58 = WattWatchStorage.getActiveUser();
+        const origValidateCurr58 = WattWatchStorage.validateCurrency;
+        const origGetHistory58 = WattWatchStorage.getHistory;
+        const repSel58 = document.getElementById('reportPeriodSelect');
+        try {
+          WattWatchStorage.setActiveUser(null);
+          WattWatchStorage.setTestNamespace('wattwatch_audit_test_s58_');
+          WattWatchStorage.clearAllData();
+
+          const selectReportSnap58 = (snapObj) => {
+            WattWatchReport.openReportModal();
+            if (repSel58) {
+              if (!Array.from(repSel58.options).some(o => o.value === snapObj.id)) {
+                const o = document.createElement('option');
+                o.value = snapObj.id;
+                repSel58.appendChild(o);
+              }
+              repSel58.value = snapObj.id;
+            }
+            WattWatchReport.updateReportPreview();
+            return document.getElementById('reportPreviewArea').innerHTML;
+          };
+
+          // 58.1 Valid historical flat snapshot (complete tariffSettings & complete legacy flat breakdown)
+          WattWatchStorage.saveSettings({ tariffModel: 'flat', electricityRate: 9.0, fixedCharges: 50, additionalTaxPercent: 5, freeUnits: 0, billCreditInr: 20, currency: '₹', budgetInr: 2500 });
+          const flatCompleteSnap = {
+            id: 's58_flat_complete',
+            period: '2026-06',
+            periodLabel: 'June 2026',
+            totalKwh: 180,
+            totalCost: 1733.5,
+            flatRate: 9.0,
+            tariffModel: 'flat',
+            currency: '₹',
+            tariffSettings: { tariffModel: 'flat', electricityRate: 9.0, fixedCharges: 50, additionalTaxPercent: 5, freeUnits: 0, billCreditInr: 20, currency: '₹' },
+            tariffBreakdown: { model: 'flat', energyCharges: 1620, fixedCharge: 50, taxPercent: 5, taxCharges: 83.5, subsidyApplied: 20, freeUnitsApplied: 0, totalCost: 1733.5, slabBreakdown: [{ tier: 1, label: 'Flat', units: 180, rate: 9.0, cost: 1620 }] },
+            appliancesCount: 1,
+            totalUnits: 1,
+            appliancesSnapshot: [{ id: 'f1', name: 'AC Unit', category: 'Cooling', powerWatts: 1000, quantity: 1, dailyHours: 6, operatingDays: 30, monthlyKwh: 180, monthlyCost: 1620 }]
+          };
+          WattWatchStorage.saveSnapshot(flatCompleteSnap);
+          const htmlFlatComplete = selectReportSnap58(flatCompleteSnap);
+          assert(
+            !htmlFlatComplete.includes('Historical Recalculation Unavailable') &&
+            htmlFlatComplete.includes('Key Energy Conservation Recommendations') &&
+            htmlFlatComplete.includes('₹1,733.50'),
+            'S58.1a: Valid historical flat snapshot with complete settings permits recalculation & recommendations while preserving total'
+          );
+
+          const flatLegacyBreakdownSnap = {
+            id: 's58_flat_leg_complete',
+            period: '2026-05',
+            periodLabel: 'May 2026',
+            totalKwh: 100,
+            totalCost: 892.5,
+            flatRate: 8.0,
+            tariffModel: 'flat',
+            currency: '₹',
+            tariffBreakdown: { model: 'flat', energyCharges: 800, fixedCharge: 50, taxPercent: 5, taxCharges: 42.5, freeUnits: 0, freeUnitsApplied: 0, billCreditInr: 0, subsidy: 0, subsidyApplied: 0, totalCost: 892.5, slabBreakdown: [{ tier: 1, label: 'Flat', units: 100, rate: 8.0, cost: 800 }] },
+            appliancesCount: 1,
+            totalUnits: 1,
+            appliancesSnapshot: [{ id: 'f2', name: 'Fan Bank', category: 'Cooling', powerWatts: 100, quantity: 2, dailyHours: 16.6667, operatingDays: 30, monthlyKwh: 100, monthlyCost: 800 }]
+          };
+          WattWatchStorage.saveSnapshot(flatLegacyBreakdownSnap);
+          const htmlFlatLegComplete = selectReportSnap58(flatLegacyBreakdownSnap);
+          assert(
+            !htmlFlatLegComplete.includes('Historical Recalculation Unavailable') && htmlFlatLegComplete.includes('₹892.50'),
+            'S58.1b: Legacy flat snapshot with explicit flatRate and ALL complete breakdown modifiers reconstructs reliably'
+          );
+
+          // 58.2 Valid historical slab snapshot with complete stored settings
+          const slabCompleteSnap = {
+            id: 's58_slab_complete',
+            period: '2026-04',
+            periodLabel: 'April 2026',
+            totalKwh: 200,
+            totalCost: 1302,
+            tariffModel: 'slab',
+            effectiveRate: 6.51,
+            currency: '₹',
+            tariffSettings: { tariffModel: 'slab', electricityRate: 8, fixedCharges: 40, additionalTaxPercent: 5, freeUnits: 0, billCreditInr: 0, currency: '₹', slabConfig: [{ upTo: 100, rate: 4 }, { upTo: null, rate: 8 }] },
+            tariffBreakdown: { model: 'slab', energyCharges: 1200, fixedCharge: 40, taxPercent: 5, taxCharges: 62, subsidyApplied: 0, freeUnitsApplied: 0, totalCost: 1302, effectiveRatePerKwh: 6.51, slabBreakdown: [{ tier: 1, label: '0-100', units: 100, rate: 4, cost: 400 }, { tier: 2, label: '100+', units: 100, rate: 8, cost: 800 }] },
+            appliancesCount: 1,
+            totalUnits: 1,
+            appliancesSnapshot: [{ id: 's1', name: 'Heater', category: 'Kitchen', powerWatts: 2000, quantity: 1, dailyHours: 3.3333, operatingDays: 30, monthlyKwh: 200, monthlyCost: 1302 }]
+          };
+          WattWatchStorage.saveSnapshot(slabCompleteSnap);
+          const htmlSlabComplete = selectReportSnap58(slabCompleteSnap);
+          assert(
+            !htmlSlabComplete.includes('Historical Recalculation Unavailable') &&
+            htmlSlabComplete.includes('Progressive Slab Schedule') &&
+            htmlSlabComplete.includes('₹1,302.00'),
+            'S58.2: Valid historical slab snapshot with complete stored settings preserves progressive schedule and enables recommendations'
+          );
+
+          // 58.3 Legacy slab snapshot missing slabConfig (must NOT approximate via effectiveRate)
+          WattWatchStorage.saveSettings({ tariffModel: 'flat', electricityRate: 10, currency: '$', budgetInr: 1500 });
+          const legacySlabSnap = {
+            id: 's58_legacy_slab',
+            period: '2025-03',
+            periodLabel: 'March 2025',
+            totalKwh: 240,
+            totalCost: 1680,
+            tariffModel: 'slab',
+            effectiveRate: 7.0,
+            appliancesCount: 1,
+            totalUnits: 1,
+            appliancesSnapshot: [{ id: 'ls1', name: 'Legacy AC', category: 'Cooling', powerWatts: 1600, quantity: 1, dailyHours: 5, operatingDays: 30, monthlyKwh: 240, monthlyCost: 1680 }]
+          };
+          WattWatchStorage.saveSnapshot(legacySlabSnap);
+          const htmlLegacySlab = selectReportSnap58(legacySlabSnap);
+          assert(
+            htmlLegacySlab.includes('Historical Recalculation Unavailable') &&
+            htmlLegacySlab.includes('Historical Recommendations Unavailable') &&
+            htmlLegacySlab.includes('Currency Information Unavailable') &&
+            htmlLegacySlab.includes('1,680.00') &&
+            !htmlLegacySlab.includes('$1,680.00'),
+            'S58.3: Legacy slab snapshot missing slabConfig blocks recalculation, shows stored numeric total, and never substitutes active currency'
+          );
+
+          // 58.4 Legacy flat snapshots with incomplete or malformed billing modifiers
+          const incompleteFlatSettingsSnap = {
+            id: 's58_inc_flat_ts',
+            period: '2025-02',
+            periodLabel: 'Feb 2025',
+            totalKwh: 100,
+            totalCost: 850,
+            tariffModel: 'flat',
+            flatRate: 8,
+            currency: '₹',
+            tariffSettings: { tariffModel: 'flat', electricityRate: 8, fixedCharges: 50, additionalTaxPercent: null, freeUnits: 0, billCreditInr: 0, currency: '₹' },
+            appliancesCount: 1,
+            totalUnits: 1,
+            appliancesSnapshot: [{ id: 'if1', name: 'TV', category: 'Entertainment', powerWatts: 150, quantity: 1, dailyHours: 5, operatingDays: 30, monthlyKwh: 22.5, monthlyCost: 180 }]
+          };
+          const incompleteFlatBreakdownSnap = {
+            id: 's58_inc_flat_bd',
+            period: '2025-01',
+            periodLabel: 'Jan 2025',
+            totalKwh: 100,
+            totalCost: 850,
+            tariffModel: 'flat',
+            flatRate: 8,
+            currency: '₹',
+            tariffBreakdown: { model: 'flat', energyCharges: 800, fixedCharge: 50, taxCharges: 0, totalCost: 850 },
+            appliancesCount: 1,
+            totalUnits: 1,
+            appliancesSnapshot: [{ id: 'if2', name: 'PC', category: 'Computing', powerWatts: 200, quantity: 1, dailyHours: 5, operatingDays: 30, monthlyKwh: 30, monthlyCost: 240 }]
+          };
+          WattWatchStorage.saveSnapshot(incompleteFlatSettingsSnap);
+          WattWatchStorage.saveSnapshot(incompleteFlatBreakdownSnap);
+          const htmlIncTs = selectReportSnap58(incompleteFlatSettingsSnap);
+          const htmlIncBd = selectReportSnap58(incompleteFlatBreakdownSnap);
+          assert(
+            htmlIncTs.includes('Historical Recalculation Unavailable') && htmlIncTs.includes('₹850.00') &&
+            htmlIncBd.includes('Historical Recalculation Unavailable') && htmlIncBd.includes('₹850.00'),
+            'S58.4: Incomplete or malformed billing modifiers do not coerce to zero and block recalculation cleanly'
+          );
+
+          // 58.5 & 58.7 Historical snapshots with valid non-INR currency & budget comparison (matching vs mismatching)
+          const eurSnap = {
+            id: 's58_eur_1',
+            period: '2026-07',
+            periodLabel: 'July 2026 EUR',
+            totalKwh: 100,
+            totalCost: 500,
+            tariffModel: 'flat',
+            flatRate: 5,
+            currency: '€',
+            tariffSettings: { tariffModel: 'flat', electricityRate: 5, fixedCharges: 0, additionalTaxPercent: 0, freeUnits: 0, billCreditInr: 0, currency: '€' },
+            appliancesCount: 1,
+            totalUnits: 1,
+            appliancesSnapshot: [{ id: 'e1', name: 'Heat Pump', category: 'Cooling', powerWatts: 1000, quantity: 1, dailyHours: 3.3333, operatingDays: 30, monthlyKwh: 100, monthlyCost: 500 }]
+          };
+          WattWatchStorage.saveSnapshot(eurSnap);
+          // Mismatching account currency ($ vs €)
+          WattWatchStorage.saveSettings({ tariffModel: 'flat', electricityRate: 8, currency: '$', budgetInr: 1000 });
+          const htmlEurMismatchBudget = selectReportSnap58(eurSnap);
+          assert(
+            htmlEurMismatchBudget.includes('€500.00') &&
+            htmlEurMismatchBudget.includes('differs from your current account currency') &&
+            !htmlEurMismatchBudget.includes('$500.00') &&
+            !htmlEurMismatchBudget.includes('₹500.00'),
+            'S58.5/58.7a: Non-INR snapshot renders recorded currency (€) and blocks historical budget comparison when active currency ($) differs'
+          );
+
+          // Matching account currency (€ vs €)
+          WattWatchStorage.saveSettings({ tariffModel: 'flat', electricityRate: 5, currency: '€', budgetInr: 1000 });
+          const htmlEurMatchBudget = selectReportSnap58(eurSnap);
+          assert(
+            htmlEurMatchBudget.includes('Current Account Budget Setting') &&
+            htmlEurMatchBudget.includes('compared against current setting, not a historical budget') &&
+            htmlEurMatchBudget.includes('50.0%'),
+            'S58.7b: Matching currency allows budget comparison explicitly labeled as current account budget setting'
+          );
+
+          // 58.6 Mixed-currency vs Same-currency history comparisons
+          const eurSnap2 = {
+            id: 's58_eur_2',
+            period: '2026-08',
+            periodLabel: 'Aug 2026 EUR',
+            totalKwh: 150,
+            totalCost: 750,
+            tariffModel: 'flat',
+            flatRate: 5,
+            currency: '€',
+            tariffSettings: { tariffModel: 'flat', electricityRate: 5, fixedCharges: 0, additionalTaxPercent: 0, freeUnits: 0, billCreditInr: 0, currency: '€' },
+            appliancesCount: 1,
+            totalUnits: 1,
+            appliancesSnapshot: []
+          };
+          const usdSnap = {
+            id: 's58_usd_1',
+            period: '2026-09',
+            periodLabel: 'Sep 2026 USD',
+            totalKwh: 200,
+            totalCost: 100,
+            tariffModel: 'flat',
+            flatRate: 0.5,
+            currency: '$',
+            tariffSettings: { tariffModel: 'flat', electricityRate: 0.5, fixedCharges: 0, additionalTaxPercent: 0, freeUnits: 0, billCreditInr: 0, currency: '$' },
+            appliancesCount: 1,
+            totalUnits: 1,
+            appliancesSnapshot: []
+          };
+          WattWatchStorage.saveSnapshot(eurSnap2);
+          WattWatchStorage.saveSnapshot(usdSnap);
+          WattWatchHistory.renderHistoryView();
+
+          const selA58 = document.getElementById('comparePeriodSelectA');
+          const selB58 = document.getElementById('comparePeriodSelectB');
+          selA58.value = 's58_eur_1';
+          selB58.value = 's58_eur_2';
+          WattWatchHistory.renderComparison();
+          const compSameBox = document.getElementById('comparisonResultsBox');
+          const compSameText = compSameBox ? compSameBox.textContent : '';
+          assert(
+            compSameText.includes('+€250.00') && compSameText.includes('50.0%') && compSameText.includes('+50.00 kWh'),
+            'S58.6a: Same-currency comparison renders currency diff, % diff, and energy delta accurately'
+          );
+
+          selA58.value = 's58_eur_1';
+          selB58.value = 's58_usd_1';
+          WattWatchHistory.renderComparison();
+          const compMixedBox = document.getElementById('comparisonResultsBox');
+          const compMixedText = compMixedBox ? compMixedBox.textContent : '';
+          const billDiffCardMixed = compMixedBox ? compMixedBox.querySelectorAll('.metric-card')[2] : null;
+          assert(
+            billDiffCardMixed &&
+            billDiffCardMixed.textContent.includes('Non-Comparable') &&
+            !billDiffCardMixed.textContent.includes('%') &&
+            !billDiffCardMixed.textContent.includes('-400') &&
+            compMixedText.includes('+100.00 kWh') &&
+            compMixedText.includes('100.0%'),
+            'S58.6b: Mixed-currency comparison hides monetary %/numeric delta, labels non-comparable, and preserves energy delta'
+          );
+
+          // 58.6c Both snapshots with unrecorded currencies: bill values unlabelled, diff marked Non-Comparable with monetary diff & % disabled
+          WattWatchStorage.saveSettings({ tariffModel: 'flat', electricityRate: 8, currency: '$', budgetInr: 1000 });
+          const legacyUnrecA = {
+            id: 's58_unrec_a',
+            period: '2024-01',
+            periodLabel: 'Jan 2024 Legacy',
+            totalKwh: 100,
+            totalCost: 500,
+            tariffModel: 'flat',
+            flatRate: 5,
+            appliancesCount: 1,
+            totalUnits: 1,
+            appliancesSnapshot: []
+          };
+          const legacyUnrecB = {
+            id: 's58_unrec_b',
+            period: '2024-02',
+            periodLabel: 'Feb 2024 Legacy',
+            totalKwh: 150,
+            totalCost: 900,
+            tariffModel: 'flat',
+            flatRate: 6,
+            appliancesCount: 1,
+            totalUnits: 1,
+            appliancesSnapshot: []
+          };
+          WattWatchStorage.saveSnapshot(legacyUnrecA);
+          WattWatchStorage.saveSnapshot(legacyUnrecB);
+          WattWatchHistory.renderHistoryView();
+          selA58.value = 's58_unrec_a';
+          selB58.value = 's58_unrec_b';
+          WattWatchHistory.renderComparison();
+          const compBothUnrecBox = document.getElementById('comparisonResultsBox');
+          const compBothUnrecCards = compBothUnrecBox ? compBothUnrecBox.querySelectorAll('.metric-card') : [];
+          const baseCardText = compBothUnrecCards[0] ? compBothUnrecCards[0].textContent : '';
+          const targetCardText = compBothUnrecCards[1] ? compBothUnrecCards[1].textContent : '';
+          const diffCardText = compBothUnrecCards[2] ? compBothUnrecCards[2].textContent : '';
+          const energyCardText = compBothUnrecCards[3] ? compBothUnrecCards[3].textContent : '';
+          assert(
+            baseCardText.includes('500.00') && !baseCardText.includes('$') && !baseCardText.includes('₹') &&
+            targetCardText.includes('900.00') && !targetCardText.includes('$') && !targetCardText.includes('₹') &&
+            diffCardText.includes('Non-Comparable') &&
+            !diffCardText.includes('%') &&
+            !diffCardText.includes('400.00') &&
+            !diffCardText.includes('+400') &&
+            !diffCardText.includes('-400') &&
+            energyCardText.includes('+50.00 kWh') &&
+            energyCardText.includes('50.0%'),
+            'S58.6c: Both-unrecorded-currency comparison shows unlabelled bills, marks difference Non-Comparable, disables monetary diff/% and preserves energy delta'
+          );
+
+          // 58.6d Empty/invalid history KPI shows unlabelled 0.00 without assuming ₹ when account currency is missing or invalid
+          const origGetSettings58 = WattWatchStorage.getSettings;
+          const elPeak58 = document.getElementById('historyHighestBill');
+          const elLow58 = document.getElementById('historyLowestBill');
+          const elCount58 = document.getElementById('historyRecordsCount');
+          try {
+            WattWatchStorage.getSettings = () => ({});
+            WattWatchHistory.updateHistoryKpis([]);
+            const missingCurrOk = elPeak58.textContent === '0.00' && elLow58.textContent === '0.00' && !elPeak58.textContent.includes('₹') && elCount58.textContent === '0 Records';
+
+            WattWatchStorage.getSettings = () => ({ currency: null });
+            WattWatchHistory.updateHistoryKpis([{ id: 'bad_cost', period: '2026-01', totalCost: 'bad' }]);
+            const nullCurrInvalidHistOk = elPeak58.textContent === '0.00' && elLow58.textContent === '0.00' && !elPeak58.textContent.includes('₹');
+
+            WattWatchStorage.getSettings = () => ({ currency: 'INVALID_CUR' });
+            WattWatchHistory.updateHistoryKpis([]);
+            const invalidCurrOk = elPeak58.textContent === '0.00' && elLow58.textContent === '0.00' && !elPeak58.textContent.includes('₹');
+
+            assert(
+              missingCurrOk && nullCurrInvalidHistOk && invalidCurrOk,
+              'S58.6d: Empty or invalid history KPI displays unlabelled 0.00 without assuming ₹ when account currency is missing or invalid'
+            );
+          } finally {
+            WattWatchStorage.getSettings = origGetSettings58;
+          }
+
+          // 58.8 Currency validation unavailable + invalid numeric handling + XSS + zero mutation
+          WattWatchStorage.validateCurrency = undefined;
+          assert(
+            WattWatchHistory._getSnapshotCurrency({ currency: '<script>' }) === null &&
+            WattWatchHistory._getSnapshotCurrency({ currency: '₹' }) === null,
+            'S58.8a: _getSnapshotCurrency returns null cleanly when validator is unavailable and never returns unsanitized string'
+          );
+          WattWatchStorage.validateCurrency = origValidateCurr58;
+
+          WattWatchStorage.saveSettings({ tariffModel: 'flat', electricityRate: 8, currency: '$', budgetInr: 1000 });
+          const mockCorruptRowSnap = {
+            id: 's58_invalid_nums',
+            period: '2024-12',
+            periodLabel: 'Dec 2024 <img src=x onerror=window.__s58Xss=1>',
+            totalKwh: 0,
+            totalCost: 0,
+            electricityRate: false,
+            flatRate: '',
+            tariffModel: 'flat',
+            appliancesCount: null,
+            totalUnits: true,
+            actualKwh: '',
+            actualCost: true,
+            appliancesSnapshot: [
+              { id: 'bad_a', name: 'Bad <script>App</' + 'script>', category: 'Other', powerWatts: '', quantity: false, dailyHours: Infinity, monthlyKwh: null, monthlyCost: -50 },
+              { id: 'zero_a', name: 'Zero Appliance', category: 'Other', powerWatts: 100, quantity: 0, dailyHours: 0, monthlyKwh: 0, monthlyCost: 0 }
+            ]
+          };
+          const validTopCorruptAppSnap = {
+            id: 's58_valid_top_bad_rows',
+            period: '2024-11',
+            periodLabel: 'Nov 2024 <img src=x onerror=window.__s58Xss=1>',
+            totalKwh: 0,
+            totalCost: 0,
+            tariffModel: 'flat',
+            appliancesCount: 2,
+            totalUnits: 0,
+            appliancesSnapshot: [
+              { id: 'bad_a', name: 'Bad <script>App</' + 'script>', category: 'Other', powerWatts: '', quantity: false, dailyHours: Infinity, monthlyKwh: null, monthlyCost: -50 },
+              { id: 'zero_a', name: 'Zero Appliance', category: 'Other', powerWatts: 100, quantity: 0, dailyHours: 0, monthlyKwh: 0, monthlyCost: 0 }
+            ]
+          };
+          window.__s58Xss = 0;
+          const deepBefore = JSON.stringify(mockCorruptRowSnap);
+          const deepBeforeRow = JSON.stringify(validTopCorruptAppSnap);
+          WattWatchStorage.getHistory = () => [mockCorruptRowSnap, validTopCorruptAppSnap];
+          WattWatchHistory.renderHistoryView();
+          const tbl58Html = document.getElementById('historyTableBody').innerHTML;
+          WattWatchHistory.openDetailsModal('s58_invalid_nums');
+          const modal58Html = document.getElementById('historyDetailBody').innerHTML;
+          WattWatchHistory.closeDetailsModal();
+          const repCorruptTopHtml = selectReportSnap58(mockCorruptRowSnap);
+          const repBadRowsHtml = selectReportSnap58(validTopCorruptAppSnap);
+          const deepAfter = JSON.stringify(mockCorruptRowSnap);
+          const deepAfterRow = JSON.stringify(validTopCorruptAppSnap);
+
+          assert(
+            window.__s58Xss === 0 &&
+            !tbl58Html.includes('<img') &&
+            !tbl58Html.includes('$') &&
+            !modal58Html.includes('<script>App') &&
+            !modal58Html.includes('$') &&
+            tbl58Html.includes('Rate N/A') &&
+            !tbl58Html.includes('8.00/u') &&
+            !tbl58Html.includes('Actual:') &&
+            tbl58Html.includes('-- devices (-- units)') &&
+            modal58Html.includes('0.00 kWh') &&
+            !modal58Html.includes('-50.00') &&
+            deepBefore === deepAfter,
+            'S58.8b: History views reject null/empty/bool/negative/Infinity numerics while keeping explicit 0, escaping XSS, never leaking $, and not mutating snapshots'
+          );
+          assert(
+            window.__s58Xss === 0 &&
+            repCorruptTopHtml.includes('Historical Snapshot Corrupted') &&
+            !repBadRowsHtml.includes('<img src=x') &&
+            repBadRowsHtml.includes('&lt;img src=x') &&
+            !repBadRowsHtml.includes('<script>App') &&
+            !repBadRowsHtml.includes('$') &&
+            repBadRowsHtml.includes('<td>--</td>') &&
+            !repBadRowsHtml.includes('<td>0W</td>') &&
+            repBadRowsHtml.includes('0 hrs/day') &&
+            repBadRowsHtml.includes('0.00 kWh') &&
+            !repBadRowsHtml.includes('-50.00') &&
+            deepBeforeRow === deepAfterRow,
+            'S58.8c: Report preview blocks corrupted top-level snapshots, rejects malformed row values while preserving 0, escapes XSS, never leaks $, and never mutates'
+          );
+        } finally {
+          WattWatchReport.closeReportModal();
+          WattWatchStorage.validateCurrency = origValidateCurr58;
+          WattWatchStorage.getHistory = origGetHistory58;
+          delete window.__s58Xss;
+          WattWatchStorage.clearAllData();
+          WattWatchStorage.setActiveUser(origUser58);
+          WattWatchStorage.setTestNamespace(origNs58);
+        }
+      }
+
+      // 59. Phase 7 Final Audit Complete Regression Suite
+      {
+        const origNs59 = WattWatchStorage.getTestNamespace();
+        const origUser59 = WattWatchStorage.getActiveUser();
+        const origGetSettings59 = WattWatchStorage.getSettings.bind(WattWatchStorage);
+        const origGetHistory59 = WattWatchStorage.getHistory.bind(WattWatchStorage);
+        const origShowToast59 = typeof WattWatchApp !== 'undefined' ? WattWatchApp.showToast : null;
+        WattWatchStorage.setTestNamespace('s59_phase7_final');
+        WattWatchStorage.setActiveUser(null);
+        WattWatchStorage.clearAllData();
+
+        try {
+          const sampleFan = {
+            id: 's59_fan',
+            name: 'Bedroom Fan',
+            category: 'Cooling',
+            powerWatts: 75,
+            dailyHours: 8,
+            operatingDays: 30,
+            quantity: 1
+          };
+
+          // S59.1: Strict tariffModel validation across calculation engine & recommendations
+          assert(
+            WattWatchCalculations.validateTariffModel(undefined) === 'flat' &&
+            WattWatchCalculations.validateTariffModel('flat') === 'flat' &&
+            WattWatchCalculations.validateTariffModel('slab') === 'slab' &&
+            WattWatchCalculations.validateTariffModel('tou') === null &&
+            WattWatchCalculations.validateTariffModel(null) === null &&
+            WattWatchCalculations.validateTariffModel('') === null,
+            'S59.1a: validateTariffModel accepts flat/slab, defaults absent to flat, rejects unsupported/null/empty models'
+          );
+
+          const absTariff = WattWatchCalculations.calculateAdvancedTariff(100, { flatRate: 8 });
+          const badModelTariff = WattWatchCalculations.calculateAdvancedTariff(100, { tariffModel: 'tou', flatRate: 8 });
+          const nullModelTariff = WattWatchCalculations.calculateAdvancedTariff(100, { tariffModel: null, flatRate: 8 });
+          const emptyModelTariff = WattWatchCalculations.calculateAdvancedTariff(100, { tariffModel: '', flatRate: 8 });
+          const badModelBudget = WattWatchCalculations.calculateAllowedKwhForBudget(800, { tariffModel: 'tou', flatRate: 8 });
+          const badModelSummary = WattWatchCalculations.calculateHouseholdSummary([sampleFan], { tariffModel: 'tou', flatRate: 8 });
+          const badModelSim = WattWatchCalculations.simulateReplacement(sampleFan, 35, 8, 30, 1, { tariffModel: 'tou', flatRate: 8 });
+          const badModelRecs = WattWatchRecommendations.generateRecommendations([sampleFan], { tariffModel: 'tou', flatRate: 8 });
+
+          assert(
+            absTariff.isValid === true &&
+            absTariff.model === 'flat' &&
+            badModelTariff.isValid === false &&
+            nullModelTariff.isValid === false &&
+            emptyModelTariff.isValid === false &&
+            Number.isNaN(badModelBudget) &&
+            badModelSummary.isValid === false &&
+            badModelSim.isValid === false &&
+            badModelRecs.isValid === false,
+            'S59.1b: Explicitly unsupported/null/empty tariffModel rejected across tariff, budget, household summary, simulator, and recommendations'
+          );
+
+          // S59.2: Historical nested invalid currency falls back to valid top-level record currency
+          assert(
+            WattWatchHistory._getSnapshotCurrency({ tariffSettings: { currency: 'INVALID' }, currency: '€' }) === '€' &&
+            WattWatchHistory._getSnapshotCurrency({ tariffSettings: { currency: null }, currency: '£' }) === '£' &&
+            WattWatchHistory._getSnapshotCurrency({ tariffSettings: { currency: '$' }, currency: '€' }) === '$' &&
+            WattWatchReport._resolveSnapshotCurrency({ tariffSettings: { currency: '' }, currency: '€' }) === '€' &&
+            WattWatchReport._resolveSnapshotCurrency({ tariffSettings: { currency: 'BAD' }, currency: 'INVALID' }) === null,
+            'S59.2: History and Report snapshot currency resolution falls back cleanly from invalid nested currency to valid top-level currency without assuming ₹'
+          );
+
+          // S59.3: Mixed/unrecorded currency chart comparison + strict trend chart validation
+          const mixedHistory = [
+            { id: 's59_h1', period: '2023-01', periodLabel: 'Jan 2023', currency: '₹', totalKwh: 100, totalCost: 800, tariffModel: 'flat', ratePerKwh: 8, savedAt: '2023-02-01T00:00:00Z' },
+            { id: 's59_h2', period: '2023-02', periodLabel: 'Feb 2023', currency: '$', totalKwh: 120, totalCost: 18, tariffModel: 'flat', ratePerKwh: 0.15, savedAt: '2023-03-01T00:00:00Z' },
+            { id: 's59_h3', period: '2023-03', periodLabel: 'Mar 2023', totalKwh: 90, totalCost: 720, tariffModel: 'flat', ratePerKwh: 8, savedAt: '2023-04-01T00:00:00Z' },
+            { id: 's59_h4', period: '2023-04', periodLabel: 'Apr 2023', totalKwh: 110, totalCost: 880, tariffModel: 'flat', ratePerKwh: 8, savedAt: '2023-05-01T00:00:00Z' },
+            { id: 's59_h5', period: '2023-05', periodLabel: 'May 2023', currency: '₹', totalKwh: 150, totalCost: 1200, tariffModel: 'flat', ratePerKwh: 8, savedAt: '2023-06-01T00:00:00Z' }
+          ];
+          WattWatchStorage.getHistory = () => mixedHistory.map(h => ({ ...h }));
+          WattWatchHistory.renderHistoryView();
+
+          const selA59 = document.getElementById('comparePeriodSelectA');
+          const selB59 = document.getElementById('comparePeriodSelectB');
+          selA59.value = 's59_h1';
+          selB59.value = 's59_h2';
+          WattWatchHistory.renderComparison();
+          const mixedChartLabels = WattWatchCharts.instances.comparisonChart?.data?.labels || [];
+          const mixedBoxText = document.getElementById('comparisonResultsBox').textContent || '';
+
+          selA59.value = 's59_h3';
+          selB59.value = 's59_h4';
+          WattWatchHistory.renderComparison();
+          const unrecChartLabels = WattWatchCharts.instances.comparisonChart?.data?.labels || [];
+          const unrecBoxHtml = document.getElementById('comparisonResultsBox').innerHTML || '';
+
+          selA59.value = 's59_h1';
+          selB59.value = 's59_h5';
+          WattWatchHistory.renderComparison();
+          const sameCurrLabels = WattWatchCharts.instances.comparisonChart?.data?.labels || [];
+
+          assert(
+            mixedChartLabels.length === 1 && mixedChartLabels[0] === 'Energy Consumption (kWh)' &&
+            mixedBoxText.includes('Non-Comparable') &&
+            unrecChartLabels.length === 1 && unrecChartLabels[0] === 'Energy Consumption (kWh)' &&
+            unrecBoxHtml.includes('Non-Comparable') &&
+            sameCurrLabels.length === 2 && sameCurrLabels[1].includes('Estimated Bill (₹ / 10)'),
+            'S59.3a: Comparison chart suppresses monetary dataset on mixed or unrecorded currencies while plotting matching recorded currencies'
+          );
+
+          WattWatchCharts.renderHistoryTrendChart([
+            { id: 's59_t1', period: '2023-01', periodLabel: 'Jan 2023', totalKwh: '', totalCost: 100 },
+            { id: 's59_t2', period: '2023-02', periodLabel: 'Feb 2023', totalKwh: 0, totalCost: 0 },
+            { id: 's59_t3', period: '2023-03', periodLabel: 'Mar 2023', totalKwh: 50, totalCost: false }
+          ]);
+          const trendChart59 = WattWatchCharts.instances.historyTrend;
+          const trendTooltip59 = trendChart59?.options?.plugins?.tooltip?.callbacks?.label({ raw: 0, dataIndex: 0 }) || [];
+          assert(
+            trendChart59 &&
+            trendChart59.data.labels.length === 1 &&
+            trendChart59.data.labels[0] === 'Feb 2023' &&
+            trendChart59.data.datasets[0].data[0] === 0 &&
+            trendTooltip59.some(line => line.includes('Estimated Bill: 0.00 (Currency unrecorded)')),
+            'S59.3b: History trend chart rejects empty strings and booleans while preserving explicit zero energy and cost'
+          );
+
+          // S59.4: executeSaveSnapshot strict tariff/modifier validation (no fallback to 0/8.00)
+          WattWatchStorage.getHistory = origGetHistory59;
+          WattWatchStorage.clearAllData();
+          const fanSavedOk = WattWatchStorage.saveAppliances([sampleFan]);
+          const toastMsgs59 = [];
+          if (typeof WattWatchApp !== 'undefined') {
+            WattWatchApp.showToast = (msg, type, title) => toastMsgs59.push({ msg, type, title });
+          }
+
+          const invalidTariffConfigs = [
+            { electricityRate: '', tariffModel: 'flat', fixedCharges: 0, additionalTaxPercent: 0, freeUnits: 0, billCreditInr: 0, currency: '₹' },
+            { electricityRate: undefined, tariffModel: 'flat', fixedCharges: 0, additionalTaxPercent: 0, freeUnits: 0, billCreditInr: 0, currency: '₹' },
+            { electricityRate: 8, tariffModel: 'tou', fixedCharges: 0, additionalTaxPercent: 0, freeUnits: 0, billCreditInr: 0, currency: '₹' },
+            { electricityRate: 8, tariffModel: 'flat', fixedCharges: '', additionalTaxPercent: 0, freeUnits: 0, billCreditInr: 0, currency: '₹' }
+          ];
+          let blockedInvalidSaves = 0;
+          invalidTariffConfigs.forEach(cfg => {
+            WattWatchStorage.getSettings = () => ({ ...cfg });
+            WattWatchHistory.executeSaveSnapshot('2023-06', 'Jun 2023');
+            if (!WattWatchStorage.getHistory().some(h => h.period === '2023-06')) {
+              blockedInvalidSaves += 1;
+            }
+          });
+
+          WattWatchStorage.getSettings = () => ({
+            electricityRate: 0,
+            tariffModel: 'flat',
+            fixedCharges: 0,
+            additionalTaxPercent: 0,
+            freeUnits: 0,
+            billCreditInr: 0,
+            currency: '₹'
+          });
+          WattWatchHistory.executeSaveSnapshot('2023-06', 'Jun 2023');
+          const savedZeroSnap = WattWatchStorage.getHistory().find(h => h.period === '2023-06');
+
+          assert(
+            fanSavedOk === true &&
+            blockedInvalidSaves === 4 &&
+            toastMsgs59.length >= 4 &&
+            !!savedZeroSnap &&
+            savedZeroSnap.totalCost === 0 &&
+            savedZeroSnap.tariffSettings.fixedCharges === 0 &&
+            savedZeroSnap.tariffSettings.additionalTaxPercent === 0 &&
+            savedZeroSnap.tariffSettings.freeUnits === 0 &&
+            savedZeroSnap.tariffSettings.billCreditInr === 0 &&
+            savedZeroSnap.tariffBreakdown.fixedCharge === 0,
+            'S59.4: executeSaveSnapshot blocks corrupted/missing rates, models, and modifiers without coercing defaults while preserving valid explicit zero modifiers'
+          );
+
+          // S59.5: Dual-alias subsidy validation across storage & tariff engine
+          const normBadAlias = WattWatchStorage._normalizeBillCreditSetting({ billCreditInr: 50, subsidy: -5 });
+          const normEmptyAlias = WattWatchStorage._normalizeBillCreditSetting({ billCreditInr: 50, subsidy: '' });
+          const saveBadAlias = WattWatchStorage.saveSettings({ electricityRate: 8, billCreditInr: 50, subsidy: -5 });
+          const impBadAlias = WattWatchStorage.importDataJSON(JSON.stringify({ appliances: [], settings: { electricityRate: 8, billCreditInr: 50, subsidy: -5 } }), 'replace');
+          const calcBadAlias = WattWatchCalculations.calculateAdvancedTariff(100, { flatRate: 8, billCreditInr: 50, subsidy: -5 });
+          const budgetBadAlias = WattWatchCalculations.calculateAllowedKwhForBudget(500, { flatRate: 8, billCreditInr: 50, subsidy: 'bad' });
+          const calcDualValid = WattWatchCalculations.calculateAdvancedTariff(100, { flatRate: 8, billCreditInr: 50, subsidy: 10 });
+
+          assert(
+            normBadAlias.valid === false &&
+            normEmptyAlias.valid === false &&
+            saveBadAlias === false &&
+            !impBadAlias.success &&
+            calcBadAlias.isValid === false &&
+            Number.isNaN(budgetBadAlias) &&
+            calcDualValid.isValid === true &&
+            calcDualValid.billCreditInr === 50,
+            'S59.5: Invalid subsidy aliases rejected consistently across storage and tariff calculations while valid canonical billCreditInr takes precedence'
+          );
+
+          // S59.6: Zero tariff rate preserved in trend chart & zero bill variance formatted cleanly
+          WattWatchStorage.getSettings = () => ({
+            electricityRate: 0,
+            tariffModel: 'flat',
+            fixedCharges: 0,
+            additionalTaxPercent: 0,
+            freeUnits: 0,
+            billCreditInr: 0,
+            currency: '₹'
+          });
+          WattWatchCharts.renderOverviewTrendChart({
+            appliances: [sampleFan],
+            totalDailyKwh: 0.6,
+            ratePerKwh: 0,
+            effectiveRatePerKwh: undefined
+          });
+          const overviewChart59 = WattWatchCharts.instances.overviewTrend;
+          const zeroTooltipLines = overviewChart59?.options?.plugins?.tooltip?.callbacks?.label({ raw: 0.6, dataIndex: 0 }) || [];
+
+          WattWatchStorage.getHistory = () => [{
+            id: 's59_zvar',
+            period: '2023-07',
+            periodLabel: 'Jul 2023',
+            currency: '₹',
+            totalKwh: 50,
+            totalCost: 400,
+            actualCost: 400,
+            tariffModel: 'flat',
+            ratePerKwh: 8,
+            savedAt: '2023-08-01T00:00:00Z'
+          }];
+          WattWatchHistory.renderHistoryView();
+          const zeroVarHtml = document.getElementById('historyTableBody').innerHTML || '';
+
+          assert(
+            Array.isArray(zeroTooltipLines) &&
+            zeroTooltipLines.some(line => line.includes('₹0.00')) &&
+            !zeroTooltipLines.some(line => line.includes('8.00')) &&
+            zeroVarHtml.includes('(₹0)') &&
+            !zeroVarHtml.includes('(-₹0)'),
+            'S59.6: Overview trend chart preserves 0 rate without 8.00 fallback and zero bill variance formats without negative sign'
+          );
+
+          // S59.7: Missing/invalid account currency stays unlabelled across Report, App UI, and Simulator
+          const uncfgSettings = {
+            electricityRate: 8,
+            tariffModel: 'flat',
+            budgetInr: 1000,
+            monthlyBudgetInr: 1000,
+            currency: 'BAD',
+            fixedCharges: 0,
+            additionalTaxPercent: 0,
+            freeUnits: 0,
+            billCreditInr: 0
+          };
+          WattWatchStorage.getSettings = () => ({ ...uncfgSettings });
+          WattWatchStorage.getHistory = () => [];
+          const uncfgSummary = WattWatchCalculations.calculateHouseholdSummary([sampleFan], uncfgSettings);
+
+          WattWatchApp.updateGlobalTariffPills(uncfgSummary, uncfgSettings, uncfgSummary.totalMonthlyCost, uncfgSummary.advancedTariff);
+          WattWatchApp.renderOverviewMetrics(uncfgSummary, uncfgSummary.totalMonthlyCost, uncfgSettings, uncfgSummary.advancedTariff);
+          WattWatchApp.renderBudgetTracker(uncfgSummary.totalMonthlyCost, 1000, uncfgSummary.totalMonthlyKwh, uncfgSettings);
+          WattWatchApp.renderRecommendationsView([sampleFan], uncfgSettings);
+          WattWatchApp.populateSettingsFields(uncfgSettings);
+          WattWatchSimulator.runTariffCalculation();
+          WattWatchReport.openReportModal();
+          const repSel59 = document.getElementById('reportPeriodSelect');
+          if (repSel59) repSel59.value = 'current';
+          WattWatchReport.updateReportPreview();
+
+          const liveRepText59 = document.getElementById('reportPreviewArea').textContent || '';
+          const uncfgUiSamples = [
+            document.getElementById('budgetCardAmount')?.textContent || '',
+            document.getElementById('budgetForecastVariance')?.textContent || '',
+            document.getElementById('tipsTotalSavingsCost')?.textContent || '',
+            document.getElementById('overviewApplianceComparisonContent')?.textContent || '',
+            liveRepText59
+          ];
+          assert(
+            liveRepText59.includes('Currency: Unconfigured') &&
+            uncfgUiSamples.every(txt => !txt.includes('₹')),
+            'S59.7: Invalid/missing account currency prevents implicit ₹ fallback across Report, App overview/budget/tips/settings, and Simulator'
+          );
+
+          // S59.8: Stored-fallback partial/unavailable categories, mismatched historical budget, & explicit invalid legacy tariffModel in Report
+          WattWatchStorage.getSettings = () => ({ ...origGetSettings59(), currency: '₹', budgetInr: 2500 });
+          WattWatchStorage.getHistory = () => [{
+            id: 's59_rep_bad',
+            period: '2023-08',
+            periodLabel: 'Aug 2023',
+            currency: '€',
+            tariffModel: 'tou',
+            ratePerKwh: 0.25,
+            totalKwh: 100,
+            totalCost: 25,
+            appliancesSnapshot: [
+              { category: 'Cooling', monthlyKwh: 60, monthlyCost: 15, quantity: 1 },
+              { category: 'Cooling', monthlyKwh: 40, monthlyCost: 'bad', quantity: '' },
+              { category: 'Lighting', monthlyKwh: null, monthlyCost: null, quantity: null }
+            ],
+            savedAt: '2023-09-01T00:00:00Z'
+          }];
+          WattWatchReport.openReportModal();
+          if (repSel59) repSel59.value = 's59_rep_bad';
+          WattWatchReport.updateReportPreview();
+          const fallbackRepText = document.getElementById('reportPreviewArea').textContent || '';
+
+          assert(
+            fallbackRepText.includes('Unsupported Tariff Model') &&
+            !fallbackRepText.includes('Recalculated') &&
+            !fallbackRepText.includes('Current Account Budget Setting') &&
+            fallbackRepText.includes('(Partial)') &&
+            fallbackRepText.includes('Unavailable'),
+            'S59.8: Report blocks recalculation on explicit invalid legacy tariffModel, blocks mismatched-currency budget comparisons, and marks stored fallback partial/unavailable categories accurately'
+          );
+
+          // S59.9: Replacement simulation bounds, strict standby=0, split-schedule scaling, and scenario commit roundtrip
+          const simBadBaseSb = WattWatchCalculations.simulateReplacement(sampleFan, 40, 8, 30, 1, 8, 0, null, { baseStandbyWatts: 600 });
+          const simBadAltSb = WattWatchCalculations.simulateReplacement(sampleFan, 40, 8, 30, 1, 8, 0, null, { altStandbyWatts: -1 });
+          const simBadDutyLow = WattWatchCalculations.simulateReplacement(sampleFan, 40, 8, 30, 1, 8, 0, null, { altDutyCyclePercent: 0 });
+          const simBadDutyHigh = WattWatchCalculations.simulateReplacement(sampleFan, 40, 8, 30, 1, 8, 0, null, { altDutyCyclePercent: 120 });
+          const simBadDays = WattWatchCalculations.simulateReplacement(sampleFan, 40, 8, 30, 1, 8, 0, null, { altActiveDaysPerWeek: 1.5 });
+          const simNullW = WattWatchCalculations.simulateReplacement(sampleFan, null, 8, 30, 1, 8);
+          const simEmptyW = WattWatchCalculations.simulateReplacement(sampleFan, '', 8, 30, 1, 8);
+          const simBoolW = WattWatchCalculations.simulateReplacement(sampleFan, false, 8, 30, 1, 8);
+          const scaledSplit = WattWatchCalculations.scaleApplianceForTargetHours({ dailyHours: 8, weekdayHours: 6, weekendHours: 10 }, 4, true);
+
+          const tvZeroSb = {
+            id: 's59_sb0',
+            name: 'Living Room TV',
+            category: 'Entertainment',
+            powerWatts: 100,
+            dailyHours: 4,
+            operatingDays: 30,
+            quantity: 1,
+            standbyWatts: '0'
+          };
+          const recZeroSb = WattWatchRecommendations.generateRecommendations([tvZeroSb], 8);
+          const hasPhantomSbTip = (recZeroSb.tips || []).some(r => r.category === 'Standby Power' || /standby/i.test(r.reason) || /standby/i.test(r.suggestedAction) || /standby/i.test(r.actionGroup || ''));
+
+          WattWatchStorage.saveAppliances([{ ...tvZeroSb }]);
+          WattWatchSimulator.populateApplianceSelect();
+          const scRes59 = WattWatchSimulator.applyScenario({
+            id: 's59_sc_tv',
+            applianceId: 's59_sb0',
+            title: 'Reduce TV Hours',
+            targetHours: 2,
+            scenarioType: 'runtime'
+          });
+          const origConfirm59 = WattWatchApp.openConfirmDialog;
+          let confirmedCount59 = 0;
+          WattWatchApp.openConfirmDialog = (opts) => {
+            confirmedCount59 += 1;
+            if (opts && typeof opts.onConfirm === 'function') {
+              opts.onConfirm();
+            }
+          };
+          try {
+            WattWatchSimulator.commitSimulatedChangesToInventory('s59_sb0', 100, 2, 30, 1);
+          } finally {
+            WattWatchApp.openConfirmDialog = origConfirm59;
+          }
+          const updatedTv59 = WattWatchStorage.getAppliances().find(a => a.id === 's59_sb0');
+
+          assert(
+            !simBadBaseSb.isValid &&
+            !simBadAltSb.isValid &&
+            !simBadDutyLow.isValid &&
+            !simBadDutyHigh.isValid &&
+            !simBadDays.isValid &&
+            !simNullW.isValid &&
+            !simEmptyW.isValid &&
+            !simBoolW.isValid &&
+            scaledSplit.weekdayHours === 3 &&
+            scaledSplit.weekendHours === 5 &&
+            recZeroSb.isValid === true &&
+            !hasPhantomSbTip &&
+            scRes59.success === true &&
+            confirmedCount59 === 1 &&
+            updatedTv59?.dailyHours === 2,
+            'S59.9: Replacement simulator rejects out-of-range/malformed overrides, explicit standby "0" avoids standby heuristics, split schedules scale cleanly, and scenario apply + commit persists'
+          );
+        } finally {
+          WattWatchReport.closeReportModal();
+          if (origShowToast59) WattWatchApp.showToast = origShowToast59;
+          WattWatchStorage.getSettings = origGetSettings59;
+          WattWatchStorage.getHistory = origGetHistory59;
+          WattWatchStorage.clearAllData();
+          WattWatchStorage.setActiveUser(origUser59);
+          WattWatchStorage.setTestNamespace(origNs59);
         }
       }
 

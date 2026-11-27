@@ -23,6 +23,59 @@ const WattWatchHistory = {
       .replace(/'/g, '&#39;');
   },
 
+  _parseStrictNonNegNum(val) {
+    if (val === null || val === undefined || typeof val === 'boolean' || typeof val === 'object') return null;
+    if (typeof val === 'number') {
+      return (!Number.isNaN(val) && Number.isFinite(val) && val >= 0) ? val : null;
+    }
+    if (typeof val === 'string') {
+      const trimmed = val.trim();
+      if (trimmed === '' || !/^\d+(\.\d+)?$/.test(trimmed)) return null;
+      const num = Number(trimmed);
+      return Number.isFinite(num) && num >= 0 ? num : null;
+    }
+    return null;
+  },
+
+  _parseStrictNonNegInt(val, min = 0) {
+    const num = this._parseStrictNonNegNum(val);
+    if (num === null || !Number.isInteger(num) || num < min) return null;
+    return num;
+  },
+
+  _getSnapshotCurrency(record) {
+    if (!record || typeof record !== 'object') return null;
+    if (typeof WattWatchStorage === 'undefined' || typeof WattWatchStorage.validateCurrency !== 'function') {
+      return null;
+    }
+    const validateOne = (raw) => {
+      if (typeof raw !== 'string' || !raw.trim()) return null;
+      const val = WattWatchStorage.validateCurrency(raw);
+      return (val && val.valid && typeof val.sanitized === 'string' && val.sanitized.trim())
+        ? val.sanitized
+        : null;
+    };
+    const ts = (record.tariffSettings && typeof record.tariffSettings === 'object' && !Array.isArray(record.tariffSettings))
+      ? record.tariffSettings
+      : null;
+    if (ts) {
+      const nestedCurr = validateOne(ts.currency);
+      if (nestedCurr) return nestedCurr;
+    }
+    return validateOne(record.currency);
+  },
+
+  _formatSnapshotMoney(val, record, opts = {}) {
+    const num = this._parseStrictNonNegNum(val);
+    if (num === null) return '--';
+    const cur = this._getSnapshotCurrency(record);
+    if (cur) {
+      return WattWatchCalculations.formatCurrency(num, cur);
+    }
+    const plain = WattWatchCalculations.formatNumber(num, 2);
+    return opts.omitLegacySuffix ? plain : `${plain} (Currency unrecorded)`;
+  },
+
   bindEvents() {
     if (this._eventsBound) return;
     this._eventsBound = true;
@@ -137,6 +190,12 @@ const WattWatchHistory = {
       return;
     }
 
+    const validatedModel = WattWatchCalculations.validateTariffModel(settings.tariffModel, 'flat');
+    if (!validatedModel) {
+      WattWatchApp.showToast('Cannot save snapshot: active tariff model is invalid.', 'error', 'Invalid Tariff Settings');
+      return;
+    }
+
     const summary = WattWatchCalculations.calculateHouseholdSummary(appliances, settings);
     const tariffDetails = summary.advancedTariff || WattWatchCalculations.calculateAdvancedTariff(summary.totalMonthlyKwh, settings);
 
@@ -145,13 +204,34 @@ const WattWatchHistory = {
       return;
     }
 
+    // Strictly validate tariff values before persisting (never silently substitute 0 or 8.00 for missing/invalid fields)
+    const rateCheck = WattWatchCalculations.validateTariffRate(settings.electricityRate, NaN);
+    const fixedC = this._parseStrictNonNegNum(settings.fixedCharges !== undefined ? settings.fixedCharges : tariffDetails.fixedCharge);
+    const taxP = this._parseStrictNonNegNum(settings.additionalTaxPercent !== undefined ? settings.additionalTaxPercent : tariffDetails.taxPercent);
+    const freeU = this._parseStrictNonNegNum(settings.freeUnits !== undefined ? settings.freeUnits : tariffDetails.freeUnits);
+    const rawSettCredit = WattWatchCalculations._resolveRawBillCredit(settings);
+    const creditFromSettings = (rawSettCredit !== undefined && rawSettCredit !== null && rawSettCredit !== '')
+      ? this._parseStrictNonNegNum(rawSettCredit)
+      : this._parseStrictNonNegNum(tariffDetails.billCreditInr ?? tariffDetails.subsidy);
+
+    if ((validatedModel === 'flat' && isNaN(rateCheck)) ||
+        (validatedModel === 'slab' && settings.electricityRate !== undefined && isNaN(rateCheck)) ||
+        fixedC === null || taxP === null || taxP > 100 || freeU === null || creditFromSettings === null) {
+      WattWatchApp.showToast('Cannot save snapshot: active tariff configuration contains missing or invalid values.', 'error', 'Invalid Tariff Settings');
+      return;
+    }
+
     // Deep-clone appliances snapshot so subsequent edits to appliances never alter past records
     const frozenAppliances = JSON.parse(JSON.stringify(summary.appliances));
 
-    const isSlab = settings.tariffModel === 'slab';
+    const isSlab = validatedModel === 'slab';
     const effectiveRate = tariffDetails.effectiveRatePerKwh;
-    const rateCheck = WattWatchCalculations.validateTariffRate(settings.electricityRate, 8.00);
-    const flatRate = !isNaN(rateCheck) ? rateCheck : 8.00;
+    const flatRate = !isNaN(rateCheck) ? rateCheck : effectiveRate;
+    const validSettingsCurr = (typeof WattWatchStorage !== 'undefined' && typeof WattWatchStorage.validateCurrency === 'function' && settings.currency !== undefined)
+      ? WattWatchStorage.validateCurrency(settings.currency)
+      : { valid: false };
+    const validatedCurr = (validSettingsCurr && validSettingsCurr.valid) ? validSettingsCurr.sanitized : null;
+    const creditC = creditFromSettings;
 
     const snapshot = {
       id: `snap_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`,
@@ -163,7 +243,18 @@ const WattWatchHistory = {
       flatRate: flatRate,
       effectiveRate: effectiveRate,
       tariffModel: isSlab ? 'slab' : 'flat',
+      ...(validatedCurr ? { currency: validatedCurr } : {}),
       tariffBreakdown: tariffDetails,
+      tariffSettings: {
+        tariffModel: isSlab ? 'slab' : 'flat',
+        electricityRate: flatRate,
+        fixedCharges: fixedC,
+        additionalTaxPercent: taxP,
+        freeUnits: freeU,
+        billCreditInr: creditC,
+        ...(isSlab && Array.isArray(settings.slabConfig) ? { slabConfig: JSON.parse(JSON.stringify(settings.slabConfig)) } : {}),
+        ...(validatedCurr ? { currency: validatedCurr } : {})
+      },
       appliancesCount: summary.totalAppliancesCount,
       totalUnits: summary.totalUnits,
       appliancesSnapshot: frozenAppliances,
@@ -173,21 +264,29 @@ const WattWatchHistory = {
     // Attach actual utility readings if present in active meter tracking or passed explicitly
     const meter = WattWatchStorage.getMeterTracking();
     if (meter) {
-      if (meter.actualUnits !== null && Number.isFinite(Number(meter.actualUnits))) snapshot.actualKwh = Number(meter.actualUnits);
-      if (meter.actualCost !== null && Number.isFinite(Number(meter.actualCost))) snapshot.actualCost = Number(meter.actualCost);
+      const mUnits = this._parseStrictNonNegNum(meter.actualUnits);
+      const mCost = this._parseStrictNonNegNum(meter.actualCost);
+      const mStart = this._parseStrictNonNegNum(meter.startReading);
+      const mEnd = this._parseStrictNonNegNum(meter.currentReading);
+      if (mUnits !== null) snapshot.actualKwh = mUnits;
+      if (mCost !== null) snapshot.actualCost = mCost;
       if (meter.cycleStartDate) snapshot.cycleStartDate = meter.cycleStartDate;
       if (meter.cycleEndDate) snapshot.cycleEndDate = meter.cycleEndDate;
-      if (meter.startReading !== null && Number.isFinite(Number(meter.startReading))) snapshot.meterReadingStart = Number(meter.startReading);
-      if (meter.currentReading !== null && Number.isFinite(Number(meter.currentReading))) snapshot.meterReadingEnd = Number(meter.currentReading);
+      if (mStart !== null) snapshot.meterReadingStart = mStart;
+      if (mEnd !== null) snapshot.meterReadingEnd = mEnd;
     }
 
     if (optionalActual && typeof optionalActual === 'object') {
-      if (optionalActual.actualKwh !== undefined && optionalActual.actualKwh !== null && !isNaN(Number(optionalActual.actualKwh))) snapshot.actualKwh = Number(optionalActual.actualKwh);
-      if (optionalActual.actualCost !== undefined && optionalActual.actualCost !== null && !isNaN(Number(optionalActual.actualCost))) snapshot.actualCost = Number(optionalActual.actualCost);
+      const oUnits = this._parseStrictNonNegNum(optionalActual.actualKwh);
+      const oCost = this._parseStrictNonNegNum(optionalActual.actualCost);
+      const oStart = this._parseStrictNonNegNum(optionalActual.meterReadingStart);
+      const oEnd = this._parseStrictNonNegNum(optionalActual.meterReadingEnd);
+      if (oUnits !== null) snapshot.actualKwh = oUnits;
+      if (oCost !== null) snapshot.actualCost = oCost;
       if (optionalActual.cycleStartDate) snapshot.cycleStartDate = optionalActual.cycleStartDate;
       if (optionalActual.cycleEndDate) snapshot.cycleEndDate = optionalActual.cycleEndDate;
-      if (optionalActual.meterReadingStart !== undefined && optionalActual.meterReadingStart !== null && !isNaN(Number(optionalActual.meterReadingStart))) snapshot.meterReadingStart = Number(optionalActual.meterReadingStart);
-      if (optionalActual.meterReadingEnd !== undefined && optionalActual.meterReadingEnd !== null && !isNaN(Number(optionalActual.meterReadingEnd))) snapshot.meterReadingEnd = Number(optionalActual.meterReadingEnd);
+      if (oStart !== null) snapshot.meterReadingStart = oStart;
+      if (oEnd !== null) snapshot.meterReadingEnd = oEnd;
     }
 
     const saved = WattWatchStorage.saveSnapshot(snapshot);
@@ -214,6 +313,8 @@ const WattWatchHistory = {
     if (!tableBody) return;
 
     if (history.length === 0) {
+      const oldNotice = document.getElementById('historyLegacyCurrencyNotice');
+      if (oldNotice) oldNotice.style.display = 'none';
       if (tableWrap) tableWrap.style.display = 'none';
       if (emptyState) emptyState.style.display = 'flex';
       if (comparisonSection) comparisonSection.style.display = 'none';
@@ -221,7 +322,23 @@ const WattWatchHistory = {
       return;
     }
 
-    if (tableWrap) tableWrap.style.display = 'block';
+    if (tableWrap) {
+      tableWrap.style.display = 'block';
+      const hasLegacyCurrRow = history.some(r => this._getSnapshotCurrency(r) === null);
+      let noticeEl = document.getElementById('historyLegacyCurrencyNotice');
+      if (hasLegacyCurrRow) {
+        if (!noticeEl) {
+          noticeEl = document.createElement('div');
+          noticeEl.id = 'historyLegacyCurrencyNotice';
+          noticeEl.style.cssText = 'background: rgba(197, 155, 67, 0.12); border: 1px solid rgba(197, 155, 67, 0.35); border-radius: var(--radius-md); padding: 0.65rem 0.9rem; margin-bottom: 0.9rem; font-size: 0.8rem; color: var(--text-primary);';
+          tableWrap.insertBefore(noticeEl, tableWrap.firstChild);
+        }
+        noticeEl.innerHTML = '<strong>Legacy Snapshot Notice:</strong> One or more historical records lack recorded currency metadata. Their amounts are shown unlabelled without substituting your current account currency.';
+        noticeEl.style.display = 'block';
+      } else if (noticeEl) {
+        noticeEl.style.display = 'none';
+      }
+    }
     if (emptyState) emptyState.style.display = 'none';
     if (comparisonSection) comparisonSection.style.display = 'block';
 
@@ -249,17 +366,57 @@ const WattWatchHistory = {
       }
 
       const isSlab = record.tariffModel === 'slab';
-      const rawEff = record.effectiveRate ?? record.tariffBreakdown?.effectiveRatePerKwh ?? record.electricityRate;
-      const numEff = Number(rawEff);
-      const effRate = (!isNaN(numEff) && numEff >= 0) ? numEff : 8.00;
+      const firstValidNum = (...vals) => {
+        for (const v of vals) {
+          const parsed = this._parseStrictNonNegNum(v);
+          if (parsed !== null) return parsed;
+        }
+        return null;
+      };
 
-      const rawFlatRecord = record.flatRate ?? record.electricityRate;
-      const numFlatRecord = Number(rawFlatRecord);
-      const flatRateDisp = (!isNaN(numFlatRecord) && numFlatRecord >= 0) ? numFlatRecord : 8.00;
+      const effRate = firstValidNum(record.effectiveRate, record.tariffBreakdown?.effectiveRatePerKwh, record.electricityRate);
+      const flatRateDisp = firstValidNum(record.flatRate, record.electricityRate);
+
+      const recCur = this._getSnapshotCurrency(record);
+      const rateSym = recCur ? `${this.escapeHtml(recCur)}` : '';
+      const effRateTitle = effRate !== null ? `${rateSym}${effRate.toFixed(2)}/kWh${!recCur ? ' (currency unrecorded)' : ''}` : 'Unavailable';
+      const flatRateTitle = flatRateDisp !== null ? `${rateSym}${flatRateDisp.toFixed(2)}/kWh${!recCur ? ' (currency unrecorded)' : ''}` : 'Unavailable';
 
       const modelBadge = isSlab
-        ? `<span class="badge badge-gold" title="Progressive Slab Tariff: Effective rate is ₹${effRate.toFixed(2)}/kWh">Slab</span>`
-        : `<span class="badge badge-blue" title="Flat Rate: ₹${flatRateDisp.toFixed(2)}/kWh">Flat</span>`;
+        ? `<span class="badge badge-gold" title="Progressive Slab Tariff: Effective rate is ${effRateTitle}">Slab</span>`
+        : `<span class="badge badge-blue" title="Flat Rate: ${flatRateTitle}">Flat</span>`;
+
+      const validTotalKwh = this._parseStrictNonNegNum(record.totalKwh);
+      const validTotalCost = this._parseStrictNonNegNum(record.totalCost);
+      const validActualKwh = this._parseStrictNonNegNum(record.actualKwh);
+      const validActualCost = this._parseStrictNonNegNum(record.actualCost);
+      const validCount = this._parseStrictNonNegInt(record.appliancesCount, 0);
+      const validUnits = this._parseStrictNonNegInt(record.totalUnits, 0);
+
+      let actualCostBlock = '';
+      if (validActualCost !== null) {
+        let varianceHtml = '';
+        if (validTotalCost !== null) {
+          const diff = validActualCost - validTotalCost;
+          const diffSign = diff > 0 ? '+' : (diff < 0 ? '-' : '');
+          const diffColor = diff > 0 ? '#ef4444' : 'var(--emerald-primary, #10b981)';
+          varianceHtml = ` <span style="color: ${diffColor}; font-weight: 600;">(${diffSign}${rateSym}${Math.abs(diff).toFixed(0)})</span>`;
+        }
+        actualCostBlock = `
+          <div style="font-size: 0.72rem; color: var(--text-secondary); margin-top: 0.15rem;">
+            Actual: <strong>${this.escapeHtml(this._formatSnapshotMoney(validActualCost, record, { omitLegacySuffix: true }))}</strong>${varianceHtml}
+          </div>`;
+      }
+
+      const costDisplayHtml = validTotalCost === null
+        ? '--'
+        : (recCur
+            ? this.escapeHtml(WattWatchCalculations.formatCurrency(validTotalCost, recCur))
+            : `${this.escapeHtml(WattWatchCalculations.formatNumber(validTotalCost, 2))} <span style="font-size: 0.7rem; color: var(--text-secondary);">(Legacy)</span>`);
+
+      const rateDisplayHtml = effRate === null
+        ? 'Rate N/A'
+        : `${rateSym}${effRate.toFixed(2)}/u${isSlab ? ' (eff.)' : ''}${!recCur ? ' <span style="font-size:0.7rem;">(Legacy)</span>' : ''}`;
 
       tr.innerHTML = `
         <td>
@@ -269,47 +426,38 @@ const WattWatchHistory = {
           <div style="font-size: 0.72rem; color: var(--text-secondary);">${WattWatchAppliances.escapeHtml(record.period)}</div>
         </td>
         <td>
-          <span class="kwh-val">${WattWatchCalculations.formatKwh(record.totalKwh)}</span>
-          ${(record.actualKwh !== null && record.actualKwh !== undefined)
-            ? `<div style="font-size: 0.72rem; color: var(--text-secondary); margin-top: 0.15rem;">Actual: <strong>${Number(record.actualKwh).toFixed(1)} kWh</strong></div>`
+          <span class="kwh-val">${validTotalKwh !== null ? WattWatchCalculations.formatKwh(validTotalKwh) : '-- kWh'}</span>
+          ${validActualKwh !== null
+            ? `<div style="font-size: 0.72rem; color: var(--text-secondary); margin-top: 0.15rem;">Actual: <strong>${validActualKwh.toFixed(1)} kWh</strong></div>`
             : ''
           }
         </td>
         <td>
-          <span class="cost-val">${this.escapeHtml(WattWatchCalculations.formatCurrency(record.totalCost))}</span>
-          ${(record.actualCost !== null && record.actualCost !== undefined)
-            ? `<div style="font-size: 0.72rem; color: var(--text-secondary); margin-top: 0.15rem;">
-                Actual: <strong>${this.escapeHtml(WattWatchCalculations.formatCurrency(record.actualCost))}</strong>
-                ${(record.actualCost > record.totalCost)
-                  ? `<span style="color: #ef4444; font-weight: 600;">(+₹${(record.actualCost - record.totalCost).toFixed(0)})</span>`
-                  : `<span style="color: var(--emerald-primary, #10b981); font-weight: 600;">(-₹${(record.totalCost - record.actualCost).toFixed(0)})</span>`
-                }
-              </div>`
-            : ''
-          }
+          <span class="cost-val">${costDisplayHtml}</span>
+          ${actualCostBlock}
         </td>
         <td>
           ${modelBadge}
           <span style="font-size: 0.8rem; color: var(--text-secondary); margin-left: 0.25rem;">
-            ₹${effRate.toFixed(2)}/u${isSlab ? ' (eff.)' : ''}
+            ${rateDisplayHtml}
           </span>
         </td>
         <td>
-          ${record.appliancesCount} devices (${record.totalUnits} units)
+          ${validCount !== null ? validCount : '--'} devices (${validUnits !== null ? validUnits : '--'} units)
         </td>
         <td>
-          <span style="font-size: 0.8rem; color: var(--text-secondary);">${dateStr}</span>
+          <span style="font-size: 0.8rem; color: var(--text-secondary);">${this.escapeHtml(dateStr)}</span>
         </td>
         <td>
           <div class="table-actions">
             <button type="button" class="btn btn-secondary btn-icon btn-sm" title="View Snapshot Details" data-action="view-details" data-id="${this.escapeHtml(record.id)}" aria-label="View Details for ${this.escapeHtml(record.period)}">
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <svg aria-hidden="true" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
                 <circle cx="12" cy="12" r="3"/>
               </svg>
             </button>
             <button type="button" class="btn btn-secondary btn-icon btn-sm" title="Delete Snapshot" data-action="delete" data-id="${this.escapeHtml(record.id)}" aria-label="Delete ${this.escapeHtml(record.period)}" style="color: #A92639;">
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <svg aria-hidden="true" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <polyline points="3 6 5 6 21 6"/>
                 <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
               </svg>
@@ -387,17 +535,17 @@ const WattWatchHistory = {
         if (startInput) startInput.value = meter.cycleStartDate || '';
         if (endInput) endInput.value = meter.cycleEndDate || '';
         if (startReadInput) {
-          startReadInput.value = (meter.startReading !== null && meter.startReading !== undefined && Number.isFinite(Number(meter.startReading)))
+          startReadInput.value = WattWatchCalculations.isFiniteNumber(meter.startReading)
             ? meter.startReading
             : '';
         }
         if (curReadInput) {
-          curReadInput.value = (meter.currentReading !== null && meter.currentReading !== undefined && Number.isFinite(Number(meter.currentReading)))
+          curReadInput.value = WattWatchCalculations.isFiniteNumber(meter.currentReading)
             ? meter.currentReading
             : '';
         }
         if (actualCostInput) {
-          actualCostInput.value = (meter.actualCost !== null && meter.actualCost !== undefined && Number.isFinite(Number(meter.actualCost)))
+          actualCostInput.value = WattWatchCalculations.isFiniteNumber(meter.actualCost)
             ? meter.actualCost
             : '';
         }
@@ -489,16 +637,21 @@ const WattWatchHistory = {
 
     let costVarianceHtml = '';
     if (actualCost !== null) {
+      const meterCurr = WattWatchCalculations.resolveValidatedCurrency(settings?.currency);
       const diffCost = actualCost - expectedElapsedCost;
       const isOver = diffCost > 0.5;
       const costColor = isOver ? '#ef4444' : 'var(--emerald-primary, #10b981)';
       const costSign = diffCost > 0 ? '+' : '';
+      const fmtActual = WattWatchCalculations.formatOptionalCurrency(actualCost, meterCurr);
+      const fmtDiff = WattWatchCalculations.formatOptionalCurrency(Math.abs(diffCost), meterCurr);
+      const fmtExp = WattWatchCalculations.formatOptionalCurrency(expectedElapsedCost, meterCurr);
+      const signedDiff = diffCost < 0 ? `-${fmtDiff}` : `${costSign}${fmtDiff}`;
       costVarianceHtml = `
         <div style="flex: 1; min-width: 180px;">
           <div style="font-size: 0.72rem; color: var(--text-secondary); text-transform: uppercase;">Actual Bill Charge</div>
-          <div style="font-family: var(--font-serif); font-size: 1.25rem; font-weight: 700; color: var(--deep-burgundy);">${this.escapeHtml(WattWatchCalculations.formatCurrency(actualCost))}</div>
+          <div style="font-family: var(--font-serif); font-size: 1.25rem; font-weight: 700; color: var(--deep-burgundy);">${this.escapeHtml(fmtActual)}</div>
           <div style="font-size: 0.78rem; color: ${costColor}; font-weight: 600;">
-            ${costSign}${this.escapeHtml(WattWatchCalculations.formatCurrency(diffCost))} vs estimate (${this.escapeHtml(WattWatchCalculations.formatCurrency(expectedElapsedCost))})
+            ${this.escapeHtml(signedDiff)} vs estimate (${this.escapeHtml(fmtExp)})
           </div>
         </div>
       `;
@@ -594,26 +747,44 @@ const WattWatchHistory = {
     if (!elPeak || !elLow || !elCount) return;
 
     const safeHistory = Array.isArray(history) ? history : [];
-    const validSnapshots = safeHistory.filter(h => h && typeof h === 'object' && Number.isFinite(Number(h.totalCost)) && Number(h.totalCost) >= 0);
+    const validSnapshots = safeHistory.filter(h => h && typeof h === 'object' && this._parseStrictNonNegNum(h.totalCost) !== null);
 
     if (validSnapshots.length === 0) {
-      elPeak.textContent = '₹0.00';
+      let emptyCurr = null;
+      if (typeof WattWatchStorage !== 'undefined' && typeof WattWatchStorage.validateCurrency === 'function') {
+        const s = typeof WattWatchStorage.getSettings === 'function' ? WattWatchStorage.getSettings() : null;
+        if (s && typeof s.currency === 'string' && s.currency.trim()) {
+          const val = WattWatchStorage.validateCurrency(s.currency);
+          if (val && val.valid && typeof val.sanitized === 'string' && val.sanitized.trim()) {
+            emptyCurr = val.sanitized;
+          }
+        }
+      }
+      const zeroCost = emptyCurr
+        ? WattWatchCalculations.formatCurrency(0, emptyCurr)
+        : WattWatchCalculations.formatNumber(0, 2);
+      elPeak.textContent = zeroCost;
       elPeak.title = 'No historical records available';
-      elLow.textContent = '₹0.00';
+      elLow.textContent = zeroCost;
       elLow.title = 'No historical records available';
       elCount.textContent = '0 Records';
       return;
     }
 
-    const sortedByCost = [...validSnapshots].sort((a, b) => Number(b.totalCost) - Number(a.totalCost));
+    const sortedByCost = [...validSnapshots].sort(
+      (a, b) => this._parseStrictNonNegNum(b.totalCost) - this._parseStrictNonNegNum(a.totalCost)
+    );
     const highest = sortedByCost[0];
     const lowest = sortedByCost[sortedByCost.length - 1];
 
-    elPeak.textContent = WattWatchCalculations.formatCurrency(highest.totalCost);
-    elPeak.title = `Highest: ${highest.periodLabel || highest.period} (${Number(highest.totalKwh || 0).toFixed(1)} kWh)`;
+    const hKwh = this._parseStrictNonNegNum(highest.totalKwh);
+    const lKwh = this._parseStrictNonNegNum(lowest.totalKwh);
 
-    elLow.textContent = WattWatchCalculations.formatCurrency(lowest.totalCost);
-    elLow.title = `Lowest: ${lowest.periodLabel || lowest.period} (${Number(lowest.totalKwh || 0).toFixed(1)} kWh)`;
+    elPeak.textContent = this._formatSnapshotMoney(highest.totalCost, highest);
+    elPeak.title = `Highest: ${highest.periodLabel || highest.period} (${hKwh !== null ? hKwh.toFixed(1) : '--'} kWh)`;
+
+    elLow.textContent = this._formatSnapshotMoney(lowest.totalCost, lowest);
+    elLow.title = `Lowest: ${lowest.periodLabel || lowest.period} (${lKwh !== null ? lKwh.toFixed(1) : '--'} kWh)`;
 
     elCount.textContent = `${validSnapshots.length} Record${validSnapshots.length !== 1 ? 's' : ''}`;
   },
@@ -632,15 +803,16 @@ const WattWatchHistory = {
     selectA.innerHTML = '';
     selectB.innerHTML = '';
 
-    history.forEach((rec, idx) => {
+    history.forEach((rec) => {
+      const costStr = this._formatSnapshotMoney(rec.totalCost, rec);
       const optA = document.createElement('option');
       optA.value = rec.id;
-      optA.textContent = `${rec.periodLabel || rec.period} (${WattWatchCalculations.formatCurrency(rec.totalCost)})`;
+      optA.textContent = `${rec.periodLabel || rec.period} (${costStr})`;
       selectA.appendChild(optA);
 
       const optB = document.createElement('option');
       optB.value = rec.id;
-      optB.textContent = `${rec.periodLabel || rec.period} (${WattWatchCalculations.formatCurrency(rec.totalCost)})`;
+      optB.textContent = `${rec.periodLabel || rec.period} (${costStr})`;
       selectB.appendChild(optB);
     });
 
@@ -704,7 +876,9 @@ const WattWatchHistory = {
       return;
     }
 
-    const comp = WattWatchCalculations.compareSnapshots(snapA, snapB);
+    const strictValidA = this._parseStrictNonNegNum(snapA.totalKwh) !== null && this._parseStrictNonNegNum(snapA.totalCost) !== null;
+    const strictValidB = this._parseStrictNonNegNum(snapB.totalKwh) !== null && this._parseStrictNonNegNum(snapB.totalCost) !== null;
+    const comp = (strictValidA && strictValidB) ? WattWatchCalculations.compareSnapshots(snapA, snapB) : null;
     if (!comp || !comp.isValid) {
       resultBox.innerHTML = `<div style="text-align: center; color: var(--text-secondary); padding: 1.5rem;">One or both selected billing periods contain invalid calculation data.</div>`;
       if (typeof WattWatchCharts !== 'undefined' && typeof WattWatchCharts.renderComparisonChart === 'function') {
@@ -720,29 +894,80 @@ const WattWatchHistory = {
     const costIcon = isCostInc ? '▲' : (comp.costDiff < 0 ? '▼' : '—');
     const kwhIcon = isKwhInc ? '▲' : (comp.kwhDiff < 0 ? '▼' : '—');
 
+    const curA = this._getSnapshotCurrency(snapA);
+    const curB = this._getSnapshotCurrency(snapB);
+    const symA = curA ? `${this.escapeHtml(curA)}` : '';
+    const symB = curB ? `${this.escapeHtml(curB)}` : '';
+
+    const firstValidNum = (...vals) => {
+      for (const v of vals) {
+        const n = this._parseStrictNonNegNum(v);
+        if (n !== null) return n;
+      }
+      return null;
+    };
+    const rateA = firstValidNum(snapA.effectiveRate, snapA.tariffBreakdown?.effectiveRatePerKwh, snapA.electricityRate, snapA.flatRate);
+    const rateB = firstValidNum(snapB.effectiveRate, snapB.tariffBreakdown?.effectiveRatePerKwh, snapB.electricityRate, snapB.flatRate);
+    const rateTextA = rateA !== null ? `${symA}${rateA.toFixed(2)}/u${snapA.tariffModel === 'slab' ? ' (eff.)' : ''}${!curA ? ' (Legacy)' : ''}` : 'Rate N/A';
+    const rateTextB = rateB !== null ? `${symB}${rateB.toFixed(2)}/u${snapB.tariffModel === 'slab' ? ' (eff.)' : ''}${!curB ? ' (Legacy)' : ''}` : 'Rate N/A';
+
+    const bothSameRecordedCurrency = Boolean(curA && curB && curA === curB);
+    const bothMissingCurrency = (curA === null && curB === null);
+    const currenciesDiffer = !bothSameRecordedCurrency && !bothMissingCurrency;
+
+    let comparisonNoticeHtml = '';
+    let billDiffBadgeHtml = '';
+    let billDiffValueHtml = '';
+    let billDiffSubtext = '';
+
+    if (currenciesDiffer) {
+      const labelA = curA ? this.escapeHtml(curA) : 'Unrecorded';
+      const labelB = curB ? this.escapeHtml(curB) : 'Unrecorded';
+      comparisonNoticeHtml = `
+        <div style="background: rgba(197, 155, 67, 0.12); border: 1px solid rgba(197, 155, 67, 0.35); border-radius: var(--radius-md); padding: 0.65rem 0.9rem; margin-bottom: 1rem; font-size: 0.8rem; color: var(--text-primary);">
+          <strong>Cross-Currency Comparison Notice:</strong> The selected snapshots use different or unrecorded currencies (${labelA} vs ${labelB}). Monetary differences and percentages are disabled without exchange-rate conversion; energy deltas remain valid.
+        </div>`;
+      billDiffBadgeHtml = `<span class="badge badge-outline">Non-Comparable</span>`;
+      billDiffValueHtml = `<div class="metric-value" style="color: var(--text-secondary); font-size: 1.15rem;">Non-Comparable Across Currencies</div>`;
+      billDiffSubtext = `Cannot compare ${labelA} vs ${labelB} without currency conversion`;
+    } else if (bothMissingCurrency) {
+      comparisonNoticeHtml = `
+        <div style="background: rgba(104, 115, 134, 0.1); border: 1px solid rgba(104, 115, 134, 0.25); border-radius: var(--radius-md); padding: 0.65rem 0.9rem; margin-bottom: 1rem; font-size: 0.8rem; color: var(--text-primary);">
+          <strong>Legacy Currency Notice:</strong> Neither selected snapshot recorded a currency symbol. Both bill values are shown unlabelled without assuming your current account currency, and monetary differences and percentages are disabled as non-comparable; energy deltas remain valid.
+        </div>`;
+      billDiffBadgeHtml = `<span class="badge badge-outline">Non-Comparable</span>`;
+      billDiffValueHtml = `<div class="metric-value" style="color: var(--text-secondary); font-size: 1.15rem;">Non-Comparable</div>`;
+      billDiffSubtext = 'Monetary difference and percentage disabled without verified snapshot currencies';
+    } else {
+      billDiffBadgeHtml = `<span class="badge ${badgeCostColor}">${costIcon} ${Math.abs(comp.costPercentDiff).toFixed(1)}%</span>`;
+      const formattedDiff = WattWatchCalculations.formatCurrency(Math.abs(comp.costDiff), curA);
+      const signPrefix = isCostInc ? '+' : (comp.costDiff < 0 ? '-' : '');
+      billDiffValueHtml = `<div class="metric-value" style="color: ${isCostInc ? 'var(--deep-burgundy)' : 'var(--text-primary)'};">${signPrefix}${this.escapeHtml(formattedDiff)}</div>`;
+      billDiffSubtext = isCostInc ? 'Increase in electricity bill' : (comp.costDiff < 0 ? 'Decrease in bill' : 'Identical bill amount');
+    }
+
     resultBox.innerHTML = `
-      <div class="metrics-grid" style="grid-template-columns: repeat(4, 1fr); margin-bottom: 1.5rem;">
+      ${comparisonNoticeHtml}
+      <div class="metrics-grid history-compare-grid" style="margin-bottom: 1.5rem;">
         <div class="metric-card">
           <span class="metric-title">${this.escapeHtml(comp.periodLabelA)} (Baseline)</span>
-          <div class="metric-value">${this.escapeHtml(WattWatchCalculations.formatCurrency(comp.costA))}</div>
-          <div class="metric-subtext">${comp.kwhA.toFixed(2)} kWh · ₹${Number(snapA.effectiveRate ?? snapA.tariffBreakdown?.effectiveRatePerKwh ?? snapA.electricityRate ?? 0).toFixed(2)}/u${snapA.tariffModel === 'slab' ? ' (eff.)' : ''}</div>
+          <div class="metric-value">${this.escapeHtml(this._formatSnapshotMoney(comp.costA, snapA))}</div>
+          <div class="metric-subtext">${comp.kwhA.toFixed(2)} kWh · ${rateTextA}</div>
         </div>
 
         <div class="metric-card">
           <span class="metric-title">${this.escapeHtml(comp.periodLabelB)} (Target)</span>
-          <div class="metric-value">${this.escapeHtml(WattWatchCalculations.formatCurrency(comp.costB))}</div>
-          <div class="metric-subtext">${comp.kwhB.toFixed(2)} kWh · ₹${Number(snapB.effectiveRate ?? snapB.tariffBreakdown?.effectiveRatePerKwh ?? snapB.electricityRate ?? 0).toFixed(2)}/u${snapB.tariffModel === 'slab' ? ' (eff.)' : ''}</div>
+          <div class="metric-value">${this.escapeHtml(this._formatSnapshotMoney(comp.costB, snapB))}</div>
+          <div class="metric-subtext">${comp.kwhB.toFixed(2)} kWh · ${rateTextB}</div>
         </div>
 
         <div class="metric-card">
           <div class="metric-card-header">
             <span class="metric-title">Bill Difference</span>
-            <span class="badge ${badgeCostColor}">${costIcon} ${Math.abs(comp.costPercentDiff).toFixed(1)}%</span>
+            ${billDiffBadgeHtml}
           </div>
-          <div class="metric-value" style="color: ${isCostInc ? 'var(--deep-burgundy)' : 'var(--text-primary)'};">
-            ${isCostInc ? '+' : (comp.costDiff < 0 ? '-' : '')}${this.escapeHtml(WattWatchCalculations.formatCurrency(Math.abs(comp.costDiff)))}
-          </div>
-          <div class="metric-subtext">${isCostInc ? 'Increase in electricity bill' : (comp.costDiff < 0 ? 'Decrease in bill' : 'Identical bill amount')}</div>
+          ${billDiffValueHtml}
+          <div class="metric-subtext">${billDiffSubtext}</div>
         </div>
 
         <div class="metric-card">
@@ -758,9 +983,14 @@ const WattWatchHistory = {
       </div>
     `;
 
-    // Render comparison chart
+    // Render comparison chart (disable monetary plot when currencies differ or are unrecorded)
     if (typeof WattWatchCharts !== 'undefined' && typeof WattWatchCharts.renderComparisonChart === 'function') {
-      WattWatchCharts.renderComparisonChart(comp);
+      WattWatchCharts.renderComparisonChart(comp, {
+        curA,
+        curB,
+        canCompareMoney: bothSameRecordedCurrency,
+        currency: bothSameRecordedCurrency ? curA : null
+      });
     }
   },
 
@@ -782,29 +1012,71 @@ const WattWatchHistory = {
     if (snap) {
       if (titleEl) titleEl.textContent = `Billing Snapshot: ${snap.periodLabel || snap.period}`;
 
+      const recCur = this._getSnapshotCurrency(snap);
+      const snapSym = recCur ? this.escapeHtml(recCur) : '';
+      const formatDetailMoney = (val) => {
+        const n = this._parseStrictNonNegNum(val);
+        if (n === null) return '--';
+        return recCur
+          ? WattWatchCalculations.formatCurrency(n, recCur)
+          : WattWatchCalculations.formatNumber(n, 2);
+      };
+
       let breakdownRows = '';
-      const appliances = snap.appliancesSnapshot || [];
+      const appliances = Array.isArray(snap.appliancesSnapshot) ? snap.appliancesSnapshot : [];
 
       appliances.forEach((app, idx) => {
-        const safeCat = WattWatchAppliances.escapeHtml(app.category || 'Other');
-        const safeWatts = Number(app.powerWatts) || 0;
-        const safeQty = Number(app.quantity) || 1;
-        const safeHours = Number(app.dailyHours) || 0;
+        const safeCat = WattWatchAppliances.escapeHtml(app?.category || 'Other');
+        const validWatts = this._parseStrictNonNegNum(app?.powerWatts);
+        const validQty = this._parseStrictNonNegInt(app?.quantity, 0);
+        const validHoursRaw = this._parseStrictNonNegNum(app?.dailyHours);
+        const validHours = (validHoursRaw !== null && validHoursRaw <= 24) ? validHoursRaw : null;
+        const validKwh = this._parseStrictNonNegNum(app?.monthlyKwh);
+
         breakdownRows += `
           <tr>
             <td>#${idx + 1}</td>
-            <td><strong>${WattWatchAppliances.escapeHtml(app.name)}</strong> (${safeCat})</td>
-            <td>${safeWatts}W</td>
-            <td>${safeQty}</td>
-            <td>${safeHours}h/day</td>
-            <td><strong>${WattWatchCalculations.formatKwh(app.monthlyKwh)}</strong></td>
-            <td><strong>${this.escapeHtml(WattWatchCalculations.formatCurrency(app.monthlyCost))}</strong></td>
+            <td><strong>${WattWatchAppliances.escapeHtml(app?.name || 'Unknown Appliance')}</strong> (${safeCat})</td>
+            <td>${validWatts !== null ? `${validWatts}W` : '--'}</td>
+            <td>${validQty !== null ? validQty : '--'}</td>
+            <td>${validHours !== null ? `${validHours}h/day` : '--'}</td>
+            <td><strong>${validKwh !== null ? this.escapeHtml(WattWatchCalculations.formatKwh(validKwh)) : '-- kWh'}</strong></td>
+            <td><strong>${this.escapeHtml(formatDetailMoney(app?.monthlyCost))}</strong></td>
           </tr>
         `;
       });
 
       if (bodyEl) {
-        const hasActualData = (snap.actualCost !== null && snap.actualCost !== undefined) || (snap.actualKwh !== null && snap.actualKwh !== undefined);
+        const validTotalKwh = this._parseStrictNonNegNum(snap.totalKwh);
+        const validTotalCost = this._parseStrictNonNegNum(snap.totalCost);
+        const validActualKwh = this._parseStrictNonNegNum(snap.actualKwh);
+        const validActualCost = this._parseStrictNonNegNum(snap.actualCost);
+        const hasActualData = (validActualCost !== null) || (validActualKwh !== null);
+
+        const firstValidNum = (...vals) => {
+          for (const v of vals) {
+            const n = this._parseStrictNonNegNum(v);
+            if (n !== null) return n;
+          }
+          return null;
+        };
+        const appliedRate = firstValidNum(snap.effectiveRate, snap.tariffBreakdown?.effectiveRatePerKwh, snap.electricityRate, snap.flatRate);
+
+        const legacyCurrBanner = !recCur
+          ? `<div style="background: rgba(197, 155, 67, 0.12); border: 1px solid rgba(197, 155, 67, 0.35); border-radius: var(--radius-md); padding: 0.65rem 0.9rem; margin-bottom: 1rem; font-size: 0.8rem; color: var(--text-primary);">
+               <strong>Currency Information Unavailable:</strong> This legacy snapshot did not record a currency symbol. Monetary figures are displayed as unlabelled numeric values without applying your current account currency.
+             </div>`
+          : '';
+
+        let varianceDisplay = 'N/A';
+        let varianceColor = 'var(--emerald-primary, #10b981)';
+        if (validActualCost !== null && validTotalCost !== null) {
+          const diff = validActualCost - validTotalCost;
+          if (diff > 0) varianceColor = '#ef4444';
+          const prefix = diff > 0 ? '+' : (diff < 0 ? '-' : '');
+          varianceDisplay = `${prefix}${this.escapeHtml(formatDetailMoney(Math.abs(diff)))}`;
+        }
+
         const actualBlock = hasActualData ? `
           <div style="background: var(--bg-surface); border: 1px solid var(--border-card); border-radius: var(--radius-md); padding: 0.85rem 1rem; margin-bottom: 1.25rem;">
             <div style="font-size: 0.72rem; text-transform: uppercase; font-weight: 600; color: var(--text-secondary); margin-bottom: 0.5rem;">Utility Meter &amp; Actual Verification</div>
@@ -812,19 +1084,19 @@ const WattWatchHistory = {
               <div>
                 <span style="font-size: 0.72rem; color: var(--text-secondary);">Actual Metered Energy:</span>
                 <div style="font-weight: 700; color: var(--royal-blue); font-size: 1.05rem;">
-                  ${snap.actualKwh !== null && snap.actualKwh !== undefined ? Number(snap.actualKwh).toFixed(1) + ' kWh' : 'N/A'}
+                  ${validActualKwh !== null ? `${validActualKwh.toFixed(1)} kWh` : 'N/A'}
                 </div>
               </div>
               <div>
                 <span style="font-size: 0.72rem; color: var(--text-secondary);">Actual Utility Bill:</span>
                 <div style="font-weight: 700; color: var(--deep-burgundy); font-size: 1.05rem;">
-                  ${snap.actualCost !== null && snap.actualCost !== undefined ? this.escapeHtml(WattWatchCalculations.formatCurrency(snap.actualCost)) : 'N/A'}
+                  ${validActualCost !== null ? this.escapeHtml(formatDetailMoney(validActualCost)) : 'N/A'}
                 </div>
               </div>
               <div>
                 <span style="font-size: 0.72rem; color: var(--text-secondary);">Bill Variance vs Estimate:</span>
-                <div style="font-weight: 700; font-size: 1.05rem; color: ${(snap.actualCost !== null && snap.actualCost !== undefined && snap.actualCost > snap.totalCost) ? '#ef4444' : 'var(--emerald-primary, #10b981)'};">
-                  ${snap.actualCost !== null && snap.actualCost !== undefined ? ((snap.actualCost > snap.totalCost ? '+' : '') + this.escapeHtml(WattWatchCalculations.formatCurrency(snap.actualCost - snap.totalCost))) : 'N/A'}
+                <div style="font-weight: 700; font-size: 1.05rem; color: ${varianceColor};">
+                  ${varianceDisplay}
                 </div>
               </div>
             </div>
@@ -833,19 +1105,20 @@ const WattWatchHistory = {
         ` : '';
 
         bodyEl.innerHTML = `
-          <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; margin-bottom: 1.25rem;">
+          ${legacyCurrBanner}
+          <div class="history-detail-stats" style="margin-bottom: 1.25rem;">
             <div style="background: var(--soft-blue); padding: 0.85rem; border-radius: var(--radius-md);">
               <div style="font-size: 0.72rem; color: var(--text-secondary); text-transform: uppercase;">Total Energy</div>
-              <div style="font-family: var(--font-serif); font-size: 1.35rem; font-weight: 700; color: var(--royal-blue);">${WattWatchCalculations.formatKwh(snap.totalKwh)}</div>
+              <div style="font-family: var(--font-serif); font-size: 1.35rem; font-weight: 700; color: var(--royal-blue);">${validTotalKwh !== null ? WattWatchCalculations.formatKwh(validTotalKwh) : '-- kWh'}</div>
             </div>
             <div style="background: var(--light-burgundy); padding: 0.85rem; border-radius: var(--radius-md);">
               <div style="font-size: 0.72rem; color: var(--text-secondary); text-transform: uppercase;">Total Bill</div>
-              <div style="font-family: var(--font-serif); font-size: 1.35rem; font-weight: 700; color: var(--deep-burgundy);">${this.escapeHtml(WattWatchCalculations.formatCurrency(snap.totalCost))}</div>
+              <div style="font-family: var(--font-serif); font-size: 1.35rem; font-weight: 700; color: var(--deep-burgundy);">${this.escapeHtml(formatDetailMoney(validTotalCost))}</div>
             </div>
             <div style="background: var(--antique-gold-subtle); padding: 0.85rem; border-radius: var(--radius-md);">
               <div style="font-size: 0.72rem; color: var(--text-secondary); text-transform: uppercase;">Tariff Applied</div>
               <div style="font-family: var(--font-serif); font-size: 1.35rem; font-weight: 700; color: var(--text-gold);">
-                ₹${Number(snap.effectiveRate ?? snap.tariffBreakdown?.effectiveRatePerKwh ?? snap.electricityRate ?? 0).toFixed(2)}/u
+                ${appliedRate !== null ? `${snapSym}${appliedRate.toFixed(2)}/u` : 'Unavailable'}
               </div>
               <div style="font-size: 0.72rem; color: var(--text-secondary); margin-top: 0.2rem;">
                 ${snap.tariffModel === 'slab' ? 'Progressive Slab (Effective Avg)' : 'Uniform Flat Rate'}

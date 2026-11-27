@@ -459,6 +459,42 @@ const WattWatchStorage = {
   },
 
   /**
+   * Resolves canonical `billCreditInr` (with legacy `subsidy` alias fallback when `billCreditInr` is undefined).
+   * Rejects negative, boolean, or non-finite values in either property.
+   * @param {Object} sourceSettings
+   * @returns {{ valid: boolean, provided: boolean, value?: number, error?: string }}
+   */
+  _normalizeBillCreditSetting(sourceSettings) {
+    if (!sourceSettings || typeof sourceSettings !== 'object') {
+      return { valid: true, provided: false };
+    }
+    const hasCanonical = sourceSettings.billCreditInr !== undefined;
+    const hasAlias = sourceSettings.subsidy !== undefined;
+    if (!hasCanonical && !hasAlias) {
+      return { valid: true, provided: false };
+    }
+    const checkVal = (raw, label) => {
+      const num = Number(raw);
+      if (typeof raw === 'boolean' || raw === null || (typeof raw === 'string' && raw.trim() === '') || typeof raw === 'object' || isNaN(num) || num < 0 || !Number.isFinite(num)) {
+        return { valid: false, error: `Invalid ${label}: ${raw}` };
+      }
+      return { valid: true, value: num };
+    };
+    if (hasAlias) {
+      const aliasCheck = checkVal(sourceSettings.subsidy, 'subsidy');
+      if (!aliasCheck.valid) return aliasCheck;
+    }
+    if (hasCanonical) {
+      const canCheck = checkVal(sourceSettings.billCreditInr, 'billCreditInr');
+      if (!canCheck.valid) return canCheck;
+      return { valid: true, provided: true, value: canCheck.value };
+    }
+    const aliasOnly = checkVal(sourceSettings.subsidy, 'subsidy');
+    if (!aliasOnly.valid) return aliasOnly;
+    return { valid: true, provided: true, value: aliasOnly.value };
+  },
+
+  /**
    * Validates an appliance record against strict domain rules.
    * Rejects malformed values, decimal quantities, negative power ratings, and unwhitelisted categories.
    * @param {*} app
@@ -488,8 +524,12 @@ const WattWatchStorage = {
       };
     }
 
-    // Power Rating (Watts): strictly positive finite number of at least 1 Watt up to 50,000 W
-    const numWatts = Number(app.powerWatts);
+    const calcLimits = typeof WattWatchCalculations !== 'undefined' ? WattWatchCalculations : null;
+
+    // Power Rating (Watts): 1 to 50,000 W
+    const numWatts = calcLimits
+      ? calcLimits.validatePowerWatts(app.powerWatts, NaN, calcLimits.APPLIANCE_LIMITS.minWatts)
+      : Number(app.powerWatts);
     if (typeof app.powerWatts === 'boolean' || isNaN(numWatts) || !Number.isFinite(numWatts) || numWatts < 1) {
       return { valid: false, error: 'Power rating must be a positive number of at least 1 Watt' };
     }
@@ -497,8 +537,10 @@ const WattWatchStorage = {
       return { valid: false, error: 'Power rating cannot exceed 50,000 Watts' };
     }
 
-    // Quantity: strictly whole positive integer >= 1 (reject decimals like 1.5)
-    const numQty = Number(app.quantity);
+    // Quantity: strictly whole positive integer 1..100
+    const numQty = calcLimits
+      ? calcLimits.validateQuantity(app.quantity, false, NaN)
+      : Number(app.quantity);
     if (typeof app.quantity === 'boolean' || isNaN(numQty) || !Number.isFinite(numQty) || !Number.isInteger(numQty) || numQty < 1) {
       return { valid: false, error: 'Quantity must be a positive whole integer of at least 1 unit' };
     }
@@ -506,14 +548,18 @@ const WattWatchStorage = {
       return { valid: false, error: 'Quantity cannot exceed 100 units' };
     }
 
-    // Daily hours: strictly finite number >= 0 and <= 24
-    const numHours = Number(app.dailyHours);
+    // Daily hours: 0..24
+    const numHours = calcLimits
+      ? calcLimits.validateDailyHours(app.dailyHours, NaN)
+      : Number(app.dailyHours);
     if (typeof app.dailyHours === 'boolean' || isNaN(numHours) || !Number.isFinite(numHours) || numHours < 0 || numHours > 24) {
       return { valid: false, error: 'Daily usage hours must be between 0 and 24 hours' };
     }
 
-    // Operating days: strictly integer between 1 and 31
-    const numDays = Number(app.operatingDays);
+    // Operating days: integer 1..31
+    const numDays = calcLimits
+      ? calcLimits.validateOperatingDays(app.operatingDays, false, NaN)
+      : Number(app.operatingDays);
     if (typeof app.operatingDays === 'boolean' || isNaN(numDays) || !Number.isFinite(numDays) || !Number.isInteger(numDays) || numDays < 1 || numDays > 31) {
       return { valid: false, error: 'Operating days per month must be an integer between 1 and 31 days' };
     }
@@ -521,8 +567,8 @@ const WattWatchStorage = {
     // Optional Advanced Fields: Weekday / Weekend hours, Active days/week, Duty Cycle, Standby power
     let optWeekdayHours = undefined;
     if (app.weekdayHours !== undefined && app.weekdayHours !== null && app.weekdayHours !== '') {
-      const wdh = Number(app.weekdayHours);
-      if (typeof app.weekdayHours === 'boolean' || isNaN(wdh) || !Number.isFinite(wdh) || wdh < 0 || wdh > 24) {
+      const wdh = calcLimits ? calcLimits.validateDailyHours(app.weekdayHours, NaN) : Number(app.weekdayHours);
+      if (isNaN(wdh) || wdh < 0 || wdh > 24) {
         return { valid: false, error: 'Weekday usage hours must be between 0 and 24' };
       }
       optWeekdayHours = wdh;
@@ -530,8 +576,8 @@ const WattWatchStorage = {
 
     let optWeekendHours = undefined;
     if (app.weekendHours !== undefined && app.weekendHours !== null && app.weekendHours !== '') {
-      const weh = Number(app.weekendHours);
-      if (typeof app.weekendHours === 'boolean' || isNaN(weh) || !Number.isFinite(weh) || weh < 0 || weh > 24) {
+      const weh = calcLimits ? calcLimits.validateDailyHours(app.weekendHours, NaN) : Number(app.weekendHours);
+      if (isNaN(weh) || weh < 0 || weh > 24) {
         return { valid: false, error: 'Weekend usage hours must be between 0 and 24' };
       }
       optWeekendHours = weh;
@@ -539,8 +585,8 @@ const WattWatchStorage = {
 
     let optActiveDaysWeek = undefined;
     if (app.activeDaysPerWeek !== undefined && app.activeDaysPerWeek !== null && app.activeDaysPerWeek !== '') {
-      const adw = Number(app.activeDaysPerWeek);
-      if (typeof app.activeDaysPerWeek === 'boolean' || isNaN(adw) || !Number.isFinite(adw) || !Number.isInteger(adw) || adw < 1 || adw > 7) {
+      const adw = calcLimits ? calcLimits.validateActiveDaysPerWeek(app.activeDaysPerWeek, NaN) : Number(app.activeDaysPerWeek);
+      if (isNaN(adw) || !Number.isInteger(adw) || adw < 1 || adw > 7) {
         return { valid: false, error: 'Active days per week must be an integer between 1 and 7' };
       }
       optActiveDaysWeek = adw;
@@ -548,8 +594,8 @@ const WattWatchStorage = {
 
     let optDutyCycle = undefined;
     if (app.dutyCyclePercent !== undefined && app.dutyCyclePercent !== null && app.dutyCyclePercent !== '') {
-      const dc = Number(app.dutyCyclePercent);
-      if (typeof app.dutyCyclePercent === 'boolean' || isNaN(dc) || !Number.isFinite(dc) || dc <= 0 || dc > 100) {
+      const dc = calcLimits ? calcLimits.validateDutyCyclePercent(app.dutyCyclePercent, NaN) : Number(app.dutyCyclePercent);
+      if (isNaN(dc) || dc <= 0 || dc > 100) {
         return { valid: false, error: 'Duty cycle must be between 1% and 100%' };
       }
       optDutyCycle = dc;
@@ -557,8 +603,8 @@ const WattWatchStorage = {
 
     let optStandbyWatts = undefined;
     if (app.standbyWatts !== undefined && app.standbyWatts !== null && app.standbyWatts !== '') {
-      const sbw = Number(app.standbyWatts);
-      if (typeof app.standbyWatts === 'boolean' || isNaN(sbw) || !Number.isFinite(sbw) || sbw < 0 || sbw > 500) {
+      const sbw = calcLimits ? calcLimits.validateStandbyWatts(app.standbyWatts, NaN) : Number(app.standbyWatts);
+      if (isNaN(sbw) || sbw < 0 || sbw > 500) {
         return { valid: false, error: 'Standby power must be between 0 and 500 Watts' };
       }
       optStandbyWatts = sbw;
@@ -872,8 +918,18 @@ const WattWatchStorage = {
         let isGuestSettingsValid = true;
         const candidateSettings = { ...guestSettings };
 
+        const guestBillCredit = this._normalizeBillCreditSetting(candidateSettings);
+        if (!guestBillCredit.valid) {
+          console.warn('[WattWatch Storage] Refusing to migrate invalid guest bill credit/subsidy:', guestBillCredit.error);
+          isGuestSettingsValid = false;
+        } else if (guestBillCredit.provided) {
+          candidateSettings.billCreditInr = guestBillCredit.value;
+        }
+        delete candidateSettings.subsidy;
+
         const nonNegFields = ['electricityRate', 'budgetInr', 'fixedCharges', 'freeUnits', 'billCreditInr'];
         for (const f of nonNegFields) {
+          if (!isGuestSettingsValid) break;
           if (candidateSettings[f] !== undefined) {
             const v = Number(candidateSettings[f]);
             if (typeof candidateSettings[f] === 'boolean' || isNaN(v) || v < 0 || !Number.isFinite(v)) {
@@ -1301,6 +1357,13 @@ const WattWatchStorage = {
         const valCurr = this.validateCurrency(parsed.currency);
         mergedSettings.currency = valCurr.valid ? valCurr.sanitized : DEFAULT_SETTINGS.currency;
       }
+      if (parsed.billCreditInr === undefined && parsed.subsidy !== undefined) {
+        const bcCheck = this._normalizeBillCreditSetting(parsed);
+        if (bcCheck.valid && bcCheck.provided) {
+          mergedSettings.billCreditInr = bcCheck.value;
+        }
+      }
+      delete mergedSettings.subsidy;
       this._cachedSettings = mergedSettings;
       this._cachedSettingsRaw = data;
       return { ...this._cachedSettings };
@@ -1394,14 +1457,15 @@ const WattWatchStorage = {
         merged.freeUnits = fu;
       }
 
-      if (settings.billCreditInr !== undefined) {
-        const bc = Number(settings.billCreditInr);
-        if (typeof settings.billCreditInr === 'boolean' || isNaN(bc) || bc < 0 || !Number.isFinite(bc)) {
-          console.warn('[WattWatch Storage] Refusing to persist invalid billCreditInr:', settings.billCreditInr);
-          return false;
-        }
-        merged.billCreditInr = bc;
+      const billCreditCheck = this._normalizeBillCreditSetting(settings);
+      if (!billCreditCheck.valid) {
+        console.warn('[WattWatch Storage] Refusing to persist invalid bill credit/subsidy:', billCreditCheck.error);
+        return false;
       }
+      if (billCreditCheck.provided) {
+        merged.billCreditInr = billCreditCheck.value;
+      }
+      delete merged.subsidy;
 
       if (settings.billingDays !== undefined) {
         const bd = Number(settings.billingDays);
@@ -1478,6 +1542,9 @@ const WattWatchStorage = {
     const key = this._getKey('HISTORY');
     const cloneSnapshotItem = (h) => ({
       ...h,
+      tariffSettings: (h.tariffSettings && typeof h.tariffSettings === 'object')
+        ? JSON.parse(JSON.stringify(h.tariffSettings))
+        : null,
       tariffBreakdown: (h.tariffBreakdown && typeof h.tariffBreakdown === 'object')
         ? JSON.parse(JSON.stringify(h.tariffBreakdown))
         : h.tariffBreakdown,
@@ -1528,8 +1595,9 @@ const WattWatchStorage = {
           const electRate = parseRate(snap.electricityRate, 8.00);
           const flatRate = parseRate(snap.flatRate, electRate);
           const effectiveRate = parseRate(snap.effectiveRate, electRate);
+          const topCurrency = v.sanitized.currency || v.sanitized.tariffSettings?.currency || undefined;
 
-          validated.push({
+          const recordObj = {
             id: (typeof snap.id === 'string' && /^[a-zA-Z0-9_\-]+$/.test(snap.id)) ? snap.id : `snap_${Date.now()}`,
             period: snap.period.trim(),
             periodLabel: typeof snap.periodLabel === 'string' ? snap.periodLabel.trim() : snap.period.trim(),
@@ -1540,6 +1608,7 @@ const WattWatchStorage = {
             effectiveRate: effectiveRate,
             tariffModel: (snap.tariffModel === 'slab' || snap.tariffModel === 'flat') ? snap.tariffModel : 'flat',
             tariffBreakdown: snap.tariffBreakdown && typeof snap.tariffBreakdown === 'object' ? snap.tariffBreakdown : null,
+            tariffSettings: v.sanitized.tariffSettings || null,
             appliancesCount: snap.appliancesCount !== undefined ? Number(snap.appliancesCount) : sanitizedSnapApps.length,
             totalUnits: snap.totalUnits !== undefined ? Number(snap.totalUnits) : sanitizedSnapApps.reduce((acc, a) => acc + (a.quantity || 1), 0),
             appliancesSnapshot: sanitizedSnapApps,
@@ -1551,7 +1620,11 @@ const WattWatchStorage = {
             cycleEndDate: typeof snap.cycleEndDate === 'string' ? snap.cycleEndDate : null,
             meterReadingStart: (snap.meterReadingStart !== undefined && snap.meterReadingStart !== null && !isNaN(Number(snap.meterReadingStart))) ? Number(snap.meterReadingStart) : null,
             meterReadingEnd: (snap.meterReadingEnd !== undefined && snap.meterReadingEnd !== null && !isNaN(Number(snap.meterReadingEnd))) ? Number(snap.meterReadingEnd) : null
-          });
+          };
+          if (topCurrency) {
+            recordObj.currency = topCurrency;
+          }
+          validated.push(recordObj);
         } else {
           console.warn('[WattWatch Storage] Skipping invalid stored snapshot record:', v.error, snap);
         }
@@ -1750,11 +1823,41 @@ const WattWatchStorage = {
     if (snapshot.taxCharges !== undefined && snapshot.taxCharges !== null && snapshot.taxCharges !== '') {
       sanitized.taxCharges = Number(snapshot.taxCharges);
     }
+    if (snapshot.currency !== undefined && snapshot.currency !== null && snapshot.currency !== '') {
+      const topCurVal = this.validateCurrency(snapshot.currency);
+      if (topCurVal.valid) sanitized.currency = topCurVal.sanitized;
+    }
     if (snapshot.tariffModel === 'slab' || snapshot.tariffModel === 'flat') {
       sanitized.tariffModel = snapshot.tariffModel;
     }
     if (snapshot.tariffBreakdown && typeof snapshot.tariffBreakdown === 'object') {
       sanitized.tariffBreakdown = snapshot.tariffBreakdown;
+    }
+    if (snapshot.tariffSettings && typeof snapshot.tariffSettings === 'object' && !Array.isArray(snapshot.tariffSettings)) {
+      const ts = snapshot.tariffSettings;
+      const cleanTs = {};
+      if (ts.tariffModel === 'slab' || ts.tariffModel === 'flat') cleanTs.tariffModel = ts.tariffModel;
+      if (isStrictFiniteNonNegative(ts.electricityRate)) cleanTs.electricityRate = Number(ts.electricityRate);
+      if (isStrictFiniteNonNegative(ts.fixedCharges)) cleanTs.fixedCharges = Number(ts.fixedCharges);
+      if (isStrictFiniteNonNegative(ts.additionalTaxPercent) && Number(ts.additionalTaxPercent) <= 100) {
+        cleanTs.additionalTaxPercent = Number(ts.additionalTaxPercent);
+      }
+      if (isStrictFiniteNonNegative(ts.freeUnits)) cleanTs.freeUnits = Number(ts.freeUnits);
+      const tsBillCredit = this._normalizeBillCreditSetting(ts);
+      if (tsBillCredit.valid && tsBillCredit.provided) {
+        cleanTs.billCreditInr = tsBillCredit.value;
+      }
+      if (ts.currency !== undefined) {
+        const curVal = this.validateCurrency(ts.currency);
+        if (curVal.valid) cleanTs.currency = curVal.sanitized;
+      }
+      if (Array.isArray(ts.slabConfig) && typeof WattWatchCalculations !== 'undefined' && typeof WattWatchCalculations.validateSlabConfig === 'function') {
+        const slabVal = WattWatchCalculations.validateSlabConfig(ts.slabConfig, { requireOpenEnded: true });
+        if (slabVal.valid) cleanTs.slabConfig = slabVal.sanitized;
+      }
+      if (Object.keys(cleanTs).length > 0) {
+        sanitized.tariffSettings = cleanTs;
+      }
     }
     if (Array.isArray(snapshot.appliancesSnapshot)) {
       sanitized.appliancesSnapshot = snapshot.appliancesSnapshot
@@ -2199,13 +2302,14 @@ const WattWatchStorage = {
           newSettings.freeUnits = fu;
         }
 
-        if (parsed.settings.billCreditInr !== undefined) {
-          const bc = Number(parsed.settings.billCreditInr);
-          if (typeof parsed.settings.billCreditInr === 'boolean' || isNaN(bc) || !Number.isFinite(bc) || bc < 0) {
-            return { success: false, error: `Invalid billCreditInr in backup settings: ${parsed.settings.billCreditInr}` };
-          }
-          newSettings.billCreditInr = bc;
+        const importBillCredit = this._normalizeBillCreditSetting(parsed.settings);
+        if (!importBillCredit.valid) {
+          return { success: false, error: `${importBillCredit.error} in backup settings` };
         }
+        if (importBillCredit.provided) {
+          newSettings.billCreditInr = importBillCredit.value;
+        }
+        delete newSettings.subsidy;
 
         if (parsed.settings.carbonEmissionFactor !== undefined && parsed.settings.carbonEmissionFactor !== null) {
           const cf = Number(parsed.settings.carbonEmissionFactor);

@@ -106,7 +106,7 @@ const WattWatchAuth = {
     if (this.currentUser) {
       this.showResumePane();
     } else {
-      this.switchTab('login');
+      this.switchTab('login', { focusInput: false });
     }
 
     if (this._startupFocusTimeout) {
@@ -198,7 +198,8 @@ const WattWatchAuth = {
               if (!this.hasUserChosenSession) {
                 const resumePane = document.getElementById('authPane-resume');
                 if (resumePane && resumePane.classList.contains('active')) {
-                  this.switchTab('login');
+                  const privacyOpen = Boolean(document.getElementById('privacyModal')?.classList.contains('is-open'));
+                  this.switchTab('login', { focusInput: !privacyOpen });
                 }
               } else if (this.chosenSessionType === 'account') {
                 // If account session was signed out out-of-band (e.g. from another tab), cleanly revert to guest mode
@@ -333,11 +334,34 @@ const WattWatchAuth = {
 
     // Tab buttons
     document.querySelectorAll('.auth-tab-btn').forEach(btn => {
-      btn.addEventListener('click', () => {
+      btn.addEventListener('click', (e) => {
         const tab = btn.getAttribute('data-tab');
-        if (tab) this.switchTab(tab);
+        const fromTabKeyboard = document.activeElement && document.activeElement.getAttribute('role') === 'tab' && e.detail === 0;
+        if (tab) this.switchTab(tab, { focusInput: !fromTabKeyboard });
       });
     });
+
+    const authNavTabs = document.querySelector('.auth-nav-tabs');
+    if (authNavTabs) {
+      authNavTabs.addEventListener('keydown', (e) => {
+        if (!['ArrowRight', 'ArrowLeft', 'ArrowDown', 'ArrowUp', 'Home', 'End'].includes(e.key)) return;
+        const tabs = Array.from(authNavTabs.querySelectorAll('.auth-tab-btn[role="tab"]'));
+        const curIdx = tabs.indexOf(document.activeElement);
+        if (curIdx === -1) return;
+        e.preventDefault();
+        let nextIdx = curIdx;
+        if (e.key === 'ArrowRight' || e.key === 'ArrowDown') nextIdx = (curIdx + 1) % tabs.length;
+        else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') nextIdx = (curIdx - 1 + tabs.length) % tabs.length;
+        else if (e.key === 'Home') nextIdx = 0;
+        else if (e.key === 'End') nextIdx = tabs.length - 1;
+        const targetTab = tabs[nextIdx];
+        if (targetTab) {
+          targetTab.focus();
+          const tab = targetTab.getAttribute('data-tab');
+          if (tab) this.switchTab(tab, { focusInput: false });
+        }
+      });
+    }
 
     // Password visibility toggle buttons
     document.querySelectorAll('.password-toggle-btn').forEach(btn => {
@@ -424,7 +448,7 @@ const WattWatchAuth = {
     } else {
       const navTabs = modal.querySelector('.auth-nav-tabs');
       if (navTabs) navTabs.style.display = 'flex';
-      this.switchTab(defaultTab);
+      this.switchTab(defaultTab, { focusInput: false });
     }
 
     if (this._startupFocusTimeout) {
@@ -598,6 +622,14 @@ const WattWatchAuth = {
     if (!this.hasUserChosenSession && !force) {
       return false;
     }
+    if (this._startupFocusTimeout) {
+      clearTimeout(this._startupFocusTimeout);
+      this._startupFocusTimeout = null;
+    }
+    if (this._tabFocusTimeout) {
+      clearTimeout(this._tabFocusTimeout);
+      this._tabFocusTimeout = null;
+    }
     const modal = document.getElementById('authModal');
     let managerUsed = false;
     if (modal) {
@@ -653,8 +685,9 @@ const WattWatchAuth = {
   /**
    * Switches active tab inside the auth modal
    * @param {string} tabName - 'login' | 'signup' | 'recovery'
+   * @param {Object} [opts={}] - Options ({ focusInput: boolean })
    */
-  switchTab(tabName) {
+  switchTab(tabName, opts = {}) {
     this.currentTab = tabName;
     this.clearAlert();
     this.updateGuestImportCheckbox();
@@ -666,6 +699,7 @@ const WattWatchAuth = {
       const isTarget = btn.getAttribute('data-tab') === tabName;
       btn.classList.toggle('active', isTarget);
       btn.setAttribute('aria-selected', isTarget ? 'true' : 'false');
+      btn.setAttribute('tabindex', isTarget ? '0' : '-1');
     });
 
     document.querySelectorAll('.auth-tab-pane').forEach(pane => {
@@ -679,22 +713,27 @@ const WattWatchAuth = {
       else if (tabName === 'recovery') titleEl.textContent = 'Account Security & Access';
     }
 
-    // Auto-focus first input in newly activated tab only if modal is open and not inert
+    // Auto-focus first input in newly activated tab only when requested and focus isn't already in an input/tab navigation
     if (this._tabFocusTimeout) {
       clearTimeout(this._tabFocusTimeout);
       this._tabFocusTimeout = null;
     }
-    this._tabFocusTimeout = setTimeout(() => {
-      this._tabFocusTimeout = null;
-      const modal = document.getElementById('authModal');
-      if (modal && !modal.inert && modal.classList.contains('is-open')) {
-        const activePane = document.getElementById(`authPane-${tabName}`);
-        if (activePane) {
-          const firstInput = activePane.querySelector('input');
-          if (firstInput) firstInput.focus();
+    if (opts.focusInput !== false) {
+      this._tabFocusTimeout = setTimeout(() => {
+        this._tabFocusTimeout = null;
+        const modal = document.getElementById('authModal');
+        if (modal && !modal.inert && modal.classList.contains('is-open')) {
+          const activeEl = document.activeElement;
+          const isEditingInput = activeEl && modal.contains(activeEl) && ['INPUT', 'TEXTAREA', 'SELECT'].includes(activeEl.tagName);
+          if (isEditingInput) return;
+          const activePane = document.getElementById(`authPane-${tabName}`);
+          if (activePane) {
+            const firstInput = activePane.querySelector('input');
+            if (firstInput) firstInput.focus();
+          }
         }
-      }
-    }, 50);
+      }, 50);
+    }
   },
 
   /**
@@ -858,6 +897,7 @@ const WattWatchAuth = {
       this._isSubmitting = true;
       if (submitBtn) {
         submitBtn.disabled = true;
+        submitBtn.classList.add('is-loading');
         submitBtn.textContent = 'Signing In...';
       }
 
@@ -940,6 +980,7 @@ const WattWatchAuth = {
       this._isSubmitting = false;
       if (submitBtn) {
         submitBtn.disabled = false;
+        submitBtn.classList.remove('is-loading');
         submitBtn.textContent = 'Log In';
       }
     }
@@ -996,6 +1037,7 @@ const WattWatchAuth = {
       this._isSubmitting = true;
       if (submitBtn) {
         submitBtn.disabled = true;
+        submitBtn.classList.add('is-loading');
         submitBtn.textContent = 'Creating Account...';
       }
 
@@ -1074,6 +1116,7 @@ const WattWatchAuth = {
       this._isSubmitting = false;
       if (submitBtn) {
         submitBtn.disabled = false;
+        submitBtn.classList.remove('is-loading');
         submitBtn.textContent = 'Create Account';
       }
     }

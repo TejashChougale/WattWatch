@@ -29,7 +29,7 @@
   }
 
   .tips-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .settings-grid {
@@ -38,6 +38,12 @@
 
   .sim-grid-2col {
     grid-template-columns: 1fr;
+  }
+
+  .sim-results-grid,
+  .history-compare-grid,
+  .report-kpi-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
@@ -69,17 +75,23 @@
 
   /* Backdrop when mobile drawer is open */
   .sidebar-backdrop {
-    display: none;
+    display: block;
+    visibility: hidden;
+    opacity: 0;
+    pointer-events: none;
     position: fixed;
     inset: 0;
     background-color: rgba(15, 23, 42, 0.6);
     backdrop-filter: blur(4px);
     -webkit-backdrop-filter: blur(4px);
     z-index: 999;
+    transition: opacity var(--transition-normal), visibility var(--transition-normal);
   }
 
   .sidebar-backdrop.is-visible {
-    display: block;
+    visibility: visible;
+    opacity: 1;
+    pointer-events: auto;
   }
 
   .app-topbar {
@@ -108,11 +120,22 @@
     flex-direction: column;
     align-items: flex-start;
     gap: 1.25rem;
+    padding: 1.35rem 1.25rem;
   }
 
   .savings-hero-stats {
     flex-wrap: wrap;
-    gap: 1.5rem;
+    gap: 1.25rem;
+    width: 100%;
+  }
+
+  .savings-stat-val {
+    font-size: clamp(1.45rem, 6vw, 1.9rem);
+  }
+
+  .overview-compare-grid,
+  .history-detail-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
@@ -284,8 +307,14 @@
   .form-grid-2col,
   .modal-form-row,
   .guide-steps-grid,
-  .insights-grid {
-    grid-template-columns: 1fr;
+  .insights-grid,
+  .sim-results-grid,
+  .history-compare-grid,
+  .overview-compare-grid,
+  .history-detail-stats,
+  .report-kpi-grid,
+  .report-status-grid {
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .appliance-load-row-header {
@@ -484,11 +513,18 @@
 
 /* --- Accessibility: Reduced Motion --- */
 @media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto !important;
+  }
+
   *,
   *::before,
   *::after {
+    animation-name: none !important;
+    animation: none !important;
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
+    transition: none !important;
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
   }
