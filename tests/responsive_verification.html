@@ -146,8 +146,8 @@
           details: 'clientWidth=' + w1024 + ', scrollWidth=' + sw1024 + ', sidebarDisplay=' + sidebarDisplay1024
         });
 
-        // 4D. Comprehensive Zero Overflow Across All Seven Views on All Viewports
-        const viewsToCheck = ['overview', 'appliances', 'history', 'analytics', 'simulator', 'report', 'settings'];
+        // 4D. Comprehensive Zero Overflow Across All 7 Views & Report Modal on All Viewports
+        const viewsToCheck = ['overview', 'appliances', 'history', 'analytics', 'simulator', 'recommendations', 'report', 'settings'];
         const framePairs = [
           { win: win320, doc: doc320, w: 320 },
           { win: win375, doc: doc375, w: 375 },
@@ -157,18 +157,38 @@
           { win: win1024, doc: doc1024, w: 1024 },
           { win: win1440, doc: doc1440, w: 1440 }
         ];
+        const checkResponsiveTargetOverflow = (fp, target) => {
+          if (target === 'report') {
+            if (fp.win.WattWatchReport && fp.win.WattWatchReport.openReportModal) {
+              fp.win.WattWatchReport.openReportModal();
+            }
+            const cw = fp.doc.documentElement.clientWidth;
+            const sw = fp.doc.documentElement.scrollWidth;
+            const modalContent = fp.doc.querySelector('#reportModal .modal-content');
+            const previewArea = fp.doc.getElementById('reportPreviewArea');
+            const modalW = modalContent ? modalContent.getBoundingClientRect().width : 0;
+            const previewW = previewArea ? previewArea.getBoundingClientRect().width : 0;
+            const hasOverflow = sw > cw || modalW > cw + 1 || previewW > cw + 1;
+            if (fp.win.WattWatchReport && fp.win.WattWatchReport.closeReportModal) {
+              fp.win.WattWatchReport.closeReportModal();
+            }
+            return hasOverflow ? `[${fp.w}px/report: sw=${sw}>cw=${cw}, modalW=${Math.round(modalW)}, previewW=${Math.round(previewW)}] ` : '';
+          }
+          if (fp.win.WattWatchApp && fp.win.WattWatchApp.navigateTo) {
+            fp.win.WattWatchApp.navigateTo(target);
+          }
+          const cw = fp.doc.documentElement.clientWidth;
+          const sw = fp.doc.documentElement.scrollWidth;
+          return sw > cw ? `[${fp.w}px/${target}: sw=${sw}>cw=${cw}] ` : '';
+        };
         let allViewsNoOverflow = true;
         let viewOverflowDetails = '';
         framePairs.forEach(fp => {
           viewsToCheck.forEach(view => {
-            if (fp.win.WattWatchApp && fp.win.WattWatchApp.navigateTo) {
-              fp.win.WattWatchApp.navigateTo(view);
-            }
-            const cw = fp.doc.documentElement.clientWidth;
-            const sw = fp.doc.documentElement.scrollWidth;
-            if (sw > cw) {
+            const errMsg = checkResponsiveTargetOverflow(fp, view);
+            if (errMsg) {
               allViewsNoOverflow = false;
-              viewOverflowDetails += `[${fp.w}px/${view}: sw=${sw}>cw=${cw}] `;
+              viewOverflowDetails += errMsg;
             }
           });
           if (fp.win.WattWatchApp && fp.win.WattWatchApp.navigateTo) {
@@ -177,9 +197,9 @@
         });
         reports.push({
           id: 'REQ-4D',
-          name: 'All 7 views zero horizontal overflow across 320, 375, 390, 425, 768, 1024, 1440px viewports',
+          name: 'All 8 sections (7 views + Report modal) zero horizontal overflow across 320, 375, 390, 425, 768, 1024, 1440px viewports',
           passed: allViewsNoOverflow,
-          details: allViewsNoOverflow ? 'Verified 49 combinations (7 viewports x 7 views) with 0 overflow' : viewOverflowDetails
+          details: allViewsNoOverflow ? 'Verified 56 combinations (7 viewports x 8 sections) with 0 overflow' : viewOverflowDetails
         });
 
         // 5. Desktop 1440px Layout Check
@@ -381,20 +401,16 @@
           details: 'initial=' + initialTheme + ', toggled=' + toggledTheme + ', restored=' + restoredTheme
         });
 
-        // 14B. Dark Theme Zero Overflow Across All Viewports and Views
+        // 14B. Dark Theme Zero Overflow Across All Viewports, Views & Report Modal
         let darkThemeNoOverflow = true;
         let darkOverflowDetails = '';
         framePairs.forEach(fp => {
           fp.doc.documentElement.setAttribute('data-theme', 'dark');
           viewsToCheck.forEach(view => {
-            if (fp.win.WattWatchApp && fp.win.WattWatchApp.navigateTo) {
-              fp.win.WattWatchApp.navigateTo(view);
-            }
-            const cw = fp.doc.documentElement.clientWidth;
-            const sw = fp.doc.documentElement.scrollWidth;
-            if (sw > cw) {
+            const errMsg = checkResponsiveTargetOverflow(fp, view);
+            if (errMsg) {
               darkThemeNoOverflow = false;
-              darkOverflowDetails += `[Dark ${fp.w}px/${view}: sw=${sw}>cw=${cw}] `;
+              darkOverflowDetails += `[Dark ${errMsg.trim()}] `;
             }
           });
           // Restore to light and overview
@@ -405,9 +421,9 @@
         });
         reports.push({
           id: 'REQ-14B',
-          name: 'Dark Theme zero horizontal overflow across all 7 viewports and 7 views',
+          name: 'Dark Theme zero horizontal overflow across all 7 viewports and 8 sections (7 views + Report modal)',
           passed: darkThemeNoOverflow,
-          details: darkThemeNoOverflow ? 'Verified 49 dark-theme combinations (7 viewports x 7 views) with 0 overflow' : darkOverflowDetails
+          details: darkThemeNoOverflow ? 'Verified 56 dark-theme combinations (7 viewports x 8 sections) with 0 overflow' : darkOverflowDetails
         });
 
         // 15. Add Appliance Dropdown at 390px
@@ -419,6 +435,119 @@
           name: 'Add Appliance preset dropdown at 390px operates without overflow',
           passed: dropdownFits,
           details: 'width=' + selectComputedWidth + ', optionsCount=' + presetOptionsCount
+        });
+
+        // 16. Recommendations Populated Long-Name & Single-Column Mobile Check + Reduced-Motion Verification
+        let recLongNoOverflow = true;
+        let recLongDetails = '';
+        let tipsSingleColAt390 = false;
+        let reducedMotionVerified = false;
+        let reducedMotionDetails = '';
+        try {
+          const longApp = [{ id: 'resp_long_ac', name: 'UltraContinuousInverterAirConditioner_' + 'X'.repeat(60), category: 'Cooling', powerWatts: 1800, quantity: 1, dailyHours: 10, operatingDays: 30 }];
+          [
+            { win: win320, doc: doc320, w: 320 },
+            { win: win390, doc: doc390, w: 390 },
+            { win: win768, doc: doc768, w: 768 },
+            { win: win1024, doc: doc1024, w: 1024 },
+            { win: win1440, doc: doc1440, w: 1440 }
+          ].forEach(fp => {
+            fp.win.WattWatchStorage.setTestNamespace('wattwatch_resp_p7_');
+            try {
+              const savedOk = fp.win.WattWatchStorage.saveAppliances(longApp);
+              fp.win.WattWatchApp.navigateTo('recommendations');
+              const cw = fp.doc.documentElement.clientWidth;
+              const sw = fp.doc.documentElement.scrollWidth;
+              if (!savedOk) {
+                recLongNoOverflow = false;
+                recLongDetails += `[${fp.w}px: saveAppliances failed] `;
+              }
+              if (sw > cw) {
+                recLongNoOverflow = false;
+                recLongDetails += `[${fp.w}px: sw=${sw}>cw=${cw}] `;
+              }
+              if (fp.w === 390) {
+                const grid = fp.doc.getElementById('tipsGridContainer');
+                if (grid) {
+                  const csGrid = fp.win.getComputedStyle(grid);
+                  const rawCols = csGrid.gridTemplateColumns.trim();
+                  const cols = rawCols.replace(/minmax\([^)]+\)/g, 'track').split(/\s+/);
+                  const cardEls = Array.from(grid.children || []);
+                  const singleColVisual = cardEls.length >= 2 && cardEls.every(c => Math.abs(c.getBoundingClientRect().left - cardEls[0].getBoundingClientRect().left) < 2);
+                  tipsSingleColAt390 = savedOk && csGrid.display === 'grid' && cols.length === 1 && singleColVisual;
+                  recLongDetails += `[gridDisplay=${csGrid.display}, rawCols="${rawCols}", cards=${cardEls.length}, singleVisual=${singleColVisual}] `;
+                }
+              }
+            } finally {
+              fp.win.WattWatchStorage.clearAllData();
+              fp.win.WattWatchStorage.setActiveUser(null);
+              fp.win.WattWatchStorage.setTestNamespace(null);
+              fp.win.WattWatchApp.navigateTo('overview');
+            }
+          });
+
+          // Verify actual reduced-motion stylesheet rules cover skeletonSweep, toastSlideIn, authPaneFadeIn across CSS files + JS snap
+          let hasStyleSheetReduced = false;
+          let hasDashboardReduced = false;
+          let hasResponsiveReduced = false;
+          let disablesSkeletonSweep = false;
+          let disablesToastAndAuth = false;
+          for (const sheet of Array.from(doc390.styleSheets || [])) {
+            try {
+              const href = String(sheet.href || '');
+              for (const rule of Array.from(sheet.cssRules || [])) {
+                if (rule.conditionText && rule.conditionText.includes('prefers-reduced-motion')) {
+                  if (href.includes('style.css')) hasStyleSheetReduced = true;
+                  if (href.includes('dashboard.css')) hasDashboardReduced = true;
+                  if (href.includes('responsive.css')) hasResponsiveReduced = true;
+                  for (const innerRule of Array.from(rule.cssRules || [])) {
+                    const sel = String(innerRule.selectorText || '');
+                    const animName = innerRule.style ? (innerRule.style.animationName || '') : '';
+                    const animAll = innerRule.style ? (innerRule.style.animation || '') : '';
+                    const isNone = animName === 'none' || animAll.startsWith('none');
+                    if (isNone && sel.includes('.skeleton-shimmer::after') && sel.includes('.btn.is-loading::after')) {
+                      disablesSkeletonSweep = true;
+                    }
+                    if (isNone && sel.includes('.toast') && sel.includes('.auth-tab-pane.active')) {
+                      disablesToastAndAuth = true;
+                    }
+                  }
+                }
+              }
+            } catch (_) {}
+          }
+
+          // Verify JS reduced-motion counter snaps synchronously without leaving running rAF loop
+          const prevRm = win390.WattWatchApp.reduceMotionOverride;
+          let jsReducedSnapOk = false;
+          try {
+            win390.WattWatchApp.reduceMotionOverride = true;
+            const probeEl = doc390.getElementById('tipsTotalSavingsCost');
+            if (probeEl) {
+              win390.WattWatchApp._animateMetricCounter(probeEl, 456.78, v => win390.WattWatchCalculations.formatCurrency(v, '₹'), { setAriaLabel: false });
+              jsReducedSnapOk = probeEl.textContent === '₹456.78' && !probeEl._metricRafId;
+            }
+          } finally {
+            win390.WattWatchApp.reduceMotionOverride = prevRm;
+          }
+
+          reducedMotionVerified = hasStyleSheetReduced && hasDashboardReduced && hasResponsiveReduced && disablesSkeletonSweep && disablesToastAndAuth && jsReducedSnapOk;
+          reducedMotionDetails = `sheets(style=${hasStyleSheetReduced},dash=${hasDashboardReduced},resp=${hasResponsiveReduced}), skeletonSweepDisabled=${disablesSkeletonSweep}, toastAndAuthDisabled=${disablesToastAndAuth}, jsSnap=${jsReducedSnapOk}`;
+        } catch (errRec) {
+          recLongNoOverflow = false;
+          recLongDetails = errRec.message;
+        }
+        reports.push({
+          id: 'REQ-16',
+          name: 'Recommendations populated long-name zero overflow & single-column mobile grid',
+          passed: recLongNoOverflow && tipsSingleColAt390,
+          details: (recLongNoOverflow ? '0 overflow across 320..1440px ' : '') + recLongDetails + ', mobileSingleCol=' + tipsSingleColAt390
+        });
+        reports.push({
+          id: 'REQ-17',
+          name: 'Reduced-motion rules disable skeletonSweep/toast/auth animations across stylesheets & JS',
+          passed: reducedMotionVerified,
+          details: reducedMotionDetails
         });
 
         // Summary compilation

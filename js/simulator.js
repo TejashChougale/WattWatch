@@ -5,6 +5,8 @@
 
 const WattWatchSimulator = {
   _eventsBound: false,
+  _activeScenarioPreview: null,
+  _isApplyingScenario: false,
 
   init() {
     this.bindReplacementEvents();
@@ -20,13 +22,28 @@ const WattWatchSimulator = {
 
     const applianceSelect = document.getElementById('simApplianceSelect');
     if (applianceSelect) {
-      applianceSelect.addEventListener('change', () => this.handleApplianceSelect());
+      applianceSelect.addEventListener('change', () => {
+        if (!this._isApplyingScenario) {
+          this._activeScenarioPreview = null;
+        }
+        this.handleApplianceSelect();
+      });
     }
 
     const triggerInputs = ['simAltWatts', 'simAltHours', 'simAltDays', 'simAltQty', 'simPurchaseCost'];
     triggerInputs.forEach(id => {
       const el = document.getElementById(id);
-      if (el) el.addEventListener('input', () => this.calculateReplacement());
+      if (el) {
+        el.addEventListener('input', () => {
+          if (!this._isApplyingScenario && id === 'simAltWatts' && this._activeScenarioPreview) {
+            // If user manually alters replacement wattage on a runtime/standby scenario, preserve standby elimination only if unchanged
+            if (this._activeScenarioPreview.scenarioType === 'standby' && Number(el.value) !== Number(this._activeScenarioPreview.targetWatts)) {
+              this._activeScenarioPreview = null;
+            }
+          }
+          this.calculateReplacement();
+        });
+      }
     });
   },
 
@@ -48,12 +65,20 @@ const WattWatchSimulator = {
       select.appendChild(opt);
     });
 
+    const isEmpty = appliances.length === 0;
+    const simControlIds = ['simApplianceSelect', 'simAltWatts', 'simAltHours', 'simAltDays', 'simAltQty', 'simPurchaseCost'];
+    simControlIds.forEach(cid => {
+      const el = document.getElementById(cid);
+      if (el) el.disabled = isEmpty;
+    });
+
     if (curVal && appliances.some(a => a.id === curVal)) {
       select.value = curVal;
     } else if (appliances.length > 0) {
       select.value = appliances[0].id;
     } else {
       select.value = '';
+      this._activeScenarioPreview = null;
     }
 
     this.handleApplianceSelect();
@@ -76,9 +101,17 @@ const WattWatchSimulator = {
     const wattsInput = document.getElementById('simAltWatts');
     const costInput = document.getElementById('simPurchaseCost');
 
+    if (this._activeScenarioPreview && this._activeScenarioPreview.applianceId !== id) {
+      this._activeScenarioPreview = null;
+    }
+
     const baseInfo = document.getElementById('simBaselineInfo');
     if (!app) {
-      if (baseInfo) baseInfo.innerHTML = '<span style="color: var(--text-secondary);">Select an appliance to view current baseline ratings.</span>';
+      if (baseInfo) {
+        baseInfo.innerHTML = appliances.length === 0
+          ? '<span style="color: var(--text-secondary);">Simulator unavailable: add at least one appliance to your inventory to evaluate replacements or What-If scenarios.</span>'
+          : '<span style="color: var(--text-secondary);">Select an appliance to view current baseline ratings.</span>';
+      }
       if (appliances.length === 0) {
         if (wattsInput) wattsInput.value = '';
         if (hoursInput) hoursInput.value = '';
@@ -102,9 +135,11 @@ const WattWatchSimulator = {
       return prevAutofill && prevVal !== undefined && input.value === String(prevVal);
     };
 
-    if (shouldSyncField(hoursInput, prevAutofill?.hours)) hoursInput.value = app.dailyHours;
-    if (shouldSyncField(daysInput, prevAutofill?.days)) daysInput.value = app.operatingDays;
-    if (shouldSyncField(qtyInput, prevAutofill?.qty)) qtyInput.value = app.quantity;
+    if (!this._isApplyingScenario) {
+      if (shouldSyncField(hoursInput, prevAutofill?.hours)) hoursInput.value = app.dailyHours;
+      if (shouldSyncField(daysInput, prevAutofill?.days)) daysInput.value = app.operatingDays;
+      if (shouldSyncField(qtyInput, prevAutofill?.qty)) qtyInput.value = app.quantity;
+    }
 
     this._autofilledBaseline = {
       id: app.id,
@@ -114,6 +149,7 @@ const WattWatchSimulator = {
     };
 
     if (baseInfo) {
+      const validCurr = WattWatchCalculations.resolveValidatedCurrency(settings?.currency);
       const hasAdv = enriched.metrics && enriched.metrics.hasAdvancedProfile;
       const advTag = hasAdv ? ' <span class="badge badge-cooling" style="font-size: 0.65rem; margin-left: 0.35rem;">Advanced Profile</span>' : '';
       baseInfo.innerHTML = `
@@ -123,7 +159,7 @@ const WattWatchSimulator = {
         <div style="font-size: 0.825rem; color: var(--text-secondary); line-height: 1.5;">
           <strong>${Number(app.powerWatts) || 0} Watts</strong> · ${Number(app.dailyHours) || 0} hrs/day · ${Number(app.operatingDays) || 30} days/mo · ${Number(app.quantity) || 1} unit(s)<br>
           Current Monthly Energy: <strong style="color: var(--royal-blue);">${WattWatchCalculations.formatKwh(enriched.monthlyKwh)}</strong><br>
-          Current Monthly Cost: <strong style="color: var(--deep-burgundy);">${WattWatchAppliances.escapeHtml(WattWatchCalculations.formatCurrency(enriched.monthlyCost))}</strong>${settings.tariffModel === 'slab' ? ` <span style="font-size: 0.72rem; color: var(--text-secondary);">(at ₹${curSummary.effectiveRatePerKwh.toFixed(2)}/u eff.)</span>` : ''}
+          Current Monthly Cost: <strong style="color: var(--deep-burgundy);">${WattWatchAppliances.escapeHtml(WattWatchCalculations.formatOptionalCurrency(enriched.monthlyCost, validCurr))}</strong>${settings.tariffModel === 'slab' ? ` <span style="font-size: 0.72rem; color: var(--text-secondary);">(at ${WattWatchAppliances.escapeHtml(WattWatchCalculations.formatRateWithCurrency(curSummary.effectiveRatePerKwh, validCurr, '/u'))} eff.)</span>` : ''}
         </div>
       `;
     }
@@ -132,7 +168,21 @@ const WattWatchSimulator = {
   },
 
   /**
-   * Executes replacement comparison and updates simulation UI
+   * Triggers subtle highlight pulse when simulation or tariff output refreshes
+   * @param {HTMLElement|null} el
+   */
+  _triggerFlash(el) {
+    if (!el || typeof window === 'undefined') return;
+    const reduced = (typeof WattWatchApp !== 'undefined' && typeof WattWatchApp._prefersReducedMotion === 'function' && WattWatchApp._prefersReducedMotion()) ||
+      (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+    if (reduced) return;
+    el.classList.remove('panel-flash');
+    void el.offsetWidth;
+    el.classList.add('panel-flash');
+  },
+
+  /**
+   * Executes replacement comparison and updates simulation UI (preview-only; never mutates inventory)
    */
   calculateReplacement() {
     const select = document.getElementById('simApplianceSelect');
@@ -142,6 +192,16 @@ const WattWatchSimulator = {
 
     const resultBox = document.getElementById('simResultsContainer');
     if (!resultBox) return;
+
+    if (appliances.length === 0) {
+      resultBox.innerHTML = `
+        <div style="text-align: center; padding: 2rem 1rem; color: var(--text-secondary);">
+          <div style="font-family: var(--font-serif); font-size: 1.05rem; color: var(--text-primary); margin-bottom: 0.35rem;">Simulator Unavailable</div>
+          <p style="font-size: 0.85rem; margin: 0;">Add at least one appliance to your inventory to simulate replacement hardware or preview What-If optimization scenarios.</p>
+        </div>
+      `;
+      return;
+    }
 
     if (!baseApp) {
       resultBox.innerHTML = '<div style="text-align: center; padding: 2rem; color: var(--text-secondary);">Select an existing appliance to run replacement simulation.</div>';
@@ -162,14 +222,15 @@ const WattWatchSimulator = {
     const altQty = parseSimInput(document.getElementById('simAltQty')?.value, baseApp.quantity);
     const purchaseCost = parseSimInput(document.getElementById('simPurchaseCost')?.value, 0);
 
-    if (isNaN(altWatts) || altWatts <= 0) {
+    const validAltWatts = WattWatchCalculations.validatePowerWatts(altWatts, NaN, WattWatchCalculations.APPLIANCE_LIMITS.minWatts);
+    if (isNaN(validAltWatts)) {
       resultBox.innerHTML = `
         <div style="text-align: center; padding: 2.5rem 1rem; color: var(--text-secondary);">
-          <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="var(--antique-gold)" stroke-width="1.5" style="margin-bottom: 0.5rem;">
+          <svg aria-hidden="true" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="var(--antique-gold)" stroke-width="1.5" style="margin-bottom: 0.5rem;">
             <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
           </svg>
           <div style="font-family: var(--font-serif); font-size: 1.15rem; color: var(--text-primary);">Enter Alternative Power Rating</div>
-          <p style="font-size: 0.85rem; margin-top: 0.25rem;">Specify the wattage of the prospective energy-efficient model above to calculate estimated savings.</p>
+          <p style="font-size: 0.85rem; margin-top: 0.25rem;">Specify a valid wattage (${WattWatchCalculations.APPLIANCE_LIMITS.minWatts}–${WattWatchCalculations.APPLIANCE_LIMITS.maxWatts.toLocaleString()}W) for the prospective energy-efficient model above to calculate estimated savings.</p>
         </div>
       `;
       return;
@@ -179,46 +240,93 @@ const WattWatchSimulator = {
     const curAppliances = WattWatchStorage.getAppliances();
     const curSummary = WattWatchCalculations.calculateHouseholdSummary(curAppliances, settings);
 
+    const activeScenario = (this._activeScenarioPreview && this._activeScenarioPreview.applianceId === baseApp.id)
+      ? this._activeScenarioPreview
+      : null;
+
+    // In both What-If and manual mode, preserve untouched advanced schedule/efficiency fields so preview matches commit
+    const simOpts = activeScenario
+      ? {
+          baseStandbyWatts: activeScenario.baseStandbyWatts,
+          altStandbyWatts: activeScenario.targetStandbyWatts !== undefined ? activeScenario.targetStandbyWatts : baseApp.standbyWatts,
+          altDutyCyclePercent: activeScenario.targetDutyCyclePercent !== undefined ? activeScenario.targetDutyCyclePercent : baseApp.dutyCyclePercent,
+          altActiveDaysPerWeek: activeScenario.targetActiveDaysPerWeek !== undefined ? activeScenario.targetActiveDaysPerWeek : baseApp.activeDaysPerWeek,
+          preserveSplitHours: activeScenario.preserveSplitHours !== false,
+          includeTaxInFlat: true
+        }
+      : {
+          altStandbyWatts: baseApp.standbyWatts,
+          altDutyCyclePercent: baseApp.dutyCyclePercent,
+          altActiveDaysPerWeek: baseApp.activeDaysPerWeek,
+          preserveSplitHours: true,
+          includeTaxInFlat: true
+        };
+
     const sim = WattWatchCalculations.simulateReplacement(
       baseApp,
-      altWatts,
+      validAltWatts,
       altHours,
       altDays,
       altQty,
       settings,
       purchaseCost,
-      curSummary.totalMonthlyKwh
+      curSummary.totalMonthlyKwh,
+      simOpts
     );
 
     if (!sim || !sim.isValid) {
       resultBox.innerHTML = `
         <div style="text-align: center; padding: 2rem; color: var(--text-secondary);">
-          ${WattWatchAppliances.escapeHtml(sim?.error || 'Invalid simulation input parameters. Please verify that daily usage hours are between 0 and 24, operating days are between 0 and 31, quantity is a non-negative integer, and purchase cost is non-negative.')}
+          ${WattWatchAppliances.escapeHtml(sim?.error || 'Invalid simulation input parameters. Please verify that daily usage hours are between 0 and 24, operating days are between 1 and 31, quantity is an integer 1–100, and purchase cost is non-negative.')}
         </div>
       `;
       return;
     }
 
-    const isSaving = sim.savings.isSaving;
+    const validCurr = WattWatchCalculations.resolveValidatedCurrency(settings?.currency);
+    const fmtMoney = (v) => WattWatchCalculations.formatOptionalCurrency(v, validCurr);
+    const fmtRate = (r) => WattWatchCalculations.formatRateWithCurrency(r, validCurr, '/u');
+    const isCostSaving = sim.savings.monthlyCostSaved > 0;
+    const isEnergySaving = sim.savings.monthlyKwhSaved > 0;
+    const isNeutralBillSaving = isEnergySaving && !isCostSaving;
     const percentStr = `${Math.abs(sim.savings.percentSaved).toFixed(1)}%`;
     const paybackInfo = sim.savings.paybackMonths !== null
       ? `<div style="font-size: 0.85rem; color: var(--text-gold); font-weight: 600; margin-top: 0.4rem;">
-          Est. Payback Period: ${sim.savings.paybackMonths < 1 ? 'Under 1 Month' : sim.savings.paybackMonths.toFixed(1) + ' Months'} (${sim.tariffMode === 'slab' ? 'at active slab tariff' : 'at ₹' + Number(sim.effectiveRate).toFixed(2) + '/u'})
+          Est. Payback Period: ${sim.savings.paybackMonths < 1 ? 'Under 1 Month' : sim.savings.paybackMonths.toFixed(1) + ' Months'} (${sim.tariffMode === 'slab' ? 'at active slab tariff' : 'at ' + WattWatchAppliances.escapeHtml(fmtRate(sim.effectiveRate))})
         </div>`
       : '';
 
+    const standbyPreviewNote = (activeScenario && activeScenario.baseStandbyWatts !== undefined)
+      ? `<div style="margin-top: 0.25rem; color: var(--text-secondary);">Estimated baseline includes ${Number(activeScenario.baseStandbyWatts)}W unrecorded idle standby (preview assumption only; committing saves ${Number(activeScenario.targetStandbyWatts ?? 0)}W standby to match replacement).</div>`
+      : '';
+
+    const previewBannerHtml = `
+      <div class="sim-preview-banner" role="status" style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.65rem; padding: 0.65rem 0.9rem; margin-bottom: 1rem; border-radius: var(--radius-md); background: var(--soft-blue); border: 1px solid var(--soft-blue-border); font-size: 0.8rem;">
+        <div>
+          <strong>Preview Only:</strong> ${activeScenario
+            ? `Testing scenario "${WattWatchAppliances.escapeHtml(activeScenario.title || 'What-If Scenario')}" on <strong>${WattWatchAppliances.escapeHtml(baseApp.name)}</strong>.`
+            : `Comparing hypothetical parameters for <strong>${WattWatchAppliances.escapeHtml(baseApp.name)}</strong>.`
+          } Your saved appliance inventory has not been modified.${standbyPreviewNote}
+        </div>
+        <button type="button" class="btn btn-secondary btn-sm" id="btnCommitSimScenario" aria-label="Apply simulated changes permanently to ${WattWatchAppliances.escapeHtml(baseApp.name)}">
+          Apply Change to Inventory...
+        </button>
+      </div>
+    `;
+
     resultBox.innerHTML = `
-      <div class="metrics-grid" style="grid-template-columns: repeat(4, 1fr); margin-bottom: 1.5rem;">
+      ${previewBannerHtml}
+      <div class="metrics-grid sim-results-grid" style="margin-bottom: 1.5rem;">
         <div class="metric-card">
           <span class="metric-title">Baseline Model</span>
-          <div class="metric-value">${WattWatchAppliances.escapeHtml(WattWatchCalculations.formatCurrency(sim.baseline.monthlyCost))}</div>
+          <div class="metric-value">${WattWatchAppliances.escapeHtml(fmtMoney(sim.baseline.monthlyCost))}</div>
           <div class="metric-subtext">${sim.baseline.monthlyKwh.toFixed(2)} kWh/mo · ${sim.baseline.watts}W</div>
         </div>
 
         <div class="metric-card">
           <span class="metric-title">Replacement Model</span>
-          <div class="metric-value" style="color: ${isSaving ? 'var(--royal-blue)' : 'var(--deep-burgundy)'};">
-            ${WattWatchAppliances.escapeHtml(WattWatchCalculations.formatCurrency(sim.replacement.monthlyCost))}
+          <div class="metric-value" style="color: ${isEnergySaving ? 'var(--royal-blue)' : 'var(--deep-burgundy)'};">
+            ${WattWatchAppliances.escapeHtml(fmtMoney(sim.replacement.monthlyCost))}
           </div>
           <div class="metric-subtext">${sim.replacement.monthlyKwh.toFixed(2)} kWh/mo · ${sim.replacement.watts}W</div>
         </div>
@@ -226,12 +334,14 @@ const WattWatchSimulator = {
         <div class="metric-card">
           <div class="metric-card-header">
             <span class="metric-title">Monthly Savings</span>
-            <span class="badge ${isSaving ? 'badge-cooling' : 'badge-burgundy'}">${isSaving ? '▼ ' + percentStr : '▲ Higher'}</span>
+            <span class="badge ${isEnergySaving ? 'badge-cooling' : 'badge-burgundy'}">${isEnergySaving ? '▼ ' + percentStr : '▲ Higher'}</span>
           </div>
-          <div class="metric-value" style="color: ${isSaving ? 'var(--deep-burgundy)' : 'var(--text-primary)'};">
-            ${isSaving ? '+' : '-'}${WattWatchAppliances.escapeHtml(WattWatchCalculations.formatCurrency(Math.abs(sim.savings.monthlyCostSaved)))}
+          <div class="metric-value" style="color: ${isCostSaving ? 'var(--deep-burgundy)' : (isNeutralBillSaving ? 'var(--emerald-primary)' : 'var(--text-primary)')};">
+            ${isCostSaving ? '+' : (isNeutralBillSaving ? '' : '-')}${WattWatchAppliances.escapeHtml(fmtMoney(Math.abs(sim.savings.monthlyCostSaved)))}
           </div>
-          <div class="metric-subtext">${isSaving ? (sim.tariffMode === 'slab' ? `Slab marginal savings (${sim.savings.monthlyKwhSaved.toFixed(1)} kWh)` : `Saves ${sim.savings.monthlyKwhSaved.toFixed(1)} kWh/mo`) : 'Consumes more energy'}</div>
+          <div class="metric-subtext">${isCostSaving
+            ? (sim.tariffMode === 'slab' ? `Slab marginal savings (${sim.savings.monthlyKwhSaved.toFixed(1)} kWh)` : `Saves ${sim.savings.monthlyKwhSaved.toFixed(1)} kWh/mo`)
+            : (isNeutralBillSaving ? `Saves ${sim.savings.monthlyKwhSaved.toFixed(1)} kWh/mo (bill unchanged within free allowance / subsidy)` : 'Consumes more energy')}</div>
         </div>
 
         <div class="metric-card">
@@ -240,16 +350,16 @@ const WattWatchSimulator = {
             <span class="badge badge-gold">12 Months</span>
           </div>
           <div class="metric-value" style="color: var(--text-gold);">
-            ${isSaving ? '+' : '-'}${WattWatchAppliances.escapeHtml(WattWatchCalculations.formatCurrency(Math.abs(sim.savings.annualCostSaved)))}
+            ${isCostSaving ? '+' : (isNeutralBillSaving ? '' : '-')}${WattWatchAppliances.escapeHtml(fmtMoney(Math.abs(sim.savings.annualCostSaved)))}
           </div>
-          <div class="metric-subtext">${isSaving ? 'Saves ' + sim.savings.annualKwhSaved.toFixed(1) + ' kWh/year' : 'Additional yearly cost'}</div>
+          <div class="metric-subtext">${isEnergySaving ? 'Saves ' + sim.savings.annualKwhSaved.toFixed(1) + ' kWh/year' : 'Additional yearly cost'}</div>
         </div>
       </div>
 
       ${paybackInfo ? `<div class="card" style="padding: 1rem 1.25rem; margin-bottom: 1.5rem; background: var(--antique-gold-subtle); border-color: var(--antique-gold);">${paybackInfo}</div>` : ''}
 
       <div class="disclaimer-banner">
-        <svg class="disclaimer-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <svg class="disclaimer-icon" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <circle cx="12" cy="12" r="10"/>
           <line x1="12" y1="8" x2="12" y2="12"/>
           <line x1="12" y1="16" x2="12.01" y2="16"/>
@@ -259,54 +369,271 @@ const WattWatchSimulator = {
         </div>
       </div>
     `;
+
+    const commitBtn = resultBox.querySelector('#btnCommitSimScenario');
+    if (commitBtn) {
+      commitBtn.addEventListener('click', () => {
+        this.commitSimulatedChangesToInventory(baseApp.id, validAltWatts, altHours, altDays, altQty, activeScenario);
+      });
+    }
   },
 
   /**
-   * Applies a What-If scenario directly to the replacement simulator
+   * Explicitly asks confirmation before permanently applying simulated parameters to saved inventory.
+   */
+  commitSimulatedChangesToInventory(applianceId, altWatts, altHours, altDays, altQty, activeScenario = null) {
+    const appliances = WattWatchStorage.getAppliances();
+    const index = appliances.findIndex(a => a.id === applianceId);
+    if (index === -1) {
+      if (typeof WattWatchApp !== 'undefined' && WattWatchApp.showToast) {
+        WattWatchApp.showToast('Cannot apply changes: appliance no longer exists in your inventory.', 'error', 'Appliance Missing');
+      }
+      return;
+    }
+
+    const activeMatchingScenario = (activeScenario && activeScenario.applianceId === applianceId)
+      ? activeScenario
+      : ((this._activeScenarioPreview && this._activeScenarioPreview.applianceId === applianceId) ? this._activeScenarioPreview : null);
+
+    const buildUpdatedAppliance = (baseRecord) => {
+      const next = {
+        ...baseRecord,
+        powerWatts: Number(altWatts),
+        dailyHours: Number(altHours),
+        operatingDays: Number(altDays),
+        quantity: Number(altQty),
+        updatedAt: Date.now()
+      };
+      const preserveSplit = activeMatchingScenario ? activeMatchingScenario.preserveSplitHours !== false : true;
+      const splitPatch = WattWatchCalculations.scaleApplianceForTargetHours(baseRecord, Number(altHours), preserveSplit);
+      if (splitPatch.weekdayHours !== undefined) next.weekdayHours = splitPatch.weekdayHours;
+      if (splitPatch.weekendHours !== undefined) next.weekendHours = splitPatch.weekendHours;
+
+      if (activeMatchingScenario) {
+        if (activeMatchingScenario.targetStandbyWatts !== undefined) {
+          next.standbyWatts = Number(activeMatchingScenario.targetStandbyWatts);
+        }
+        if (activeMatchingScenario.targetDutyCyclePercent !== undefined) {
+          next.dutyCyclePercent = Number(activeMatchingScenario.targetDutyCyclePercent);
+        }
+        if (activeMatchingScenario.targetActiveDaysPerWeek !== undefined) {
+          next.activeDaysPerWeek = Number(activeMatchingScenario.targetActiveDaysPerWeek);
+        }
+      }
+      return next;
+    };
+
+    const existing = appliances[index];
+    const updated = buildUpdatedAppliance(existing);
+    const val = WattWatchStorage.validateAppliance(updated);
+    if (!val.valid) {
+      if (typeof WattWatchApp !== 'undefined' && WattWatchApp.showToast) {
+        WattWatchApp.showToast(`Cannot save simulated parameters: ${val.error}`, 'error', 'Validation Failed');
+      }
+      return;
+    }
+
+    const extraChanges = [];
+    if (activeMatchingScenario?.targetDutyCyclePercent !== undefined) {
+      extraChanges.push(`duty cycle ${val.sanitized.dutyCyclePercent}%`);
+    }
+    if (activeMatchingScenario?.targetActiveDaysPerWeek !== undefined) {
+      extraChanges.push(`${val.sanitized.activeDaysPerWeek} active days/wk`);
+    }
+    if (activeMatchingScenario?.targetStandbyWatts !== undefined) {
+      extraChanges.push(`standby ${val.sanitized.standbyWatts}W`);
+    }
+    const extraSummary = extraChanges.length > 0 ? `, ${extraChanges.join(', ')}` : '';
+    const standbyAssumptionNote = (activeMatchingScenario && activeMatchingScenario.baseStandbyWatts !== undefined)
+      ? ` Note: The preview baseline included an estimated ${Number(activeMatchingScenario.baseStandbyWatts)}W standby assumption.`
+      : '';
+
+    WattWatchApp.openConfirmDialog({
+      title: 'Apply Simulated Change Permanently?',
+      message: `Update saved settings for "${existing.name}" from ${existing.powerWatts}W / ${existing.dailyHours}h/day to ${val.sanitized.powerWatts}W / ${val.sanitized.dailyHours}h/day (${val.sanitized.operatingDays} days/mo, ${val.sanitized.quantity} qty${extraSummary})?${standbyAssumptionNote}`,
+      confirmText: 'Save to Inventory',
+      cancelText: 'Keep Previewing',
+      confirmClass: 'btn-primary',
+      onConfirm: () => {
+        const freshApps = WattWatchStorage.getAppliances();
+        const freshIdx = freshApps.findIndex(a => a.id === applianceId);
+        if (freshIdx === -1) {
+          WattWatchApp.showToast('Appliance was deleted before changes could be saved.', 'error', 'Save Failed');
+          return;
+        }
+        const freshMerged = buildUpdatedAppliance(freshApps[freshIdx]);
+        const freshVal = WattWatchStorage.validateAppliance(freshMerged);
+        if (!freshVal.valid) {
+          WattWatchApp.showToast(`Cannot save simulated parameters: ${freshVal.error}`, 'error', 'Validation Failed');
+          return;
+        }
+        freshApps[freshIdx] = { ...freshVal.sanitized, updatedAt: Date.now() };
+        const saved = WattWatchStorage.saveAppliances(freshApps);
+        if (!saved) {
+          WattWatchApp.showToast('Failed to update saved appliance.', 'error', 'Save Failed');
+          return;
+        }
+        this._activeScenarioPreview = null;
+        WattWatchApp.refreshAll();
+        WattWatchApp.showToast(`Updated "${freshVal.sanitized.name}" in your saved inventory.`, 'success', 'Inventory Updated');
+      }
+    });
+  },
+
+  /**
+   * Validates and loads a What-If scenario into the replacement simulator as a non-destructive preview.
+   * Uses canonical shared validators and type-checks optional fields before calling string methods.
+   * Rejects invalid inputs cleanly without mutating simulator state.
    * @param {Object} scenario
+   * @returns {{ success: boolean, error?: string, renamed?: boolean, applianceId?: string }}
    */
   applyScenario(scenario) {
-    if (!scenario || !scenario.applianceId) return;
-
-    if (typeof WattWatchApp !== 'undefined' && WattWatchApp.navigateTo) {
-      WattWatchApp.navigateTo('simulator');
+    if (!scenario || typeof scenario !== 'object' || Array.isArray(scenario) ||
+        typeof scenario.applianceId !== 'string' || scenario.applianceId.trim() === '') {
+      if (typeof WattWatchApp !== 'undefined' && WattWatchApp.showToast) {
+        WattWatchApp.showToast('Cannot preview scenario: missing or invalid appliance reference.', 'error', 'Scenario Unavailable');
+      }
+      return { success: false, error: 'Invalid scenario payload' };
     }
 
-    const select = document.getElementById('simApplianceSelect');
-    if (select) {
-      select.value = scenario.applianceId;
-      this.handleApplianceSelect();
+    // Type-check optional string metadata before using .trim() or rendering
+    const optionalStringFields = ['id', 'title', 'applianceName', 'scenarioType'];
+    for (const field of optionalStringFields) {
+      if (scenario[field] !== undefined && scenario[field] !== null && typeof scenario[field] !== 'string') {
+        if (typeof WattWatchApp !== 'undefined' && WattWatchApp.showToast) {
+          WattWatchApp.showToast(`Cannot apply scenario: invalid ${field} format.`, 'error', 'Invalid Scenario');
+        }
+        return { success: false, error: `Invalid ${field} type` };
+      }
     }
 
-    if (scenario.targetWatts !== undefined) {
+    const safeScenarioId = typeof scenario.id === 'string' && scenario.id.trim() ? scenario.id.trim() : null;
+    const safeScenarioTitle = typeof scenario.title === 'string' && scenario.title.trim() ? scenario.title.trim() : 'What-If Scenario';
+    const safeScenarioName = typeof scenario.applianceName === 'string' && scenario.applianceName.trim() ? scenario.applianceName.trim() : '';
+    const safeScenarioType = typeof scenario.scenarioType === 'string' && scenario.scenarioType.trim() ? scenario.scenarioType.trim() : null;
+
+    // Validate numeric scenario parameters using canonical shared WattWatchCalculations validators
+    const validateOptional = (raw, validatorFn) => {
+      if (raw === undefined) return { provided: false, valid: true };
+      const parsed = validatorFn(raw);
+      return Number.isNaN(parsed)
+        ? { provided: true, valid: false }
+        : { provided: true, valid: true, value: parsed };
+    };
+
+    const lim = WattWatchCalculations.APPLIANCE_LIMITS;
+    const wCheck = validateOptional(scenario.targetWatts, v => WattWatchCalculations.validatePowerWatts(v, NaN, lim.minWatts));
+    const hCheck = validateOptional(scenario.targetHours, v => WattWatchCalculations.validateDailyHours(v, NaN));
+    const dCheck = validateOptional(scenario.targetDays, v => WattWatchCalculations.validateOperatingDays(v, false, NaN));
+    const qCheck = validateOptional(scenario.targetQty, v => WattWatchCalculations.validateQuantity(v, false, NaN));
+    const baseSbCheck = validateOptional(scenario.baseStandbyWatts, v => WattWatchCalculations.validateStandbyWatts(v, NaN));
+    const targetSbCheck = validateOptional(scenario.targetStandbyWatts, v => WattWatchCalculations.validateStandbyWatts(v, NaN));
+    const targetDutyCheck = validateOptional(scenario.targetDutyCyclePercent, v => WattWatchCalculations.validateDutyCyclePercent(v, NaN));
+    const targetActiveDaysCheck = validateOptional(scenario.targetActiveDaysPerWeek, v => WattWatchCalculations.validateActiveDaysPerWeek(v, NaN));
+
+    if (
+      !wCheck.valid || !hCheck.valid || !dCheck.valid || !qCheck.valid ||
+      !baseSbCheck.valid || !targetSbCheck.valid || !targetDutyCheck.valid || !targetActiveDaysCheck.valid
+    ) {
+      if (typeof WattWatchApp !== 'undefined' && WattWatchApp.showToast) {
+        WattWatchApp.showToast(`Cannot apply scenario: target values are outside valid safety ranges (watts ${lim.minWatts}-${lim.maxWatts}, hours ${lim.minHours}-${lim.maxHours}, days ${lim.minDays}-${lim.maxDays}, qty ${lim.minQty}-${lim.maxQty}, standby ${lim.minStandbyWatts}-${lim.maxStandbyWatts}W, duty 1-${lim.maxDutyCyclePercent}%, active days ${lim.minActiveDaysPerWeek}-${lim.maxActiveDaysPerWeek}).`, 'error', 'Invalid Scenario');
+      }
+      return { success: false, error: 'Invalid scenario parameter bounds' };
+    }
+
+    const appliances = WattWatchStorage.getAppliances();
+    const targetApp = appliances.find(a => a.id === scenario.applianceId.trim());
+    if (!targetApp) {
+      if (typeof WattWatchApp !== 'undefined' && WattWatchApp.showToast) {
+        WattWatchApp.showToast(`Cannot preview scenario: "${safeScenarioName || 'target appliance'}" was removed or no longer exists in your inventory.`, 'error', 'Appliance Missing');
+      }
+      if (typeof WattWatchApp !== 'undefined' && WattWatchApp.renderRecommendationsView) {
+        WattWatchApp.renderRecommendationsView(appliances, WattWatchStorage.getSettings());
+      }
+      return { success: false, error: 'Target appliance no longer exists' };
+    }
+
+    if (safeScenarioType === 'runtime' && hCheck.provided && hCheck.value > Number(targetApp.dailyHours)) {
+      if (typeof WattWatchApp !== 'undefined' && WattWatchApp.showToast) {
+        WattWatchApp.showToast('Cannot apply runtime reduction: target daily hours exceed the appliance\'s current schedule.', 'error', 'Invalid Scenario');
+      }
+      return { success: false, error: 'Runtime target exceeds current daily hours' };
+    }
+
+    const cleanTargetName = typeof targetApp.name === 'string' ? targetApp.name.trim() : '';
+    const wasRenamed = Boolean(safeScenarioName && cleanTargetName && safeScenarioName !== cleanTargetName);
+
+    this._activeScenarioPreview = {
+      id: safeScenarioId,
+      title: safeScenarioTitle,
+      applianceId: targetApp.id,
+      scenarioType: safeScenarioType,
+      baseStandbyWatts: baseSbCheck.provided ? baseSbCheck.value : undefined,
+      targetWatts: wCheck.provided ? wCheck.value : targetApp.powerWatts,
+      targetHours: hCheck.provided ? hCheck.value : targetApp.dailyHours,
+      targetDays: dCheck.provided ? dCheck.value : targetApp.operatingDays,
+      targetQty: qCheck.provided ? qCheck.value : targetApp.quantity,
+      targetStandbyWatts: targetSbCheck.provided ? targetSbCheck.value : undefined,
+      targetDutyCyclePercent: targetDutyCheck.provided ? targetDutyCheck.value : undefined,
+      targetActiveDaysPerWeek: targetActiveDaysCheck.provided ? targetActiveDaysCheck.value : undefined,
+      preserveSplitHours: scenario.preserveSplitHours !== false
+    };
+
+    this._isApplyingScenario = true;
+    try {
+      if (typeof WattWatchApp !== 'undefined' && WattWatchApp.navigateTo) {
+        WattWatchApp.navigateTo('simulator');
+      }
+
+      const select = document.getElementById('simApplianceSelect');
+      if (select) {
+        select.value = targetApp.id;
+        this.handleApplianceSelect();
+      }
+
       const elWatts = document.getElementById('simAltWatts');
-      if (elWatts) elWatts.value = scenario.targetWatts;
-    }
-    if (scenario.targetHours !== undefined) {
       const elHours = document.getElementById('simAltHours');
-      if (elHours) elHours.value = scenario.targetHours;
-    }
-    if (scenario.targetDays !== undefined) {
       const elDays = document.getElementById('simAltDays');
-      if (elDays) elDays.value = scenario.targetDays;
-    }
-    if (scenario.targetQty !== undefined) {
       const elQty = document.getElementById('simAltQty');
-      if (elQty) elQty.value = scenario.targetQty;
-    }
 
-    this.calculateReplacement();
+      if (elWatts) elWatts.value = this._activeScenarioPreview.targetWatts;
+      if (elHours) elHours.value = this._activeScenarioPreview.targetHours;
+      if (elDays) elDays.value = this._activeScenarioPreview.targetDays;
+      if (elQty) elQty.value = this._activeScenarioPreview.targetQty;
+
+      this.calculateReplacement();
+    } finally {
+      this._isApplyingScenario = false;
+    }
 
     const resultBox = document.getElementById('simResultsContainer');
+    this._triggerFlash(resultBox);
+
+    const reducedMotion = (typeof WattWatchApp !== 'undefined' && typeof WattWatchApp._prefersReducedMotion === 'function' && WattWatchApp._prefersReducedMotion()) ||
+      (typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
     if (resultBox && typeof resultBox.scrollIntoView === 'function') {
       try {
-        resultBox.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        resultBox.scrollIntoView({ behavior: reducedMotion ? 'auto' : 'smooth', block: 'nearest' });
+      } catch (_) {}
+    }
+
+    // Preserve keyboard orientation when navigating from Recommendations card -> Simulator
+    const focusTarget = document.getElementById('simAltWatts') || document.getElementById('simApplianceSelect');
+    if (focusTarget && !focusTarget.disabled && typeof focusTarget.focus === 'function') {
+      try {
+        focusTarget.focus({ preventScroll: true });
       } catch (_) {}
     }
 
     if (typeof WattWatchApp !== 'undefined' && WattWatchApp.showToast) {
-      WattWatchApp.showToast(`Applied "${scenario.title || 'What-If Scenario'}" to simulator`, 'info', 'Scenario Loaded');
+      if (wasRenamed) {
+        WattWatchApp.showToast(`"${safeScenarioName}" was renamed to "${cleanTargetName || targetApp.name}". Previewing updated baseline in Simulator — saved inventory unchanged.`, 'info', 'Scenario Preview');
+      } else {
+        WattWatchApp.showToast(`Previewing "${safeScenarioTitle}" in Simulator — saved inventory unchanged.`, 'info', 'Scenario Preview');
+      }
     }
+
+    return { success: true, applianceId: targetApp.id, renamed: wasRenamed };
   },
 
   /**
@@ -557,42 +884,47 @@ const WattWatchSimulator = {
       return;
     }
 
+    const activeSettings = WattWatchStorage.getSettings();
+    const validCurr = WattWatchCalculations.resolveValidatedCurrency(activeSettings?.currency);
+    const fmtMoney = (v) => WattWatchCalculations.formatOptionalCurrency(v, validCurr);
+    const fmtRate = (r, suffix = '/u') => WattWatchCalculations.formatRateWithCurrency(r, validCurr, suffix);
+
     let slabRowsHtml = '';
     result.slabBreakdown.forEach(s => {
       slabRowsHtml += `
         <tr>
-          <td>${s.label}</td>
+          <td>${WattWatchAppliances.escapeHtml(s.label)}</td>
           <td>${s.units.toFixed(2)} kWh</td>
-          <td>₹${s.rate.toFixed(2)}/u</td>
-          <td style="font-weight: 600;">₹${s.cost.toFixed(2)}</td>
+          <td>${WattWatchAppliances.escapeHtml(fmtRate(s.rate, '/u'))}</td>
+          <td style="font-weight: 600;">${WattWatchAppliances.escapeHtml(fmtMoney(s.cost))}</td>
         </tr>
       `;
     });
 
     const subsidyBanner = (result.subsidyApplied > 0 || result.freeUnitsApplied > 0)
       ? `<div style="background: var(--bg-surface); border: 1px dashed var(--emerald-primary, #10b981); border-radius: var(--radius-md); padding: 0.75rem 1rem; margin-bottom: 1.25rem; font-size: 0.85rem; color: var(--text-primary);">
-          ${result.freeUnitsApplied > 0 ? `<div><strong>Lifeline Allowance:</strong> ${result.freeUnitsApplied.toFixed(1)} kWh billed at ₹0.00 (${result.billableKwh.toFixed(1)} billable units).</div>` : ''}
-          ${result.subsidyApplied > 0 ? `<div><strong>Govt Subsidy / Bill Credit Applied:</strong> -${WattWatchAppliances.escapeHtml(WattWatchCalculations.formatCurrency(result.subsidyApplied))} (Gross Bill: ${WattWatchAppliances.escapeHtml(WattWatchCalculations.formatCurrency(result.grossCost))} &rarr; Net Payable: ${WattWatchAppliances.escapeHtml(WattWatchCalculations.formatCurrency(result.totalCost))}).</div>` : ''}
+          ${result.freeUnitsApplied > 0 ? `<div><strong>Lifeline Allowance:</strong> ${result.freeUnitsApplied.toFixed(1)} kWh billed at ${WattWatchAppliances.escapeHtml(fmtMoney(0))} (${result.billableKwh.toFixed(1)} billable units).</div>` : ''}
+          ${result.subsidyApplied > 0 ? `<div><strong>Govt Subsidy / Bill Credit Applied:</strong> -${WattWatchAppliances.escapeHtml(fmtMoney(result.subsidyApplied))} (Gross Bill: ${WattWatchAppliances.escapeHtml(fmtMoney(result.grossCost))} &rarr; Net Payable: ${WattWatchAppliances.escapeHtml(fmtMoney(result.totalCost))}).</div>` : ''}
         </div>`
       : '';
 
     breakdownBox.innerHTML = `
       ${subsidyBanner}
-      <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; margin-bottom: 1.25rem;">
+      <div class="metrics-grid metrics-grid-3col" style="gap: 1rem; margin-bottom: 1.25rem;">
         <div style="background: var(--soft-blue); padding: 0.85rem; border-radius: var(--radius-md);">
           <div style="font-size: 0.72rem; color: var(--text-secondary); text-transform: uppercase;">Energy Base Cost</div>
-          <div style="font-family: var(--font-serif); font-size: 1.35rem; font-weight: 700; color: var(--royal-blue);">${WattWatchAppliances.escapeHtml(WattWatchCalculations.formatCurrency(result.energyCharges))}</div>
+          <div style="font-family: var(--font-serif); font-size: 1.35rem; font-weight: 700; color: var(--royal-blue);">${WattWatchAppliances.escapeHtml(fmtMoney(result.energyCharges))}</div>
         </div>
 
         <div style="background: var(--antique-gold-subtle); padding: 0.85rem; border-radius: var(--radius-md);">
           <div style="font-size: 0.72rem; color: var(--text-secondary); text-transform: uppercase;">Fixed + Duty (${result.taxPercent}%)</div>
-          <div style="font-family: var(--font-serif); font-size: 1.35rem; font-weight: 700; color: var(--text-gold);">${WattWatchAppliances.escapeHtml(WattWatchCalculations.formatCurrency(result.fixedCharge + result.taxCharges))}</div>
+          <div style="font-family: var(--font-serif); font-size: 1.35rem; font-weight: 700; color: var(--text-gold);">${WattWatchAppliances.escapeHtml(fmtMoney(result.fixedCharge + result.taxCharges))}</div>
         </div>
 
         <div style="background: var(--light-burgundy); padding: 0.85rem; border-radius: var(--radius-md);">
           <div style="font-size: 0.72rem; color: var(--text-secondary); text-transform: uppercase;">Total Payable Bill</div>
-          <div style="font-family: var(--font-serif); font-size: 1.35rem; font-weight: 700; color: var(--deep-burgundy);">${WattWatchAppliances.escapeHtml(WattWatchCalculations.formatCurrency(result.totalCost))}</div>
-          <div style="font-size: 0.75rem; color: var(--text-secondary); margin-top: 0.2rem;">Effective Rate: ₹${result.effectiveRatePerKwh.toFixed(2)}/kWh</div>
+          <div style="font-family: var(--font-serif); font-size: 1.35rem; font-weight: 700; color: var(--deep-burgundy);">${WattWatchAppliances.escapeHtml(fmtMoney(result.totalCost))}</div>
+          <div style="font-size: 0.75rem; color: var(--text-secondary); margin-top: 0.2rem;">Effective Rate: ${WattWatchAppliances.escapeHtml(fmtRate(result.effectiveRatePerKwh, '/kWh'))}</div>
         </div>
       </div>
 
@@ -681,6 +1013,7 @@ const WattWatchSimulator = {
 
     WattWatchApp.showToast(`Applied ${model === 'slab' ? 'Slab-based' : 'Flat'} tariff to system settings`, 'success', 'Tariff Applied');
     WattWatchApp.refreshAll();
+    this._triggerFlash(document.getElementById('tariffCalculationBreakdown'));
   }
 };
 

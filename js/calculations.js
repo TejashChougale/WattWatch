@@ -11,32 +11,199 @@ const WattWatchCalculations = {
    */
 
   /**
+   * Canonical appliance bounds shared across validation, simulator, storage, and recommendations.
+   */
+  APPLIANCE_LIMITS: {
+    minWatts: 1,
+    maxWatts: 50000,
+    minHours: 0,
+    maxHours: 24,
+    minDays: 1,
+    maxDays: 31,
+    minQty: 1,
+    maxQty: 100,
+    minStandbyWatts: 0,
+    maxStandbyWatts: 500,
+    minDutyCyclePercent: 0, // exclusive lower bound (0 < duty <= 100)
+    maxDutyCyclePercent: 100,
+    minActiveDaysPerWeek: 1,
+    maxActiveDaysPerWeek: 7
+  },
+
+  /**
+   * Validates tariff model string ('flat' or 'slab'), defaulting to 'flat' only when undefined.
+   * Rejects explicitly supplied unsupported values with null.
+   * @param {*} model
+   * @param {string|null} [defaultModel='flat']
+   * @returns {string|null}
+   */
+  validateTariffModel(model, defaultModel = 'flat') {
+    if (model === undefined) return defaultModel;
+    if (model === 'flat' || model === 'slab') return model;
+    return null;
+  },
+
+  /**
+   * Validates a currency symbol/code strictly without substituting a default fallback.
+   * @param {*} raw
+   * @returns {string|null}
+   */
+  resolveValidatedCurrency(raw) {
+    if (typeof raw !== 'string') return null;
+    const trimmed = raw.trim();
+    if (!trimmed || trimmed.length > 8) return null;
+    if (/[<>"'`&;\/\\=\(\)\{\}\x00-\x1F\x7F]/.test(trimmed)) return null;
+    if (typeof WattWatchStorage !== 'undefined' && typeof WattWatchStorage.validateCurrency === 'function') {
+      const res = WattWatchStorage.validateCurrency(trimmed);
+      return (res && res.valid && typeof res.sanitized === 'string' && res.sanitized.trim()) ? res.sanitized : null;
+    }
+    return this.ALLOWED_CURRENCY_SYMBOLS.find(c => c.toLowerCase() === trimmed.toLowerCase()) || null;
+  },
+
+  /**
+   * Formats a non-negative monetary amount using a validated currency symbol,
+   * or unlabelled formatting when currency is missing/invalid (never assumes ₹).
+   * @param {*} val
+   * @param {*} currency
+   * @returns {string}
+   */
+  formatOptionalCurrency(val, currency) {
+    const sym = this.resolveValidatedCurrency(currency);
+    if (!this.isFiniteNumber(val) || Number(val) < 0) {
+      return sym ? `${sym}--` : '--';
+    }
+    const num = Number(val);
+    return sym ? this.formatCurrency(num, sym) : this.formatNumber(num, 2);
+  },
+
+  /**
+   * Formats a tariff rate with validated currency prefix or unlabelled unit suffix.
+   * @param {*} rate
+   * @param {*} currency
+   * @param {string} [suffix='/kWh']
+   * @returns {string}
+   */
+  formatRateWithCurrency(rate, currency, suffix = '/kWh') {
+    if (!this.isFiniteNumber(rate) || Number(rate) < 0) {
+      const sym = this.resolveValidatedCurrency(currency);
+      return sym ? `${sym}--${suffix}` : `--${suffix}`;
+    }
+    const sym = this.resolveValidatedCurrency(currency);
+    const valStr = Number(rate).toFixed(2);
+    return sym ? `${sym}${valStr}${suffix}` : `${valStr}${suffix}`;
+  },
+
+  /**
+   * Resolves raw bill credit / subsidy from settings using canonical `billCreditInr`
+   * with legacy fallback to `subsidy` ONLY when `billCreditInr` is undefined.
+   * @param {Object} safeSettings
+   * @returns {*}
+   */
+  _resolveRawBillCredit(safeSettings) {
+    if (!safeSettings || typeof safeSettings !== 'object') return undefined;
+    if (safeSettings.billCreditInr !== undefined) return safeSettings.billCreditInr;
+    if (safeSettings.subsidy !== undefined) return safeSettings.subsidy;
+    return undefined;
+  },
+
+  /**
    * Validates whether a value is a strictly finite numeric quantity.
-   * Rejects NaN, Infinity, -Infinity, null, undefined, booleans, and empty strings.
+   * Rejects NaN, Infinity, -Infinity, null, undefined, booleans, objects/arrays, and empty strings.
    * @param {*} val
    * @returns {boolean}
    */
   isFiniteNumber(val) {
-    if (val === null || val === undefined || typeof val === 'boolean') return false;
+    if (val === null || val === undefined || typeof val === 'boolean' || typeof val === 'object') return false;
+    if (typeof val !== 'number' && typeof val !== 'string') return false;
     if (typeof val === 'string' && val.trim() === '') return false;
     const num = Number(val);
     return typeof num === 'number' && Number.isFinite(num);
   },
 
   /**
-   * Validates appliance nominal power in Watts (0 to 50,000 W).
+   * Validates appliance nominal power in Watts (minWatts to 50,000 W).
    * Rejects negative numbers, non-finite values, and excessive ratings (> 50,000 W).
-   * Preserves explicit 0 Watts.
+   * Preserves explicit 0 Watts when minWatts is 0.
    * @param {*} watts
    * @param {number|undefined} defaultValue
+   * @param {number} [minWatts=0]
    * @returns {number} Validated wattage or defaultValue / NaN
    */
-  validatePowerWatts(watts, defaultValue = undefined) {
+  validatePowerWatts(watts, defaultValue = undefined, minWatts = 0) {
     if (watts === undefined) return defaultValue !== undefined ? defaultValue : NaN;
     if (!this.isFiniteNumber(watts)) return NaN;
     const num = Number(watts);
-    if (num < 0 || num > 50000) return NaN;
+    if (num < minWatts || num > this.APPLIANCE_LIMITS.maxWatts) return NaN;
     return num;
+  },
+
+  /**
+   * Validates optional phantom standby power draw (0 to 500 Watts).
+   * Rejects booleans, objects, negatives, >500W, and non-finite values.
+   * @param {*} watts
+   * @param {number|undefined} defaultValue
+   * @returns {number} Validated standby wattage or defaultValue / NaN
+   */
+  validateStandbyWatts(watts, defaultValue = undefined) {
+    if (watts === undefined) return defaultValue !== undefined ? defaultValue : NaN;
+    if (!this.isFiniteNumber(watts)) return NaN;
+    const num = Number(watts);
+    if (num < this.APPLIANCE_LIMITS.minStandbyWatts || num > this.APPLIANCE_LIMITS.maxStandbyWatts) return NaN;
+    return num;
+  },
+
+  /**
+   * Validates duty cycle / inverter modulation percentage ((0, 100]).
+   * @param {*} duty
+   * @param {number|undefined} defaultValue
+   * @returns {number} Validated duty cycle percent or defaultValue / NaN
+   */
+  validateDutyCyclePercent(duty, defaultValue = undefined) {
+    if (duty === undefined) return defaultValue !== undefined ? defaultValue : NaN;
+    if (!this.isFiniteNumber(duty)) return NaN;
+    const num = Number(duty);
+    if (num <= this.APPLIANCE_LIMITS.minDutyCyclePercent || num > this.APPLIANCE_LIMITS.maxDutyCyclePercent) return NaN;
+    return num;
+  },
+
+  /**
+   * Validates active days per week (integer 1 to 7).
+   * @param {*} days
+   * @param {number|undefined} defaultValue
+   * @returns {number} Validated active days/week or defaultValue / NaN
+   */
+  validateActiveDaysPerWeek(days, defaultValue = undefined) {
+    if (days === undefined) return defaultValue !== undefined ? defaultValue : NaN;
+    if (!this.isFiniteNumber(days)) return NaN;
+    const num = Number(days);
+    if (!Number.isInteger(num) || num < this.APPLIANCE_LIMITS.minActiveDaysPerWeek || num > this.APPLIANCE_LIMITS.maxActiveDaysPerWeek) return NaN;
+    return num;
+  },
+
+  /**
+   * Proportionally scales weekdayHours & weekendHours when target dailyHours changes,
+   * preserving original weekday/weekend schedule ratio safely within [0, 24].
+   * @param {Object} baseAppliance
+   * @param {number} targetDailyHours
+   * @param {boolean} [preserveSplitHours=true]
+   * @returns {{ weekdayHours?: number, weekendHours?: number }}
+   */
+  scaleApplianceForTargetHours(baseAppliance, targetDailyHours, preserveSplitHours = true) {
+    const out = {};
+    if (!preserveSplitHours || !baseAppliance || typeof baseAppliance !== 'object') return out;
+    const baseH = this.validateDailyHours(baseAppliance.dailyHours, NaN);
+    const newH = this.validateDailyHours(targetDailyHours, NaN);
+    if (isNaN(baseH) || isNaN(newH) || baseH <= 0) return out;
+    const ratio = newH / baseH;
+    const curWd = this.validateDailyHours(baseAppliance.weekdayHours, NaN);
+    if (!isNaN(curWd)) {
+      out.weekdayHours = Math.min(24, Math.max(0, curWd * ratio));
+    }
+    const curWe = this.validateDailyHours(baseAppliance.weekendHours, NaN);
+    if (!isNaN(curWe)) {
+      out.weekendHours = Math.min(24, Math.max(0, curWe * ratio));
+    }
+    return out;
   },
 
   /**
@@ -299,6 +466,10 @@ const WattWatchCalculations = {
       fixedCharge: NaN,
       taxPercent: NaN,
       taxCharges: NaN,
+      billCreditInr: NaN,
+      subsidy: NaN,
+      subsidyApplied: NaN,
+      freeUnits: NaN,
       totalCost: NaN,
       effectiveRatePerKwh: NaN,
       slabBreakdown: []
@@ -314,7 +485,11 @@ const WattWatchCalculations = {
    */
   calculateAdvancedTariff(totalKwh = 0, settings = {}) {
     const safeSettings = (settings && typeof settings === 'object' && !Array.isArray(settings)) ? settings : {};
-    const model = safeSettings.tariffModel || 'flat';
+    const validatedModel = this.validateTariffModel(safeSettings.tariffModel, 'flat');
+    if (!validatedModel) {
+      return this._createInvalidTariffResult(totalKwh, String(safeSettings.tariffModel ?? 'invalid'), 'Tariff model must be "flat" or "slab"');
+    }
+    const model = validatedModel;
 
     if (!this.isFiniteNumber(totalKwh) || Number(totalKwh) < 0) {
       return this._createInvalidTariffResult(totalKwh, model, 'Consumption (kWh) must be a non-negative finite number');
@@ -351,9 +526,12 @@ const WattWatchCalculations = {
       return this._createInvalidTariffResult(totalKwh, model, 'Free electricity units must be a non-negative finite number');
     }
 
-    // Government subsidy / bill credit validation
-    const billCreditInr = this.validateBillCredit(safeSettings.billCreditInr, 0);
-    if (isNaN(billCreditInr)) {
+    // Government subsidy / bill credit validation (canonical `billCreditInr`, legacy `subsidy` alias)
+    const rawCredit = this._resolveRawBillCredit(safeSettings);
+    const billCreditInr = this.validateBillCredit(rawCredit, 0);
+    const invalidDualSubsidy = safeSettings.subsidy !== undefined && safeSettings.billCreditInr !== undefined &&
+      (!this.isFiniteNumber(safeSettings.subsidy) || Number(safeSettings.subsidy) < 0);
+    if (isNaN(billCreditInr) || invalidDualSubsidy) {
       return this._createInvalidTariffResult(totalKwh, model, 'Subsidy or bill credit must be a non-negative finite number');
     }
 
@@ -464,6 +642,7 @@ const WattWatchCalculations = {
       taxPercent,
       taxCharges,
       grossCost,
+      billCreditInr,
       subsidy: billCreditInr,
       subsidyApplied,
       totalCost,
@@ -606,13 +785,20 @@ const WattWatchCalculations = {
     }
     const budget = Number(budgetInr);
     const safeSettings = (settings && typeof settings === 'object' && !Array.isArray(settings)) ? settings : {};
-    const model = safeSettings.tariffModel || 'flat';
+    const validatedModel = this.validateTariffModel(safeSettings.tariffModel, 'flat');
+    if (!validatedModel) {
+      return NaN;
+    }
+    const model = validatedModel;
 
     const taxPercent = this.validateTaxPercent(safeSettings.additionalTaxPercent, 0);
     const fixedCharge = this.validateFixedCharge(safeSettings.fixedCharges, 0);
     const freeUnits = this.validateFreeUnits(safeSettings.freeUnits, 0);
-    const billCreditInr = this.validateBillCredit(safeSettings.billCreditInr, 0);
-    if (isNaN(taxPercent) || isNaN(fixedCharge) || isNaN(freeUnits) || isNaN(billCreditInr)) {
+    const rawCredit = this._resolveRawBillCredit(safeSettings);
+    const billCreditInr = this.validateBillCredit(rawCredit, 0);
+    const invalidDualSubsidy = safeSettings.subsidy !== undefined && safeSettings.billCreditInr !== undefined &&
+      (!this.isFiniteNumber(safeSettings.subsidy) || Number(safeSettings.subsidy) < 0);
+    if (isNaN(taxPercent) || isNaN(fixedCharge) || isNaN(freeUnits) || isNaN(billCreditInr) || invalidDualSubsidy) {
       return NaN;
     }
 
@@ -787,6 +973,7 @@ const WattWatchCalculations = {
     const dailyCostDifference = (hasBudget && isBillValid) ? (dailyEstimatedCost - dailyBudgetInr) : NaN;
     const variance = hasBudget && isBillValid ? (budget - bill) : NaN;
 
+    const curSym = (settings && typeof settings === 'object') ? (this.resolveValidatedCurrency(settings.currency) || '') : '';
     let pacingStatus = 'unset';
     let pacingLabel = 'No Budget';
     let explanation = 'Set a monthly electricity budget in Settings to enable daily energy pacing targets.';
@@ -799,18 +986,18 @@ const WattWatchCalculations = {
       if (dailyCostDifference > 0.01) {
         pacingStatus = 'over';
         pacingLabel = 'Pacing Above Budget';
-        explanation = `Configured appliance usage is pacing at ₹${dailyEstimatedCost.toFixed(2)}/day (~${dailyEstimatedKwh.toFixed(2)} kWh/day), which is ₹${dailyCostDifference.toFixed(2)}/day above your daily budget allowance of ₹${dailyBudgetInr.toFixed(2)}/day (${days} days in current month). Projecting an overspend of ₹${projectedDifference.toFixed(2)}.`;
+        explanation = `Configured appliance usage is pacing at ${curSym}${dailyEstimatedCost.toFixed(2)}/day (~${dailyEstimatedKwh.toFixed(2)} kWh/day), which is ${curSym}${dailyCostDifference.toFixed(2)}/day above your daily budget allowance of ${curSym}${dailyBudgetInr.toFixed(2)}/day (${days} days in current month). Projecting an overspend of ${curSym}${projectedDifference.toFixed(2)}.`;
       } else if (budgetStatus.status === 'critical' || budgetStatus.status === 'warning') {
         pacingStatus = 'caution';
         pacingLabel = 'Pacing Near Limit';
-        explanation = `Configured appliance usage is pacing at ₹${dailyEstimatedCost.toFixed(2)}/day (~${dailyEstimatedKwh.toFixed(2)} kWh/day), close to your daily budget allowance of ₹${dailyBudgetInr.toFixed(2)}/day. Estimated month-end surplus is ₹${remainingBudget.toFixed(2)}.`;
+        explanation = `Configured appliance usage is pacing at ${curSym}${dailyEstimatedCost.toFixed(2)}/day (~${dailyEstimatedKwh.toFixed(2)} kWh/day), close to your daily budget allowance of ${curSym}${dailyBudgetInr.toFixed(2)}/day. Estimated month-end surplus is ${curSym}${remainingBudget.toFixed(2)}.`;
       } else {
         pacingStatus = 'under';
         pacingLabel = 'Pacing Within Budget';
         if (validKwh === 0 && (!bill || bill <= (settings && settings.fixedCharges ? (Number(settings.fixedCharges) * 1.5) : 0))) {
-          explanation = `No active appliances in inventory. Your daily budget allowance is ₹${dailyBudgetInr.toFixed(2)}/day (${!isNaN(dailyAllowedKwh) ? '~' + dailyAllowedKwh.toFixed(2) + ' kWh/day max allowance' : ''} across ${days} days). Add appliances to begin tracking consumption pacing.`;
+          explanation = `No active appliances in inventory. Your daily budget allowance is ${curSym}${dailyBudgetInr.toFixed(2)}/day (${!isNaN(dailyAllowedKwh) ? '~' + dailyAllowedKwh.toFixed(2) + ' kWh/day max allowance' : ''} across ${days} days). Add appliances to begin tracking consumption pacing.`;
         } else {
-          explanation = `Configured appliance usage is pacing comfortably at ₹${dailyEstimatedCost.toFixed(2)}/day (~${dailyEstimatedKwh.toFixed(2)} kWh/day) within your daily budget allowance of ₹${dailyBudgetInr.toFixed(2)}/day (${days} days in current month). Projected month-end surplus is ₹${remainingBudget.toFixed(2)}.`;
+          explanation = `Configured appliance usage is pacing comfortably at ${curSym}${dailyEstimatedCost.toFixed(2)}/day (~${dailyEstimatedKwh.toFixed(2)} kWh/day) within your daily budget allowance of ${curSym}${dailyBudgetInr.toFixed(2)}/day (${days} days in current month). Projected month-end surplus is ${curSym}${remainingBudget.toFixed(2)}.`;
         }
       }
     }
@@ -863,6 +1050,7 @@ const WattWatchCalculations = {
     const projectedOverspend = hasBudget && isBillValid && (bill > budget) ? (bill - budget) : 0;
     const variance = hasBudget && isBillValid ? (budget - bill) : NaN;
 
+    const curSym = (settings && typeof settings === 'object') ? (this.resolveValidatedCurrency(settings.currency) || '') : '';
     let forecastState = 'unset';
     let forecastStateLabel = 'No Budget Configured';
     let explanation = 'Configure a monthly electricity budget in Settings to generate month-end budget variance forecasts.';
@@ -875,22 +1063,22 @@ const WattWatchCalculations = {
       if (budgetStatus.status === 'exceeded') {
         forecastState = 'exceeded';
         forecastStateLabel = 'Projected Over Budget';
-        explanation = `Based on your configured appliance inventory, your estimated month-end electricity bill is ₹${bill.toFixed(2)}, which is projected to exceed your ₹${budget.toFixed(2)} target by ₹${projectedOverspend.toFixed(2)} (${budgetStatus.utilizationPercent.toFixed(1)}% utilized).`;
+        explanation = `Based on your configured appliance inventory, your estimated month-end electricity bill is ${curSym}${bill.toFixed(2)}, which is projected to exceed your ${curSym}${budget.toFixed(2)} target by ${curSym}${projectedOverspend.toFixed(2)} (${budgetStatus.utilizationPercent.toFixed(1)}% utilized).`;
       } else if (budgetStatus.status === 'critical') {
         forecastState = 'critical';
         forecastStateLabel = 'Critical Budget Warning (≥90%)';
-        explanation = `Based on your configured appliance inventory, your estimated month-end electricity bill is ₹${bill.toFixed(2)}, utilizing ${budgetStatus.utilizationPercent.toFixed(1)}% of your ₹${budget.toFixed(2)} budget. Only ₹${remaining.toFixed(2)} headroom remains.`;
+        explanation = `Based on your configured appliance inventory, your estimated month-end electricity bill is ${curSym}${bill.toFixed(2)}, utilizing ${budgetStatus.utilizationPercent.toFixed(1)}% of your ${curSym}${budget.toFixed(2)} budget. Only ${curSym}${remaining.toFixed(2)} headroom remains.`;
       } else if (budgetStatus.status === 'warning') {
         forecastState = 'warning';
         forecastStateLabel = 'Caution Budget Position (≥75%)';
-        explanation = `Based on your configured appliance inventory, your estimated month-end electricity bill is ₹${bill.toFixed(2)}, utilizing ${budgetStatus.utilizationPercent.toFixed(1)}% of your ₹${budget.toFixed(2)} budget with ₹${remaining.toFixed(2)} remaining.`;
+        explanation = `Based on your configured appliance inventory, your estimated month-end electricity bill is ${curSym}${bill.toFixed(2)}, utilizing ${budgetStatus.utilizationPercent.toFixed(1)}% of your ${curSym}${budget.toFixed(2)} budget with ${curSym}${remaining.toFixed(2)} remaining.`;
       } else {
         forecastState = 'safe';
         forecastStateLabel = 'Comfortably Within Budget';
         if (totalMonthlyKwh === 0 && (!bill || bill <= (settings && settings.fixedCharges ? (Number(settings.fixedCharges) * 1.5) : 0))) {
-          explanation = `No appliances currently configured. With your configured ₹${budget.toFixed(2)} monthly budget target, you have ₹${remaining.toFixed(2)} available headroom (₹${pacing.dailyBudgetInr.toFixed(2)}/day allowance). Add appliances to start tracking your month-end projection.`;
+          explanation = `No appliances currently configured. With your configured ${curSym}${budget.toFixed(2)} monthly budget target, you have ${curSym}${remaining.toFixed(2)} available headroom (${curSym}${pacing.dailyBudgetInr.toFixed(2)}/day allowance). Add appliances to start tracking your month-end projection.`;
         } else {
-          explanation = `Based on your configured appliance inventory, your estimated month-end electricity bill is ₹${bill.toFixed(2)}, which is projected to remain ₹${remaining.toFixed(2)} under your monthly budget limit of ₹${budget.toFixed(2)} (${budgetStatus.utilizationPercent.toFixed(1)}% utilized).`;
+          explanation = `Based on your configured appliance inventory, your estimated month-end electricity bill is ${curSym}${bill.toFixed(2)}, which is projected to remain ${curSym}${remaining.toFixed(2)} under your monthly budget limit of ${curSym}${budget.toFixed(2)} (${budgetStatus.utilizationPercent.toFixed(1)}% utilized).`;
         }
       }
     }
@@ -1034,7 +1222,9 @@ const WattWatchCalculations = {
   /**
    * Appliance Replacement Simulator: Evaluates energy, bill, and ROI payback
    * between an existing baseline appliance and a prospective alternative.
-   * Supports both uniform flat rates and active progressive multi-slab tariffs.
+   * Supports both uniform flat rates and active progressive multi-slab tariffs,
+   * including lifeline free units, fixed charges, taxes/duties, and government subsidies,
+   * plus optional scenario overrides (duty cycle, standby draw, split weekday/weekend hours).
    * @param {Object} baselineAppliance
    * @param {number} altWatts - Prospective alternative power rating
    * @param {number} altDailyHours - Prospective daily operating hours
@@ -1042,10 +1232,11 @@ const WattWatchCalculations = {
    * @param {number} altQty - Units quantity (0 allowed for intentional removal)
    * @param {number|Object} rateOrSettings - Electricity tariff rate or full settings object
    * @param {number} purchaseCostInr - Optional upfront purchase cost of new appliance
-   * @param {number} householdTotalKwh - Optional total household monthly consumption for marginal slab savings
+   * @param {number} householdTotalKwh - Optional total household monthly consumption for marginal tariff savings
+   * @param {Object} [options={}] - Optional scenario fidelity overrides
    * @returns {Object|null} Comparative metrics & savings
    */
-  simulateReplacement(baselineAppliance, altWatts, altDailyHours, altDays, altQty, rateOrSettings = 8.00, purchaseCostInr = 0, householdTotalKwh = 0) {
+  simulateReplacement(baselineAppliance, altWatts, altDailyHours, altDays, altQty, rateOrSettings = 8.00, purchaseCostInr = 0, householdTotalKwh = 0, options = {}) {
     if (!baselineAppliance || typeof baselineAppliance !== 'object') {
       return null;
     }
@@ -1075,19 +1266,54 @@ const WattWatchCalculations = {
       return this._createInvalidSimulationResult(baselineAppliance, 'Baseline or replacement appliance parameters are invalid');
     }
 
-    const baseMetrics = this.calculateApplianceMetrics({
+    const simOpts = (options && typeof options === 'object' && !Array.isArray(options)) ? options : {};
+    const baseInput = {
       ...baselineAppliance,
       powerWatts: baseW,
       dailyHours: baseH,
       operatingDays: baseD,
       quantity: baseQ
-    });
-    const newMetrics = this.calculateApplianceMetrics({
+    };
+    if (simOpts.baseStandbyWatts !== undefined) {
+      const baseSb = this.validateStandbyWatts(simOpts.baseStandbyWatts, NaN);
+      if (isNaN(baseSb)) {
+        return this._createInvalidSimulationResult(baselineAppliance, 'Baseline standby wattage override must be between 0 and 500 Watts');
+      }
+      baseInput.standbyWatts = baseSb;
+    }
+    const baseMetrics = this.calculateApplianceMetrics(baseInput);
+
+    const newInput = {
       powerWatts: newW,
       dailyHours: newH,
       operatingDays: newD,
       quantity: newQ
-    });
+    };
+    if (simOpts.altDutyCyclePercent !== undefined) {
+      const dc = this.validateDutyCyclePercent(simOpts.altDutyCyclePercent, NaN);
+      if (isNaN(dc)) {
+        return this._createInvalidSimulationResult(baselineAppliance, 'Replacement duty cycle override must be between 1% and 100%');
+      }
+      newInput.dutyCyclePercent = dc;
+    }
+    if (simOpts.altStandbyWatts !== undefined) {
+      const sb = this.validateStandbyWatts(simOpts.altStandbyWatts, NaN);
+      if (isNaN(sb)) {
+        return this._createInvalidSimulationResult(baselineAppliance, 'Replacement standby wattage override must be between 0 and 500 Watts');
+      }
+      newInput.standbyWatts = sb;
+    }
+    if (simOpts.altActiveDaysPerWeek !== undefined) {
+      const ad = this.validateActiveDaysPerWeek(simOpts.altActiveDaysPerWeek, NaN);
+      if (isNaN(ad)) {
+        return this._createInvalidSimulationResult(baselineAppliance, 'Replacement active days per week override must be an integer between 1 and 7');
+      }
+      newInput.activeDaysPerWeek = ad;
+    }
+    if (simOpts.preserveSplitHours) {
+      Object.assign(newInput, this.scaleApplianceForTargetHours(baselineAppliance, newH, true));
+    }
+    const newMetrics = this.calculateApplianceMetrics(newInput);
 
     const baseMonthlyKwh = baseMetrics.isValid ? baseMetrics.monthlyKwh : this.calculateMonthlyKwh(baseW, baseQ, baseH, baseD);
     const newMonthlyKwh = newMetrics.isValid ? newMetrics.monthlyKwh : this.calculateMonthlyKwh(newW, newQ, newH, newD);
@@ -1100,32 +1326,55 @@ const WattWatchCalculations = {
     let tariffMode = 'flat';
     let effectiveRate = 8.00;
 
-    if (typeof rateOrSettings === 'object' && rateOrSettings !== null && rateOrSettings.tariffModel === 'slab') {
-      tariffMode = 'slab';
+    if (typeof rateOrSettings === 'object' && rateOrSettings !== null && !Array.isArray(rateOrSettings)) {
       const settings = rateOrSettings;
+      const validatedModel = this.validateTariffModel(settings.tariffModel, 'flat');
+      if (!validatedModel) {
+        return this._createInvalidSimulationResult(baselineAppliance, 'Tariff model must be "flat" or "slab"');
+      }
+      const isSlab = validatedModel === 'slab';
+      tariffMode = validatedModel;
+
+      const validFlat = this.validateTariffRate(settings.electricityRate, 8.00);
+      if (isNaN(validFlat)) {
+        return this._createInvalidSimulationResult(baselineAppliance, 'Electricity rate is invalid');
+      }
 
       const validCurKwh = (this.isFiniteNumber(householdTotalKwh) && Number(householdTotalKwh) >= 0)
         ? Number(householdTotalKwh)
         : 0;
       const curHouseholdKwh = Math.max(baseMonthlyKwh, validCurKwh);
       const baseTariff = this.calculateAdvancedTariff(curHouseholdKwh, settings);
-      const postHouseholdKwh = Math.max(0, curHouseholdKwh - monthlyKwhSaved);
+      const withoutApplianceKwh = curHouseholdKwh - baseMonthlyKwh;
+      const withoutTariff = this.calculateAdvancedTariff(withoutApplianceKwh, settings);
+      const postHouseholdKwh = withoutApplianceKwh + newMonthlyKwh;
       const postTariff = this.calculateAdvancedTariff(postHouseholdKwh, settings);
 
-      if (!baseTariff.isValid || !postTariff.isValid) {
-        return this._createInvalidSimulationResult(baselineAppliance, 'Tariff calculation failed for simulation');
+      if (!baseTariff.isValid || !withoutTariff.isValid || !postTariff.isValid) {
+        return this._createInvalidSimulationResult(
+          baselineAppliance,
+          baseTariff.error || withoutTariff.error || postTariff.error || 'Tariff calculation failed for simulation'
+        );
       }
 
-      effectiveRate = baseTariff.effectiveRatePerKwh;
-      monthlyCostSaved = baseTariff.totalCost - postTariff.totalCost;
-      baseMonthlyCost = baseMonthlyKwh * effectiveRate;
-      newMonthlyCost = Math.max(0, baseMonthlyCost - monthlyCostSaved);
-    } else {
-      let rawVal = (typeof rateOrSettings === 'object' && rateOrSettings !== null)
-        ? rateOrSettings.electricityRate
-        : rateOrSettings;
+      const hasTariffModifiers = isSlab ||
+        baseTariff.freeUnits > 0 ||
+        (baseTariff.billCreditInr > 0 || baseTariff.subsidy > 0) ||
+        (Boolean(simOpts.includeTaxInFlat) && (baseTariff.taxPercent > 0 || baseTariff.fixedCharge > 0));
 
-      const rate = this.validateTariffRate(rawVal, 8.00);
+      if (hasTariffModifiers) {
+        effectiveRate = baseTariff.effectiveRatePerKwh;
+        baseMonthlyCost = baseTariff.totalCost - withoutTariff.totalCost;
+        newMonthlyCost = postTariff.totalCost - withoutTariff.totalCost;
+        monthlyCostSaved = baseTariff.totalCost - postTariff.totalCost;
+      } else {
+        effectiveRate = validFlat;
+        baseMonthlyCost = this.calculateCost(baseMonthlyKwh, effectiveRate);
+        newMonthlyCost = this.calculateCost(newMonthlyKwh, effectiveRate);
+        monthlyCostSaved = baseMonthlyCost - newMonthlyCost;
+      }
+    } else {
+      const rate = this.validateTariffRate(rateOrSettings, 8.00);
       if (isNaN(rate)) {
         return this._createInvalidSimulationResult(baselineAppliance, 'Electricity rate is invalid');
       }
@@ -1133,6 +1382,10 @@ const WattWatchCalculations = {
       baseMonthlyCost = this.calculateCost(baseMonthlyKwh, effectiveRate);
       newMonthlyCost = this.calculateCost(newMonthlyKwh, effectiveRate);
       monthlyCostSaved = baseMonthlyCost - newMonthlyCost;
+    }
+
+    if (!this.isFiniteNumber(baseMonthlyCost) || !this.isFiniteNumber(newMonthlyCost) || baseMonthlyCost < 0 || newMonthlyCost < 0) {
+      return this._createInvalidSimulationResult(baselineAppliance, 'Calculated appliance costs cannot be negative');
     }
 
     const annualCostSaved = monthlyCostSaved * 12;
@@ -1295,26 +1548,26 @@ const WattWatchCalculations = {
 
     // 2. Active days per week
     if (operatingDays > 0 && appliance.activeDaysPerWeek !== undefined && appliance.activeDaysPerWeek !== null && appliance.activeDaysPerWeek !== '') {
-      const ad = Number(appliance.activeDaysPerWeek);
-      if (typeof appliance.activeDaysPerWeek !== 'boolean' && this.isFiniteNumber(ad) && ad >= 1 && ad <= 7) {
+      const ad = this.validateActiveDaysPerWeek(appliance.activeDaysPerWeek, NaN);
+      if (!isNaN(ad)) {
         operatingDays = Math.min(31, Math.round((ad / 7) * 30));
         hasAdvancedProfile = true;
       }
     }
 
-    // 3. Duty cycle / Inverter efficiency adjustment (1% to 100%)
+    // 3. Duty cycle / Inverter efficiency adjustment ((0, 100]%)
     if (appliance.dutyCyclePercent !== undefined && appliance.dutyCyclePercent !== null && appliance.dutyCyclePercent !== '') {
-      const dc = Number(appliance.dutyCyclePercent);
-      if (this.isFiniteNumber(dc) && dc > 0 && dc <= 100) {
+      const dc = this.validateDutyCyclePercent(appliance.dutyCyclePercent, NaN);
+      if (!isNaN(dc)) {
         dutyMultiplier = dc / 100;
         if (dc < 100) hasAdvancedProfile = true;
       }
     }
 
-    // 4. Standby power consumption (Watts, 0 to 500W)
+    // 4. Standby power consumption (0 to 500W)
     if (appliance.standbyWatts !== undefined && appliance.standbyWatts !== null && appliance.standbyWatts !== '') {
-      const sb = Number(appliance.standbyWatts);
-      if (this.isFiniteNumber(sb) && sb >= 0 && sb <= 500) {
+      const sb = this.validateStandbyWatts(appliance.standbyWatts, NaN);
+      if (!isNaN(sb)) {
         standbyWatts = sb;
         if (sb > 0) hasAdvancedProfile = true;
       }
@@ -1426,14 +1679,20 @@ const WattWatchCalculations = {
     let rate = 8.00;
     let isSlab = false;
     let isRateValid = true;
+    let isModelValid = true;
 
-    if (typeof rateOrSettings === 'object' && rateOrSettings !== null) {
+    if (typeof rateOrSettings === 'object' && rateOrSettings !== null && !Array.isArray(rateOrSettings)) {
       settings = rateOrSettings;
       rate = this.validateTariffRate(settings.electricityRate, 8.00);
       if (isNaN(rate)) {
         isRateValid = false;
       }
-      isSlab = settings.tariffModel === 'slab';
+      const validatedModel = this.validateTariffModel(settings.tariffModel, 'flat');
+      if (!validatedModel) {
+        isModelValid = false;
+      } else {
+        isSlab = validatedModel === 'slab';
+      }
     } else {
       rate = this.validateTariffRate(rateOrSettings, 8.00);
       if (isNaN(rate)) {
@@ -1484,13 +1743,13 @@ const WattWatchCalculations = {
 
     const hasInvalidAppliances = invalidAppliances.length > 0;
 
-    // If electricity rate was explicitly supplied and invalid:
-    if (!isRateValid) {
+    // If electricity rate or tariff model was explicitly supplied and invalid:
+    if (!isRateValid || !isModelValid) {
       return {
         isValid: false,
         hasInvalidAppliances,
         invalidAppliances,
-        error: 'Electricity tariff rate is invalid',
+        error: !isModelValid ? 'Tariff model must be "flat" or "slab"' : 'Electricity tariff rate is invalid',
         totalDailyKwh: hasInvalidAppliances ? NaN : validAppEntries.reduce((acc, e) => acc + e.dailyKwh, 0),
         totalMonthlyKwh: hasInvalidAppliances ? NaN : validAppEntries.reduce((acc, e) => acc + e.monthlyKwh, 0),
         totalDailyCost: NaN,

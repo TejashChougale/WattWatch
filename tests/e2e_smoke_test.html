@@ -528,21 +528,35 @@
 
         // Responsive check across Mobile (390px), Tablet (768px), Desktop (1280px)
         const widths = [390, 768, 1280];
-        const respViews = ['overview', 'settings', 'appliances', 'simulator', 'recommendations'];
+        const respViews = ['overview', 'settings', 'appliances', 'simulator', 'recommendations', 'report'];
         const overflowIssues = [];
         for (const w of widths) {
           frame.style.width = `${w}px`;
           for (const v of respViews) {
-            WattWatchApp.navigateTo(v);
-            const cw = doc.documentElement.clientWidth;
-            const sw = doc.documentElement.scrollWidth;
-            if (sw > cw) {
-              overflowIssues.push(`${w}px/${v}(${sw}>${cw})`);
+            if (v === 'report') {
+              WattWatchReport.openReportModal();
+              const cw = doc.documentElement.clientWidth;
+              const sw = doc.documentElement.scrollWidth;
+              const modalContent = doc.querySelector('#reportModal .modal-content');
+              const previewArea = doc.getElementById('reportPreviewArea');
+              const modalW = modalContent ? modalContent.getBoundingClientRect().width : 0;
+              const previewW = previewArea ? previewArea.getBoundingClientRect().width : 0;
+              if (sw > cw || modalW > cw + 1 || previewW > cw + 1) {
+                overflowIssues.push(`${w}px/report(sw=${sw}>cw=${cw},modal=${Math.round(modalW)},preview=${Math.round(previewW)})`);
+              }
+              WattWatchReport.closeReportModal();
+            } else {
+              WattWatchApp.navigateTo(v);
+              const cw = doc.documentElement.clientWidth;
+              const sw = doc.documentElement.scrollWidth;
+              if (sw > cw) {
+                overflowIssues.push(`${w}px/${v}(${sw}>${cw})`);
+              }
             }
           }
         }
         frame.style.width = '1280px';
-        assert(overflowIssues.length === 0, 'SMOKE-77: Zero horizontal overflow across 390/768/1280px including Slab Settings & Recommendations', overflowIssues.join(', '));
+        assert(overflowIssues.length === 0, 'SMOKE-77: Zero horizontal overflow across 390/768/1280px including Slab Settings, Recommendations & Report Modal', overflowIssues.join(', '));
 
         // ============================================================
         // Phase F: Real Page Reload Persistence Check (clean isolated profile only)
@@ -706,22 +720,277 @@
         }
 
         // ============================================================
+        // Phase H: Phase 7 Recommendations, What-If Scenarios, XSS, A11y & Motion Polish
+        // ============================================================
+        win.WattWatchStorage.setTestNamespace('wattwatch_e2e_p7_');
+        win.WattWatchStorage.clearAllData();
+        win.WattWatchStorage.saveSettings({
+          tariffModel: 'flat',
+          electricityRate: 8.0,
+          fixedCharges: 0,
+          additionalTaxPercent: 0,
+          freeUnits: 0,
+          billCreditInr: 0,
+          budgetInr: 2500
+        });
+        win.WattWatchStorage.saveAppliances([]);
+        win.WattWatchApp.setRecommendationsFilter('all');
+        win.WattWatchApp.navigateTo('recommendations');
+        await new Promise(r => setTimeout(r, 60));
+
+        assert(
+          doc.getElementById('tipsTotalSavingsCost').textContent === '₹0.00' &&
+          doc.getElementById('tipsTotalSavingsKwh').textContent === '0.00 kWh' &&
+          win.getComputedStyle(doc.getElementById('tipsEmptyState')).display !== 'none' &&
+          win.getComputedStyle(doc.getElementById('whatIfScenariosCard')).display === 'none' &&
+          doc.getElementById('btnEmptyWhatIfSimulator').disabled === true,
+          'SMOKE-83: Recommendations empty state shows ₹0.00, 0.00 kWh, disabled What-If button, and hidden scenarios card'
+        );
+
+        // Populated overlapping AC + XSS payload + TV -> check combined non-double-counted savings, overlap note, filter, XSS safety, and animation completion
+        win.__xssP7E2e = 0;
+        const p7HostileName = 'SuperCoolAC_<img src=x onerror="window.__xssP7E2e++">';
+        win.WattWatchStorage.saveAppliances([
+          { id: 'e2e_p7_ac', name: p7HostileName, category: 'Cooling', powerWatts: 1500, quantity: 1, dailyHours: 8, operatingDays: 30 },
+          { id: 'e2e_p7_tv', name: 'OLED TV', category: 'Entertainment', powerWatts: 120, quantity: 1, dailyHours: 6, operatingDays: 30, standbyWatts: 15 }
+        ]);
+        win.WattWatchApp.refreshAll();
+        await new Promise(r => setTimeout(r, 420));
+
+        const p7ExpectedRecs = win.WattWatchRecommendations.generateRecommendations(
+          win.WattWatchStorage.getAppliances(),
+          win.WattWatchStorage.getSettings()
+        );
+        const expectedCostFormatted = win.WattWatchCalculations.formatCurrency(p7ExpectedRecs.totalPotentialSavingsCost, '₹');
+        const expectedKwhFormatted = win.WattWatchCalculations.formatKwh(p7ExpectedRecs.totalPotentialSavingsKwh);
+
+        assert(
+          doc.getElementById('tipsTotalSavingsCost').textContent === expectedCostFormatted &&
+          doc.getElementById('tipsTotalSavingsKwh').textContent === expectedKwhFormatted &&
+          doc.getElementById('tipsOverlapNote').style.display === 'block',
+          'SMOKE-84: Animated recommendation headline metrics finish at exact combined non-overlapping value with overlap disclosure note'
+        );
+        const cardPillsCost = Array.from(doc.querySelectorAll('#tipsGridContainer .tip-savings-pill'))
+          .reduce((sum, pill) => {
+            const firstToken = String(pill.textContent || '').split('(')[0];
+            return sum + (Number(firstToken.replace(/[^0-9.]/g, '')) || 0);
+          }, 0);
+        assert(
+          Math.abs(cardPillsCost - p7ExpectedRecs.totalPotentialSavingsCost) <= 0.05 &&
+          doc.getElementById('tipsGridContainer').textContent.includes('Combined Household Share') &&
+          doc.getElementById('tipsGridContainer').textContent.includes('Standalone if applied alone'),
+          'SMOKE-84B: Displayed recommendation card savings sum to combined headline total while showing standalone potential separately'
+        );
+        assert(
+          win.__xssP7E2e === 0 &&
+          !doc.getElementById('tipsGridContainer').querySelector('img') &&
+          !doc.getElementById('tipsGridContainer').innerHTML.includes('onclick='),
+          'SMOKE-85: Hostile XSS appliance name rendered safely with zero injected elements or inline onclick handlers'
+        );
+
+        // Tariff synchronization: enable 100 free units -> recommendations & overview savings must both recalculate consistently
+        win.WattWatchApp.navigateTo('settings');
+        const setFreeInp = doc.getElementById('settingsFreeUnits');
+        setFreeInp.value = '100';
+        setFreeInp.dispatchEvent(new Event('change'));
+        win.WattWatchApp.navigateTo('recommendations');
+        await new Promise(r => setTimeout(r, 420));
+        const slabFreeRecs = win.WattWatchRecommendations.generateRecommendations(
+          win.WattWatchStorage.getAppliances(),
+          win.WattWatchStorage.getSettings()
+        );
+        assert(
+          doc.getElementById('tipsTotalSavingsCost').textContent === win.WattWatchCalculations.formatCurrency(slabFreeRecs.totalPotentialSavingsCost, '₹'),
+          'SMOKE-86: Settings free-unit tariff update propagates immediately to Recommendations view without reload'
+        );
+
+        // Filter recommendations
+        doc.querySelector('#tipsImpactFilters [data-tip-filter="Optimization"]').click();
+        assert(
+          doc.querySelectorAll('#tipsGridContainer article.tip-card').length >= 1 &&
+          doc.getElementById('tipsTotalSavingsCost').textContent === win.WattWatchCalculations.formatCurrency(slabFreeRecs.totalPotentialSavingsCost, '₹'),
+          'SMOKE-87: Recommendation filter isolates matching tips cleanly without altering total savings headline'
+        );
+        doc.querySelector('#tipsImpactFilters [data-tip-filter="all"]').click();
+
+        // Click Preview in Simulator button on What-If scenario -> verifies handoff, focus transfer, Preview banner, & non-mutation of saved appliances
+        const beforeApplianceHours = win.WattWatchStorage.getAppliances().find(a => a.id === 'e2e_p7_ac').dailyHours;
+        const firstWhatIfBtn = doc.querySelector('#whatIfScenariosList [data-action="apply-whatif"]');
+        assert(Boolean(firstWhatIfBtn && firstWhatIfBtn.getAttribute('aria-label')), 'SMOKE-88: What-If Preview button exists with descriptive aria-label');
+        firstWhatIfBtn.click();
+        assert(
+          win.WattWatchApp.currentView === 'simulator' &&
+          doc.getElementById('simApplianceSelect').value === 'e2e_p7_ac' &&
+          doc.getElementById('simResultsContainer').textContent.includes('Preview Only') &&
+          doc.activeElement && doc.activeElement.id === 'simAltWatts' &&
+          win.WattWatchStorage.getAppliances().find(a => a.id === 'e2e_p7_ac').dailyHours === beforeApplianceHours,
+          'SMOKE-89: What-If scenario handoff selects appliance, focuses simulator input, shows Preview Only notice, and keeps saved inventory unchanged'
+        );
+
+        // Verify Simulator UI tariff-modifier allocation consistency (Baseline - Replacement === Monthly Savings)
+        const parseCurrNum = (txt) => Number(String(txt || '').replace(/[^0-9.\-]/g, ''));
+        const simCards = doc.querySelectorAll('#simResultsContainer .metrics-grid .metric-card .metric-value');
+        const uiBaseCost = simCards[0] ? parseCurrNum(simCards[0].textContent) : NaN;
+        const uiRepCost = simCards[1] ? parseCurrNum(simCards[1].textContent) : NaN;
+        const uiSavedCost = simCards[2] ? parseCurrNum(simCards[2].textContent) : NaN;
+        assert(
+          simCards.length >= 3 &&
+          Number.isFinite(uiBaseCost) && uiBaseCost >= 0 &&
+          Number.isFinite(uiRepCost) && uiRepCost >= 0 &&
+          Math.abs((uiBaseCost - uiRepCost) - uiSavedCost) <= 0.02,
+          'SMOKE-89B: Simulator UI Baseline minus Replacement cost matches displayed Monthly Savings under active tariff modifiers'
+        );
+
+        // Chart in-place update verification
+        win.WattWatchApp.navigateTo('overview');
+        const chartBefore = win.WattWatchCharts.instances.overviewTrend;
+        win.WattWatchStorage.saveAppliances([
+          { id: 'e2e_p7_ac', name: 'Updated AC', category: 'Cooling', powerWatts: 1800, quantity: 1, dailyHours: 9, operatingDays: 30 }
+        ]);
+        win.WattWatchApp.refreshAll();
+        const chartAfter = win.WattWatchCharts.instances.overviewTrend;
+        assert(chartBefore !== null && chartBefore === chartAfter, 'SMOKE-90: Updating appliance reuses existing Chart.js instance in place without destroy/recreate flicker');
+
+        // Full DOM Accessibility & Duplicate ID Check across populated Recommendations & all views
+        win.WattWatchApp.navigateTo('recommendations');
+        const recUnlabeled = [];
+        doc.querySelectorAll('#view-recommendations button, #view-recommendations input, #view-recommendations select').forEach(b => {
+          const st = win.getComputedStyle(b);
+          if (st.display === 'none' || st.visibility === 'hidden') return;
+          const hasAria = b.hasAttribute('aria-label') || b.hasAttribute('aria-labelledby');
+          const hasLabel = b.id && doc.querySelector(`label[for="${b.id}"]`);
+          const hasTxt = b.tagName === 'BUTTON' && b.textContent.trim().length > 0;
+          if (!hasAria && !hasLabel && !hasTxt) recUnlabeled.push(b.id || b.className || b.tagName);
+        });
+        assert(recUnlabeled.length === 0, 'SMOKE-91: All visible controls in Recommendations view have accessible names', recUnlabeled.join(', '));
+
+        const postIdCounts = new Map();
+        doc.querySelectorAll('[id]').forEach(el => {
+          postIdCounts.set(el.id, (postIdCounts.get(el.id) || 0) + 1);
+        });
+        const postDupIds = [...postIdCounts.entries()].filter(([, cnt]) => cnt > 1).map(([id]) => id);
+        assert(postDupIds.length === 0, 'SMOKE-91B: Zero duplicate DOM IDs after dynamic recommendations and scenarios render', postDupIds.join(', '));
+
+        // Mobile 390px horizontal overflow check on Recommendations with long unbroken appliance name
+        win.WattWatchStorage.saveAppliances([
+          { id: 'e2e_p7_long', name: 'A'.repeat(95), category: 'Cooling', powerWatts: 1800, quantity: 1, dailyHours: 10, operatingDays: 30 }
+        ]);
+        win.WattWatchApp.refreshAll();
+        frame.style.width = '390px';
+        win.WattWatchApp.navigateTo('recommendations');
+        const recOverflow390 = doc.documentElement.scrollWidth > doc.documentElement.clientWidth;
+        frame.style.width = '1280px';
+        assert(!recOverflow390, 'SMOKE-92: Recommendations view with 95-char unbroken name has 0 horizontal overflow at 390px mobile width');
+
+        // SMOKE-95..98: End-to-end UI behavior regressions (empty state CTA, legacy report guard, tips warnings banner, simulator confirm commit parity)
+        // 95: Empty appliances button opens modal without inline onclick
+        win.WattWatchStorage.saveAppliances([]);
+        win.WattWatchApp.navigateTo('appliances');
+        const emptyAddBtn = doc.getElementById('btnEmptyAddAppliance');
+        const emptyLoadBtn = doc.getElementById('btnEmptyLoadSample');
+        const hasNoInlineOnEmpty = emptyAddBtn && !emptyAddBtn.hasAttribute('onclick') && emptyLoadBtn && !emptyLoadBtn.hasAttribute('onclick');
+        if (emptyAddBtn) emptyAddBtn.click();
+        const modalOpenedFromEmpty = doc.getElementById('applianceModal').classList.contains('is-open');
+        win.WattWatchAppliances.closeModal();
+        assert(hasNoInlineOnEmpty && modalOpenedFromEmpty, 'SMOKE-95: #btnEmptyAddAppliance has zero inline onclick and opens #applianceModal via JS binding');
+
+        // 96: Legacy snapshot missing currency & slab config refuses leakage & recalculation
+        win.WattWatchStorage.saveSettings({ tariffModel: 'flat', electricityRate: 8.0, fixedCharges: 0, additionalTaxPercent: 0, freeUnits: 0, billCreditInr: 0, currency: '$' });
+        win.WattWatchStorage.saveSnapshot({
+          id: 'e2e_legacy_slab',
+          period: '2025-11',
+          periodLabel: 'November 2025 (Legacy)',
+          totalKwh: 200,
+          totalCost: 1450,
+          tariffModel: 'slab',
+          effectiveRate: 7.25,
+          appliancesCount: 1,
+          totalUnits: 1,
+          appliancesSnapshot: [{ id: 'leg1', name: 'Old AC', category: 'Cooling', powerWatts: 1500, quantity: 1, dailyHours: 4, operatingDays: 30, monthlyKwh: 180, monthlyCost: 1305 }]
+        });
+        win.WattWatchReport.openReportModal();
+        const repSel = doc.getElementById('reportPeriodSelect');
+        if (repSel) {
+          repSel.value = 'e2e_legacy_slab';
+          win.WattWatchReport.updateReportPreview();
+        }
+        const repText = doc.getElementById('reportPreviewArea') ? doc.getElementById('reportPreviewArea').textContent : '';
+        win.WattWatchReport.closeReportModal();
+        assert(
+          repText.includes('Currency Information Unavailable') &&
+          repText.includes('Historical Recalculation Unavailable') &&
+          !repText.includes('$1,450.00'),
+          'SMOKE-96: Historical report with missing currency & slab settings displays unavailability notices and does not leak active $ symbol'
+        );
+
+        // 97: Recommendations partial calculation warning exposed in #tipsWarningsBanner
+        win.WattWatchStorage.saveSettings({ tariffModel: 'flat', electricityRate: 8.0, fixedCharges: 0, additionalTaxPercent: 0, freeUnits: 0, billCreditInr: 0, currency: '₹' });
+        win.WattWatchApp.navigateTo('recommendations');
+        win.WattWatchApp.renderRecommendationsView([
+          { id: 'e2e_warn_ac', name: 'WarnAC', category: 'Cooling', powerWatts: 1500, quantity: 1, dailyHours: 8, operatingDays: 30 },
+          { id: 'e2e_warn_tv', name: 'BadStandbyTV', category: 'Entertainment', powerWatts: 120, quantity: 1, dailyHours: 6, operatingDays: 30, standbyWatts: 'bad_sb' }
+        ], win.WattWatchStorage.getSettings());
+        const warnBanner = doc.getElementById('tipsWarningsBanner');
+        assert(
+          warnBanner && win.getComputedStyle(warnBanner).display !== 'none' && warnBanner.textContent.includes('BadStandbyTV') &&
+          doc.querySelectorAll('#tipsGridContainer article.tip-card').length >= 1,
+          'SMOKE-97: Malformed standby warning is exposed visibly in #tipsWarningsBanner while preserving valid recommendations'
+        );
+
+        // 98: Simulator preview -> confirm -> commit saves exact metrics matching preview
+        win.WattWatchStorage.saveAppliances([
+          { id: 'e2e_sim_ac', name: 'Old AC', category: 'Cooling', powerWatts: 1800, quantity: 1, dailyHours: 8, operatingDays: 30, dutyCyclePercent: 80, standbyWatts: 10 }
+        ]);
+        win.WattWatchApp.navigateTo('simulator');
+        doc.getElementById('simApplianceSelect').value = 'e2e_sim_ac';
+        win.WattWatchSimulator.handleApplianceSelect();
+        doc.getElementById('simAltWatts').value = '1200';
+        win.WattWatchSimulator.calculateReplacement();
+        const prevAppSim = win.WattWatchCalculations.calculateHouseholdSummary(
+          win.WattWatchStorage.getAppliances(),
+          win.WattWatchStorage.getSettings()
+        );
+        const beforeTotalBill = prevAppSim.totalMonthlyCost;
+        const simMonthlySaveCard = doc.querySelectorAll('#simResultsContainer .metrics-grid .metric-card .metric-value')[2];
+        const previewSavedCost = Number(String(simMonthlySaveCard ? simMonthlySaveCard.textContent : '0').replace(/[^0-9.\-]/g, ''));
+        const applySimBtn = doc.getElementById('btnCommitSimScenario');
+        if (applySimBtn) applySimBtn.click();
+        const okBtn = doc.getElementById('confirmModalOkBtn');
+        if (okBtn) okBtn.click();
+        const afterCommitSum = win.WattWatchCalculations.calculateHouseholdSummary(
+          win.WattWatchStorage.getAppliances(),
+          win.WattWatchStorage.getSettings()
+        );
+        const actualSavedAfterCommit = beforeTotalBill - afterCommitSum.totalMonthlyCost;
+        assert(
+          Math.abs(previewSavedCost - actualSavedAfterCommit) <= 0.05 &&
+          win.WattWatchStorage.getAppliances()[0].powerWatts === 1200 &&
+          win.WattWatchStorage.getAppliances()[0].dutyCyclePercent === 80 &&
+          win.WattWatchStorage.getAppliances()[0].standbyWatts === 10,
+          'SMOKE-98: Simulator Confirm -> Commit persists simulated wattage, preserves untouched advanced fields, and matches preview savings'
+        );
+
+        // ============================================================
         // Phase G: Runtime Console Errors & Local Network Request Check
         // ============================================================
         const resources = win.performance.getEntriesByType('resource') || [];
         const localResources = resources.filter(r => r.name.startsWith(location.origin));
         const extFailures = externalResourcesLog.length ? `External CDN/network notes: ${externalResourcesLog.join(' | ')}` : 'External requests: none failed';
 
-        assert(failedLocalResources.length === 0, 'SMOKE-83: Zero failed same-origin local network/asset requests', `Local resources loaded: ${localResources.length}; ${failedLocalResources.join(' | ')}`);
-        assert(capturedErrors.length === 0, 'SMOKE-84: Zero unexpected JS runtime errors or console.error calls', capturedErrors.length ? capturedErrors.join(' | ') : extFailures);
+        assert(failedLocalResources.length === 0, 'SMOKE-93: Zero failed same-origin local network/asset requests', `Local resources loaded: ${localResources.length}; ${failedLocalResources.join(' | ')}`);
+        assert(capturedErrors.length === 0, 'SMOKE-94: Zero unexpected JS runtime errors or console.error calls', capturedErrors.length ? capturedErrors.join(' | ') : extFailures);
 
       } catch (err) {
         assert(false, 'SMOKE-ERROR: Unexpected smoke test exception', err.stack || err.message);
       } finally {
+        const preSet = new Set(preExistingKeys);
+        const isPhaseFGuestOrReloadKey = (k) =>
+          k.includes('_reload_auth_user_') ||
+          /^wattwatch_(appliances|settings|history|theme|meter|guide_dismissed)_v\d+$/.test(k);
         const keysToRemove = [];
         for (let i = 0; i < localStorage.length; i++) {
           const k = localStorage.key(i);
-          if (k && (k.startsWith('wattwatch_e2e_smoke_test_') || (preExistingKeys.length === 0 && k.includes('wattwatch')))) {
+          if (k && (k.startsWith('wattwatch_e2e_smoke_test_') || k.startsWith('wattwatch_e2e_p7_') || (preExistingKeys.length === 0 && !preSet.has(k) && isPhaseFGuestOrReloadKey(k)))) {
             keysToRemove.push(k);
           }
         }

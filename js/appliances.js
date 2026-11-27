@@ -65,9 +65,11 @@ const WattWatchAppliances = {
         filterContainer.querySelectorAll('.filter-pill').forEach(p => {
           p.classList.remove('active');
           p.setAttribute('aria-selected', 'false');
+          p.setAttribute('tabindex', '-1');
         });
         pill.classList.add('active');
         pill.setAttribute('aria-selected', 'true');
+        pill.setAttribute('tabindex', '0');
         this.activeCategoryFilter = pill.getAttribute('data-category') || 'All';
         this.renderApplianceTable();
       });
@@ -79,6 +81,18 @@ const WattWatchAppliances = {
       sortSelect.addEventListener('change', (e) => {
         this.sortBy = e.target.value;
         this.renderApplianceTable();
+      });
+    }
+
+    const btnEmptyAdd = document.getElementById('btnEmptyAddAppliance');
+    if (btnEmptyAdd) {
+      btnEmptyAdd.addEventListener('click', () => this.openModal());
+    }
+    const btnEmptyLoad = document.getElementById('btnEmptyLoadSample');
+    if (btnEmptyLoad) {
+      btnEmptyLoad.addEventListener('click', () => {
+        const sampleBtn = document.getElementById('btnLoadSampleData');
+        if (sampleBtn) sampleBtn.click();
       });
     }
 
@@ -585,6 +599,7 @@ const WattWatchAppliances = {
           WattWatchApp.showToast('Failed to save appliance to storage.', 'error', 'Save Failed');
           return;
         }
+        this._lastHighlightedId = existing.id;
         WattWatchApp.showToast('Appliance updated successfully', 'success', 'Saved');
       }
     } else {
@@ -600,11 +615,13 @@ const WattWatchAppliances = {
         WattWatchApp.showToast('Failed to save appliance to storage.', 'error', 'Save Failed');
         return;
       }
+      this._lastHighlightedId = newAppliance.id;
       WattWatchApp.showToast(`"${payload.name}" added to inventory`, 'success', 'Appliance Added');
     }
 
     this.closeModal();
     WattWatchApp.refreshAll();
+    this._lastHighlightedId = null;
   },
 
   /**
@@ -749,8 +766,24 @@ const WattWatchAppliances = {
 
     tbody.innerHTML = '';
 
+    const nameCounts = {};
+    filteredList.forEach(a => {
+      const key = String(a?.name || 'Appliance').trim() || 'Appliance';
+      nameCounts[key] = (nameCounts[key] || 0) + 1;
+    });
+    const nameSeen = {};
+
     filteredList.forEach(app => {
+      const rawLabelName = String(app?.name || 'Appliance').trim() || 'Appliance';
+      nameSeen[rawLabelName] = (nameSeen[rawLabelName] || 0) + 1;
+      const ariaNameSuffix = nameCounts[rawLabelName] > 1
+        ? ` (${Number(app.powerWatts) || 0}W, #${nameSeen[rawLabelName]})`
+        : '';
+      const uniqueAriaName = this.escapeHtml(`${rawLabelName}${ariaNameSuffix}`);
       const tr = document.createElement('tr');
+      if (this._lastHighlightedId && app.id === this._lastHighlightedId) {
+        tr.classList.add('row-flash');
+      }
       const safeCat = this.escapeHtml(app.category || 'Other');
       const badgeClass = `badge-${encodeURIComponent(String(app.category || 'other').toLowerCase().replace(/[^a-z0-9]/g, ''))}`;
       const isHighLoad = (Number(app.sharePercentage) || 0) >= 20;
@@ -807,18 +840,18 @@ const WattWatchAppliances = {
         </td>
         <td>
           <div class="table-actions">
-            <button type="button" class="btn btn-secondary btn-icon btn-sm" title="Simulate Energy-Efficient Upgrade" data-action="simulate" data-id="${this.escapeHtml(app.id)}" aria-label="Simulate Replacement for ${this.escapeHtml(app.name)}" style="color: var(--text-gold);">
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <button type="button" class="btn btn-secondary btn-icon btn-sm" title="Simulate Energy-Efficient Upgrade" data-action="simulate" data-id="${this.escapeHtml(app.id)}" aria-label="Simulate Replacement for ${uniqueAriaName}" style="color: var(--text-gold);">
+              <svg aria-hidden="true" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
               </svg>
             </button>
-            <button type="button" class="btn btn-secondary btn-icon btn-sm" title="Edit Appliance" data-action="edit" data-id="${this.escapeHtml(app.id)}" aria-label="Edit ${this.escapeHtml(app.name)}">
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <button type="button" class="btn btn-secondary btn-icon btn-sm" title="Edit Appliance" data-action="edit" data-id="${this.escapeHtml(app.id)}" aria-label="Edit ${uniqueAriaName}">
+              <svg aria-hidden="true" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/>
               </svg>
             </button>
-            <button type="button" class="btn btn-secondary btn-icon btn-sm" title="Delete Appliance" data-action="delete" data-id="${this.escapeHtml(app.id)}" aria-label="Delete ${this.escapeHtml(app.name)}" style="color: #A92639;">
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <button type="button" class="btn btn-secondary btn-icon btn-sm" title="Delete Appliance" data-action="delete" data-id="${this.escapeHtml(app.id)}" aria-label="Delete ${uniqueAriaName}" style="color: #A92639;">
+              <svg aria-hidden="true" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <polyline points="3 6 5 6 21 6"/>
                 <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
               </svg>
@@ -885,12 +918,41 @@ const WattWatchAppliances = {
   },
 
   simulateAppliance(id) {
+    if (!id || typeof id !== 'string') {
+      if (typeof WattWatchApp !== 'undefined' && WattWatchApp.showToast) {
+        WattWatchApp.showToast('Cannot launch simulator: invalid appliance reference.', 'error', 'Appliance Missing');
+      }
+      return false;
+    }
+
+    const appliances = WattWatchStorage.getAppliances();
+    const targetApp = appliances.find(a => a.id === id);
+    if (!targetApp) {
+      if (typeof WattWatchApp !== 'undefined' && WattWatchApp.showToast) {
+        WattWatchApp.showToast('Cannot launch simulator: this appliance was removed or no longer exists in your inventory.', 'error', 'Appliance Missing');
+      }
+      if (typeof WattWatchApp !== 'undefined' && WattWatchApp.refreshAll) {
+        WattWatchApp.refreshAll();
+      }
+      return false;
+    }
+
+    if (typeof WattWatchSimulator !== 'undefined') {
+      WattWatchSimulator._activeScenarioPreview = null;
+    }
     WattWatchApp.navigateTo('simulator');
     const select = document.getElementById('simApplianceSelect');
     if (select) {
-      select.value = id;
+      select.value = targetApp.id;
       WattWatchSimulator.handleApplianceSelect();
     }
+    const focusTarget = document.getElementById('simAltWatts') || select;
+    if (focusTarget && !focusTarget.disabled && typeof focusTarget.focus === 'function') {
+      try {
+        focusTarget.focus({ preventScroll: true });
+      } catch (_) {}
+    }
+    return true;
   },
 
   escapeHtml(str) {

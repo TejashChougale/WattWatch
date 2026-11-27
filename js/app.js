@@ -7,12 +7,14 @@
 const WattWatchApp = {
   currentView: 'overview',
   analyticsTimeframe: 'monthly',
+  currentTipFilter: 'all',
   confirmCallback: null,
   budgetWarnedSession: { 75: false, 90: false, 100: false },
 
   _eventsBound: false,
   _themeBound: false,
   previousActiveElement: null,
+  _lastTipsSignature: null,
 
   /**
    * Application bootstrap
@@ -37,6 +39,7 @@ const WattWatchApp = {
       this._eventsBound = true;
       this.bindNavigation();
       this.bindOverviewControls();
+      this.bindRecommendationsControls();
       this.bindSettings();
       this.bindModalKeyboards();
       this.bindFirstTimeGuide();
@@ -162,8 +165,12 @@ const WattWatchApp = {
     const timePills = document.querySelectorAll('.time-pill-btn');
     timePills.forEach(btn => {
       btn.addEventListener('click', () => {
-        timePills.forEach(b => b.classList.remove('active'));
+        timePills.forEach(b => {
+          b.classList.remove('active');
+          b.setAttribute('aria-pressed', 'false');
+        });
         btn.classList.add('active');
+        btn.setAttribute('aria-pressed', 'true');
         this.analyticsTimeframe = btn.getAttribute('data-timeframe') || 'monthly';
 
         const settings = WattWatchStorage.getSettings();
@@ -172,6 +179,290 @@ const WattWatchApp = {
         WattWatchCharts.renderAnalyticsTimelineChart(summary, this.analyticsTimeframe);
       });
     });
+
+    const timePillsWrap = document.querySelector('.analytics-time-pills');
+    if (timePillsWrap) {
+      timePillsWrap.addEventListener('keydown', (e) => {
+        if (!['ArrowRight', 'ArrowLeft', 'Home', 'End'].includes(e.key)) return;
+        const btns = Array.from(timePillsWrap.querySelectorAll('.time-pill-btn'));
+        const curIdx = btns.indexOf(document.activeElement);
+        if (curIdx === -1) return;
+        e.preventDefault();
+        let nextIdx = curIdx;
+        if (e.key === 'ArrowRight') nextIdx = (curIdx + 1) % btns.length;
+        else if (e.key === 'ArrowLeft') nextIdx = (curIdx - 1 + btns.length) % btns.length;
+        else if (e.key === 'Home') nextIdx = 0;
+        else if (e.key === 'End') nextIdx = btns.length - 1;
+        btns[nextIdx].focus();
+        btns[nextIdx].click();
+      });
+    }
+  },
+
+  /**
+   * Checks whether reduced motion is requested via media query or test override.
+   * @returns {boolean}
+   */
+  _prefersReducedMotion() {
+    if (this.reduceMotionOverride === true) return true;
+    return typeof window !== 'undefined' && typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  },
+
+  /**
+   * Triggers a brief subtle highlight pulse on an element when state updates.
+   * @param {HTMLElement|null} el
+   * @param {string} [cls='panel-flash']
+   */
+  _flashElement(el, cls = 'panel-flash') {
+    if (!el || this._prefersReducedMotion()) return;
+    el.classList.remove(cls);
+    void el.offsetWidth;
+    el.classList.add(cls);
+  },
+
+  /**
+   * Cancels active metric rAF loops / fallback timers when elements are detached or inside hidden view panes.
+   */
+  _cancelHiddenMetricAnimations() {
+    if (!this._activeMetricEls) return;
+    this._activeMetricEls.forEach(el => {
+      const pane = el && el.closest ? el.closest('.view-pane') : null;
+      if (!el || !el.isConnected || (pane && !pane.classList.contains('active'))) {
+        if (el && el._metricRafId && typeof cancelAnimationFrame === 'function') {
+          cancelAnimationFrame(el._metricRafId);
+          el._metricRafId = null;
+        }
+        if (el && el._metricFallbackTimer) {
+          clearTimeout(el._metricFallbackTimer);
+          el._metricFallbackTimer = null;
+        }
+        if (el && el.isConnected && el.dataset && el.dataset.targetText !== undefined) {
+          el.textContent = el.dataset.targetText;
+        }
+        this._activeMetricEls.delete(el);
+      }
+    });
+  },
+
+  /**
+   * Smoothly animates a numeric metric text element only when its calculated value changes
+   * and while the element is visible. Screen readers always receive the exact final value
+   * via aria-label / synchronous dataset state without intermediate ticking noise.
+   * @param {HTMLElement|null} el
+   * @param {number} targetValue
+   * @param {Function} formatter
+   * @param {Object} [opts={}]
+   */
+  _animateMetricCounter(el, targetValue, formatter, opts = {}) {
+    if (!el || typeof formatter !== 'function') return;
+    if (!this._activeMetricEls) this._activeMetricEls = new Set();
+
+    el._metricAnimToken = (el._metricAnimToken || 0) + 1;
+    const animToken = el._metricAnimToken;
+
+    const finalText = formatter(targetValue);
+    if (el._metricRafId && typeof cancelAnimationFrame === 'function') {
+      cancelAnimationFrame(el._metricRafId);
+      el._metricRafId = null;
+    }
+    if (el._metricFallbackTimer) {
+      clearTimeout(el._metricFallbackTimer);
+      el._metricFallbackTimer = null;
+    }
+
+    el.dataset.targetText = finalText;
+    if (opts.setAriaLabel !== false && !el.hasAttribute('aria-labelledby')) {
+      el.setAttribute('aria-label', finalText);
+    }
+
+    const numTarget = Number(targetValue);
+    if (!Number.isFinite(numTarget) || numTarget < 0) {
+      el.textContent = finalText;
+      delete el.dataset.metricVal;
+      delete el.dataset.lastVisibleVal;
+      delete el.dataset.pendingAnimate;
+      this._activeMetricEls.delete(el);
+      return;
+    }
+
+    const pane = el.closest ? el.closest('.view-pane') : null;
+    const isVisiblePane = !pane || pane.classList.contains('active');
+    const prevSaved = el.dataset.metricVal !== undefined ? Number(el.dataset.metricVal) : NaN;
+    const valueChanged = isNaN(prevSaved) ? numTarget > 0 : Math.abs(prevSaved - numTarget) > 1e-6;
+
+    if (!isVisiblePane) {
+      if (valueChanged) {
+        el.dataset.pendingAnimate = '1';
+      }
+      el.dataset.metricVal = String(numTarget);
+      el.textContent = finalText;
+      this._activeMetricEls.delete(el);
+      return;
+    }
+
+    const prevVisible = el.dataset.lastVisibleVal !== undefined ? Number(el.dataset.lastVisibleVal) : prevSaved;
+    const reducedMotion = this._prefersReducedMotion();
+
+    if (
+      reducedMotion ||
+      typeof requestAnimationFrame !== 'function' ||
+      (Number.isFinite(prevVisible) && Math.abs(prevVisible - numTarget) < 1e-6 && el.dataset.pendingAnimate !== '1' && el.textContent.trim() === finalText) ||
+      (isNaN(prevVisible) && numTarget === 0)
+    ) {
+      el.textContent = finalText;
+      el.dataset.metricVal = String(numTarget);
+      el.dataset.lastVisibleVal = String(numTarget);
+      delete el.dataset.pendingAnimate;
+      this._activeMetricEls.delete(el);
+      return;
+    }
+
+    const startVal = Number.isFinite(prevVisible) && el.dataset.pendingAnimate !== '1'
+      ? prevVisible
+      : (Number.isFinite(Number(el.dataset.lastVisibleVal)) ? Number(el.dataset.lastVisibleVal) : 0);
+
+    if (Math.abs(startVal - numTarget) < 1e-6) {
+      el.textContent = finalText;
+      el.dataset.metricVal = String(numTarget);
+      el.dataset.lastVisibleVal = String(numTarget);
+      delete el.dataset.pendingAnimate;
+      this._activeMetricEls.delete(el);
+      return;
+    }
+
+    el.dataset.metricVal = String(numTarget);
+    el.dataset.lastVisibleVal = String(numTarget);
+    delete el.dataset.pendingAnimate;
+    this._activeMetricEls.add(el);
+
+    const visualSpan = document.createElement('span');
+    visualSpan.className = 'metric-count-visual';
+    visualSpan.setAttribute('aria-hidden', 'true');
+    visualSpan.textContent = formatter(startVal);
+    el.textContent = '';
+    el.appendChild(visualSpan);
+
+    const duration = opts.duration || 320;
+    const startTime = Date.now();
+
+    const finalize = () => {
+      if (el._metricRafId && typeof cancelAnimationFrame === 'function') {
+        cancelAnimationFrame(el._metricRafId);
+        el._metricRafId = null;
+      }
+      if (el._metricFallbackTimer) {
+        clearTimeout(el._metricFallbackTimer);
+        el._metricFallbackTimer = null;
+      }
+      this._activeMetricEls.delete(el);
+      if (!el.isConnected || el._metricAnimToken !== animToken) return;
+      el.textContent = finalText;
+    };
+
+    const step = () => {
+      if (!el.isConnected || el._metricAnimToken !== animToken) {
+        this._activeMetricEls.delete(el);
+        return;
+      }
+      const curPane = el.closest ? el.closest('.view-pane') : null;
+      if ((curPane && !curPane.classList.contains('active')) || this._prefersReducedMotion()) {
+        finalize();
+        return;
+      }
+      const elapsed = Math.max(0, Date.now() - startTime);
+      const t = Math.min(1, elapsed / duration);
+      const eased = 1 - Math.pow(1 - t, 3);
+      const current = startVal + (numTarget - startVal) * eased;
+
+      if (t >= 1) {
+        finalize();
+        return;
+      }
+
+      visualSpan.textContent = formatter(current);
+      el._metricRafId = requestAnimationFrame(step);
+    };
+
+    el._metricRafId = requestAnimationFrame(step);
+    el._metricFallbackTimer = setTimeout(finalize, duration + 25);
+  },
+
+  /**
+   * Sanitizes a badge class against an explicit allowlist.
+   * @param {string} cls
+   * @param {string} [fallback='badge-gold']
+   * @returns {string}
+   */
+  _safeBadgeClass(cls, fallback = 'badge-gold') {
+    const allowed = new Set([
+      'badge-burgundy', 'badge-gold', 'badge-blue', 'badge-cooling',
+      'badge-lighting', 'badge-kitchen', 'badge-entertainment',
+      'badge-computing', 'badge-other', 'badge-outline'
+    ]);
+    return (typeof cls === 'string' && allowed.has(cls.trim())) ? cls.trim() : fallback;
+  },
+
+  /**
+   * Binds filter buttons inside Recommendations view
+   */
+  bindRecommendationsControls() {
+    const filterGroup = document.getElementById('tipsImpactFilters');
+    if (filterGroup) {
+      filterGroup.addEventListener('click', (e) => {
+        const pill = e.target.closest('[data-tip-filter]');
+        if (!pill) return;
+        this.setRecommendationsFilter(pill.getAttribute('data-tip-filter') || 'all');
+      });
+      filterGroup.addEventListener('keydown', (e) => {
+        if (!['ArrowRight', 'ArrowLeft', 'ArrowDown', 'ArrowUp', 'Home', 'End'].includes(e.key)) return;
+        const pills = Array.from(filterGroup.querySelectorAll('[data-tip-filter]'));
+        const curIdx = pills.indexOf(document.activeElement);
+        if (curIdx === -1) return;
+        e.preventDefault();
+        let nextIdx = curIdx;
+        if (e.key === 'ArrowRight' || e.key === 'ArrowDown') nextIdx = (curIdx + 1) % pills.length;
+        else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') nextIdx = (curIdx - 1 + pills.length) % pills.length;
+        else if (e.key === 'Home') nextIdx = 0;
+        else if (e.key === 'End') nextIdx = pills.length - 1;
+        pills[nextIdx].focus();
+        pills[nextIdx].click();
+      });
+    }
+
+    const resetBtn = document.getElementById('btnResetTipsFilter');
+    if (resetBtn) {
+      resetBtn.addEventListener('click', () => {
+        this.setRecommendationsFilter('all');
+      });
+    }
+
+    const emptyAddBtn = document.getElementById('btnEmptyTipsAddAppliance');
+    if (emptyAddBtn) {
+      emptyAddBtn.addEventListener('click', () => {
+        if (typeof WattWatchAppliances !== 'undefined' && typeof WattWatchAppliances.openModal === 'function') {
+          WattWatchAppliances.openModal();
+        }
+      });
+    }
+  },
+
+  /**
+   * Sets active recommendations filter and re-renders cards cleanly
+   * @param {string} filterVal
+   */
+  setRecommendationsFilter(filterVal) {
+    const valid = ['all', 'High Impact', 'Moderate Impact', 'Optimization'];
+    this.currentTipFilter = valid.includes(filterVal) ? filterVal : 'all';
+
+    document.querySelectorAll('#tipsImpactFilters [data-tip-filter]').forEach(btn => {
+      const isMatch = btn.getAttribute('data-tip-filter') === this.currentTipFilter;
+      btn.classList.toggle('active', isMatch);
+      btn.setAttribute('aria-pressed', isMatch ? 'true' : 'false');
+    });
+
+    const appliances = WattWatchStorage.getAppliances();
+    const settings = WattWatchStorage.getSettings();
+    this.renderRecommendationsView(appliances, settings);
   },
 
   /**
@@ -185,6 +476,28 @@ const WattWatchApp = {
         if (tf) this.setInsightsTimeframe(tf);
       }
     });
+
+    const insightsTablist = document.querySelector('#overviewInsightsCard .insights-segmented-tabs[role="tablist"]');
+    if (insightsTablist) {
+      insightsTablist.addEventListener('keydown', (e) => {
+        if (!['ArrowRight', 'ArrowLeft', 'ArrowDown', 'ArrowUp', 'Home', 'End'].includes(e.key)) return;
+        const tabs = Array.from(insightsTablist.querySelectorAll('.insights-tab[role="tab"]'));
+        const curIdx = tabs.indexOf(document.activeElement);
+        if (curIdx === -1) return;
+        e.preventDefault();
+        let nextIdx = curIdx;
+        if (e.key === 'ArrowRight' || e.key === 'ArrowDown') nextIdx = (curIdx + 1) % tabs.length;
+        else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') nextIdx = (curIdx - 1 + tabs.length) % tabs.length;
+        else if (e.key === 'Home') nextIdx = 0;
+        else if (e.key === 'End') nextIdx = tabs.length - 1;
+        const targetTab = tabs[nextIdx];
+        if (targetTab) {
+          targetTab.focus();
+          const tf = targetTab.getAttribute('data-timeframe');
+          if (tf) this.setInsightsTimeframe(tf);
+        }
+      });
+    }
   },
 
   closeMobileDrawer() {
@@ -254,6 +567,8 @@ const WattWatchApp = {
       targetPane.classList.add('active');
     }
 
+    this._cancelHiddenMetricAnimations();
+
     const titleMap = {
       overview: { title: 'Overview', sub: 'Comprehensive household energy metrics & bill projections' },
       appliances: { title: 'Appliance Inventory', sub: 'Manage electrical ratings, operating schedules, and unit counts' },
@@ -268,10 +583,19 @@ const WattWatchApp = {
     const titleEl = document.getElementById('topbarPageTitle');
     const subEl = document.getElementById('topbarPageSubtitle');
 
-    if (titleEl) titleEl.textContent = info.title;
-    if (subEl) subEl.textContent = info.sub;
+    if (titleEl && titleEl.textContent !== info.title) {
+      titleEl.textContent = info.title;
+      this._flashElement(titleEl, 'topbar-heading-fade');
+    }
+    if (subEl && subEl.textContent !== info.sub) {
+      subEl.textContent = info.sub;
+    }
 
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    if (typeof window.scrollTo === 'function') {
+      try {
+        window.scrollTo({ top: 0, behavior: this._prefersReducedMotion() ? 'auto' : 'smooth' });
+      } catch (_) {}
+    }
 
     this.closeMobileDrawer();
     this.refreshAll();
@@ -344,32 +668,54 @@ const WattWatchApp = {
   },
 
   /**
+   * Resolves validated currency from settings without substituting ₹ when missing or invalid.
+   * When an explicit partial settings object omits `.currency`, resolves from stored account settings.
+   * @private
+   */
+  _getValidatedCurrency(settings = null) {
+    if (settings && typeof settings === 'object' && Object.prototype.hasOwnProperty.call(settings, 'currency')) {
+      return (typeof WattWatchCalculations !== 'undefined' && typeof WattWatchCalculations.resolveValidatedCurrency === 'function')
+        ? WattWatchCalculations.resolveValidatedCurrency(settings.currency)
+        : null;
+    }
+    const stored = (typeof WattWatchStorage !== 'undefined' && typeof WattWatchStorage.getSettings === 'function')
+      ? WattWatchStorage.getSettings()
+      : null;
+    return (typeof WattWatchCalculations !== 'undefined' && typeof WattWatchCalculations.resolveValidatedCurrency === 'function')
+      ? WattWatchCalculations.resolveValidatedCurrency(stored?.currency)
+      : null;
+  },
+
+  /**
    * Updates topbar pills and sidebar tariff badges
    */
   updateGlobalTariffPills(summary, settings, effectiveBill, advancedTariff) {
-    const isSlab = settings.tariffModel === 'slab';
+    const safeSummary = (summary && typeof summary === 'object') ? summary : {};
+    const safeSettings = (settings && typeof settings === 'object')
+      ? settings
+      : (typeof WattWatchStorage !== 'undefined' && typeof WattWatchStorage.getSettings === 'function' ? WattWatchStorage.getSettings() : {});
+    const isSlab = safeSettings.tariffModel === 'slab';
     let effectiveRate = NaN;
     let rateStr = '-- / kWh';
 
-    const safeCurr = (typeof WattWatchCalculations !== 'undefined' && WattWatchCalculations.sanitizeCurrencySymbol)
-      ? WattWatchCalculations.sanitizeCurrencySymbol(settings.currency, '₹')
-      : '₹';
+    const validCurr = this._getValidatedCurrency(safeSettings);
+    const currSym = validCurr || '';
     if (isSlab) {
       if (advancedTariff && advancedTariff.isValid) {
         effectiveRate = advancedTariff.effectiveRatePerKwh;
         rateStr = Number.isFinite(effectiveRate)
-          ? `Slab Tariff (₹${effectiveRate.toFixed(2)}/kWh avg)`
+          ? `Slab Tariff (${WattWatchCalculations.formatRateWithCurrency(effectiveRate, validCurr, '/kWh')} avg)`
           : 'Slab Tariff (Configured)';
       } else {
         rateStr = 'Invalid Slab Configuration';
       }
     } else {
       const validRate = (typeof WattWatchCalculations !== 'undefined')
-        ? WattWatchCalculations.validateTariffRate(settings.electricityRate, 8.00)
-        : Number(settings.electricityRate || 8.00);
+        ? WattWatchCalculations.validateTariffRate(safeSettings.electricityRate, 8.00)
+        : Number(safeSettings.electricityRate ?? 8.00);
       if (Number.isFinite(validRate) && validRate >= 0) {
         effectiveRate = validRate;
-        rateStr = `${safeCurr}${effectiveRate.toFixed(2)} / kWh`;
+        rateStr = WattWatchCalculations.formatRateWithCurrency(effectiveRate, validCurr, ' / kWh');
       } else {
         rateStr = 'Invalid Flat Rate';
       }
@@ -379,19 +725,19 @@ const WattWatchApp = {
     if (topbarTariff) topbarTariff.textContent = rateStr;
 
     const topbarBill = document.getElementById('topbarMonthlyBill');
-    if (topbarBill) topbarBill.textContent = WattWatchCalculations.formatCurrency(effectiveBill, settings.currency);
+    if (topbarBill) topbarBill.textContent = WattWatchCalculations.formatOptionalCurrency(effectiveBill, validCurr);
 
     const sidebarRate = document.getElementById('sidebarTariffVal');
     if (sidebarRate) {
       if (Number.isFinite(effectiveRate)) {
         sidebarRate.textContent = isSlab
-          ? `₹${effectiveRate.toFixed(2)}/u`
-          : `${safeCurr}${effectiveRate.toFixed(2)}`;
+          ? WattWatchCalculations.formatRateWithCurrency(effectiveRate, validCurr, '/u')
+          : `${currSym}${effectiveRate.toFixed(2)}`;
         sidebarRate.title = isSlab
-          ? `Progressive Slab Tariff: Effective rate is ₹${effectiveRate.toFixed(2)}/kWh across ${Number.isFinite(summary.totalMonthlyKwh) ? summary.totalMonthlyKwh.toFixed(1) : 0} kWh`
-          : `Uniform Flat Rate: ₹${effectiveRate.toFixed(2)} per kWh`;
+          ? `Progressive Slab Tariff: Effective rate is ${WattWatchCalculations.formatRateWithCurrency(effectiveRate, validCurr, '/kWh')} across ${Number.isFinite(safeSummary.totalMonthlyKwh) ? safeSummary.totalMonthlyKwh.toFixed(1) : 0} kWh`
+          : `Uniform Flat Rate: ${WattWatchCalculations.formatRateWithCurrency(effectiveRate, validCurr, '')} per kWh`;
       } else {
-        sidebarRate.textContent = '₹--';
+        sidebarRate.textContent = `${currSym}--`;
         sidebarRate.title = 'Invalid Tariff Configuration';
       }
     }
@@ -403,7 +749,7 @@ const WattWatchApp = {
 
     const badge = document.getElementById('navApplianceCountBadge');
     if (badge) {
-      badge.textContent = (summary.totalAppliancesCount !== undefined ? summary.totalAppliancesCount : 0).toString();
+      badge.textContent = (safeSummary.totalAppliancesCount !== undefined ? safeSummary.totalAppliancesCount : 0).toString();
     }
   },
 
@@ -411,28 +757,39 @@ const WattWatchApp = {
    * Populates Overview metrics and the Electricity Budget Tracker widget
    */
   renderOverviewMetrics(summary, effectiveBill, settings, advancedTariff) {
+    const safeSummary = (summary && typeof summary === 'object') ? summary : {};
+    const safeSettings = (settings && typeof settings === 'object')
+      ? settings
+      : (typeof WattWatchStorage !== 'undefined' && typeof WattWatchStorage.getSettings === 'function' ? WattWatchStorage.getSettings() : {});
     const elKwh = document.getElementById('metricTotalMonthlyKwh');
     const elBill = document.getElementById('metricEstimatedMonthlyBill');
     const elCount = document.getElementById('metricAppliancesCount');
     const elDaily = document.getElementById('metricAvgDailyKwh');
 
-    if (elKwh) elKwh.textContent = WattWatchCalculations.formatKwh(summary.totalMonthlyKwh);
-    if (elBill) elBill.textContent = WattWatchCalculations.formatCurrency(effectiveBill);
-    if (elCount) elCount.textContent = `${summary.totalAppliancesCount} (${summary.totalUnits} Units)`;
-    if (elDaily) elDaily.textContent = WattWatchCalculations.formatKwh(summary.totalDailyKwh);
+    const validCurr = this._getValidatedCurrency(safeSettings);
+    if (elKwh) {
+      this._animateMetricCounter(elKwh, safeSummary.totalMonthlyKwh, (v) => WattWatchCalculations.formatKwh(v));
+    }
+    if (elBill) {
+      this._animateMetricCounter(elBill, effectiveBill, (v) => WattWatchCalculations.formatOptionalCurrency(v, validCurr));
+    }
+    if (elCount) elCount.textContent = `${safeSummary.totalAppliancesCount} (${safeSummary.totalUnits} Units)`;
+    if (elDaily) {
+      this._animateMetricCounter(elDaily, safeSummary.totalDailyKwh, (v) => WattWatchCalculations.formatKwh(v));
+    }
 
     // Update metric bill subtext with Effective Rate in slab mode
     const elBillSubtext = document.getElementById('metricBillSubtext');
     if (elBillSubtext) {
-      if (summary.isValid === false) {
+      if (safeSummary.isValid === false) {
         elBillSubtext.innerHTML = `<span>Calculation unavailable: invalid appliance or tariff setting</span>`;
-      } else if (settings.tariffModel === 'slab') {
-        const effRate = advancedTariff ? advancedTariff.effectiveRatePerKwh : (summary.totalMonthlyKwh > 0 ? effectiveBill / summary.totalMonthlyKwh : 8.00);
-        elBillSubtext.innerHTML = `<span>Effective Rate: <strong style="color: var(--royal-blue);">₹${effRate.toFixed(2)} / kWh</strong> (Slab)</span>`;
+      } else if (safeSettings.tariffModel === 'slab') {
+        const effRate = advancedTariff ? advancedTariff.effectiveRatePerKwh : (safeSummary.totalMonthlyKwh > 0 ? effectiveBill / safeSummary.totalMonthlyKwh : 0);
+        elBillSubtext.innerHTML = `<span>Effective Rate: <strong style="color: var(--royal-blue);">${WattWatchAppliances.escapeHtml(WattWatchCalculations.formatRateWithCurrency(effRate, validCurr, ' / kWh'))}</strong> (Slab)</span>`;
       } else {
-        const rateCheck = WattWatchCalculations.validateTariffRate(settings.electricityRate, 8.00);
-        const flatRate = !isNaN(rateCheck) ? rateCheck : 8.00;
-        elBillSubtext.innerHTML = `<span>Flat rate at ₹${flatRate.toFixed(2)} / kWh</span>`;
+        const rateCheck = WattWatchCalculations.validateTariffRate(safeSettings.electricityRate, 8.00);
+        const flatRate = !isNaN(rateCheck) ? rateCheck : NaN;
+        elBillSubtext.innerHTML = `<span>Flat rate at ${WattWatchAppliances.escapeHtml(WattWatchCalculations.formatRateWithCurrency(flatRate, validCurr, ' / kWh'))}</span>`;
       }
     }
 
@@ -440,12 +797,12 @@ const WattWatchApp = {
     const spotlightTitle = document.getElementById('spotlightApplianceTitle');
     const spotlightDesc = document.getElementById('spotlightApplianceDesc');
 
-    if (summary.highestAppliance && summary.totalMonthlyKwh > 0) {
-      const top = summary.highestAppliance;
+    if (safeSummary.highestAppliance && safeSummary.totalMonthlyKwh > 0) {
+      const top = safeSummary.highestAppliance;
       if (spotlightTitle) spotlightTitle.textContent = `${top.name} (${top.sharePercentage.toFixed(1)}% of total load)`;
       if (spotlightDesc) {
         spotlightDesc.textContent =
-          `Consumes ${WattWatchCalculations.formatKwh(top.monthlyKwh)} monthly (${WattWatchCalculations.formatCurrency(top.monthlyCost)} est. cost). Operating at ${top.powerWatts}W for ${top.dailyHours} hrs/day across ${top.quantity} unit(s). Check Energy Tips for conservation opportunities.`;
+          `Consumes ${WattWatchCalculations.formatKwh(top.monthlyKwh)} monthly (${WattWatchCalculations.formatOptionalCurrency(top.monthlyCost, validCurr)} est. cost). Operating at ${top.powerWatts}W for ${top.dailyHours} hrs/day across ${top.quantity} unit(s). Check Energy Tips for conservation opportunities.`;
       }
     } else {
       if (spotlightTitle) spotlightTitle.textContent = 'No Active Consumption Recorded';
@@ -453,11 +810,11 @@ const WattWatchApp = {
     }
 
     // Budget Tracker Widget
-    this.renderBudgetTracker(effectiveBill, settings.budgetInr, summary.totalMonthlyKwh, settings);
+    this.renderBudgetTracker(effectiveBill, safeSettings.budgetInr, safeSummary.totalMonthlyKwh, safeSettings);
 
     // Timescale Energy Insights & Appliance Load Comparison
-    this.renderOverviewInsights(summary, effectiveBill, settings, advancedTariff);
-    this.renderOverviewApplianceComparison(summary, settings);
+    this.renderOverviewInsights(safeSummary, effectiveBill, safeSettings, advancedTariff);
+    this.renderOverviewApplianceComparison(safeSummary, safeSettings);
   },
 
   /**
@@ -500,8 +857,12 @@ const WattWatchApp = {
     const elPacingDeltaSub = document.getElementById('pacingDeltaSub');
     const elPacingNote = document.getElementById('budgetPacingNote');
 
+    const validCurr = this._getValidatedCurrency(safeSettings);
+    const currSym = validCurr || '';
+    const fmtMoney = (v) => WattWatchCalculations.formatOptionalCurrency(v, validCurr);
+
     if (b.status === 'invalid') {
-      if (elAmount) elAmount.textContent = '₹-- (Invalid)';
+      if (elAmount) elAmount.textContent = `${currSym}-- (Invalid)`;
       if (elRemaining) elRemaining.textContent = 'Invalid budget setting';
       if (elPercent) elPercent.textContent = '--%';
       if (elProgress) {
@@ -512,8 +873,8 @@ const WattWatchApp = {
         elBadge.className = 'badge badge-outline';
         elBadge.textContent = 'Invalid Budget';
       }
-      if (elProjBill) elProjBill.textContent = '₹--';
-      if (elTarget) elTarget.textContent = '₹--';
+      if (elProjBill) elProjBill.textContent = `${currSym}--`;
+      if (elTarget) elTarget.textContent = `${currSym}--`;
       if (elVariance) {
         elVariance.textContent = 'Invalid Data';
         elVariance.style.color = 'var(--text-secondary)';
@@ -522,9 +883,9 @@ const WattWatchApp = {
         elExplanation.textContent = forecast.explanation;
         elExplanation.className = 'budget-explanation-box';
       }
-      if (elPacingBudget) elPacingBudget.textContent = '₹-- / day';
+      if (elPacingBudget) elPacingBudget.textContent = `${currSym}-- / day`;
       if (elPacingDailyKwh) elPacingDailyKwh.textContent = '-- kWh / day';
-      if (elPacingCost) elPacingCost.textContent = '₹-- / day';
+      if (elPacingCost) elPacingCost.textContent = `${currSym}-- / day`;
       if (elPacingDelta) elPacingDelta.textContent = '--';
       if (elPacingDeltaSub) elPacingDeltaSub.textContent = 'Invalid input';
       if (elPacingNote) elPacingNote.textContent = pacing.explanation;
@@ -532,7 +893,7 @@ const WattWatchApp = {
     }
 
     if (!b.hasBudget) {
-      if (elAmount) elAmount.textContent = '₹0.00 (Unset)';
+      if (elAmount) elAmount.textContent = `${fmtMoney(0)} (Unset)`;
       if (elRemaining) elRemaining.textContent = 'Set budget in Settings';
       if (elPercent) elPercent.textContent = '0%';
       if (elProgress) {
@@ -543,7 +904,7 @@ const WattWatchApp = {
         elBadge.className = 'badge badge-outline';
         elBadge.textContent = 'No Budget Set';
       }
-      if (elProjBill) elProjBill.textContent = WattWatchCalculations.formatCurrency(b.estimatedBill);
+      if (elProjBill) elProjBill.textContent = fmtMoney(b.estimatedBill);
       if (elTarget) elTarget.textContent = 'No Budget Set';
       if (elVariance) {
         elVariance.textContent = 'Unset';
@@ -553,9 +914,9 @@ const WattWatchApp = {
         elExplanation.textContent = forecast.explanation;
         elExplanation.className = 'budget-explanation-box';
       }
-      if (elPacingBudget) elPacingBudget.textContent = '₹0.00 / day';
+      if (elPacingBudget) elPacingBudget.textContent = `${fmtMoney(0)} / day`;
       if (elPacingDailyKwh) elPacingDailyKwh.textContent = '-- kWh / day';
-      if (elPacingCost) elPacingCost.textContent = pacing.isValid && !isNaN(pacing.dailyEstimatedCost) ? `₹${pacing.dailyEstimatedCost.toFixed(2)} / day` : '₹0.00 / day';
+      if (elPacingCost) elPacingCost.textContent = pacing.isValid && !isNaN(pacing.dailyEstimatedCost) ? `${fmtMoney(pacing.dailyEstimatedCost)} / day` : `${fmtMoney(0)} / day`;
       if (elPacingKwhEst) elPacingKwhEst.textContent = pacing.isValid && !isNaN(pacing.dailyEstimatedKwh) ? `~${pacing.dailyEstimatedKwh.toFixed(2)} kWh/day` : '~0.00 kWh/day';
       if (elPacingDays) elPacingDays.textContent = `${pacing.daysInMonth}-day cycle`;
       if (elPacingDelta) elPacingDelta.textContent = '--';
@@ -564,11 +925,11 @@ const WattWatchApp = {
       return;
     }
 
-    if (elAmount) elAmount.textContent = WattWatchCalculations.formatCurrency(b.budget);
+    if (elAmount) elAmount.textContent = fmtMoney(b.budget);
     if (elRemaining) {
       elRemaining.textContent = b.remaining >= 0
-        ? `${WattWatchCalculations.formatCurrency(b.remaining)} remaining`
-        : `${WattWatchCalculations.formatCurrency(Math.abs(b.remaining))} over budget`;
+        ? `${fmtMoney(b.remaining)} remaining`
+        : `${fmtMoney(Math.abs(b.remaining))} over budget`;
     }
     if (elPercent) elPercent.textContent = `${Math.min(999, b.utilizationPercent).toFixed(1)}% utilized`;
 
@@ -604,8 +965,8 @@ const WattWatchApp = {
     }
 
     // Populate Forecast & Pacing details
-    if (elProjBill) elProjBill.textContent = WattWatchCalculations.formatCurrency(b.estimatedBill);
-    if (elTarget) elTarget.textContent = WattWatchCalculations.formatCurrency(b.budget);
+    if (elProjBill) elProjBill.textContent = fmtMoney(b.estimatedBill);
+    if (elTarget) elTarget.textContent = fmtMoney(b.budget);
     // Shared variance calculation: variance = targetBudget - projectedMonthEndBill
     const variance = (forecast && typeof forecast.variance === 'number' && !isNaN(forecast.variance))
       ? forecast.variance
@@ -615,10 +976,10 @@ const WattWatchApp = {
 
     if (elVariance) {
       if (isOverBudget) {
-        elVariance.textContent = `+${WattWatchCalculations.formatCurrency(Math.abs(variance))} over`;
+        elVariance.textContent = `+${fmtMoney(Math.abs(variance))} over`;
         elVariance.style.color = '#ef4444';
       } else {
-        elVariance.textContent = `${WattWatchCalculations.formatCurrency(Math.max(0, variance))} under`;
+        elVariance.textContent = `${fmtMoney(Math.max(0, variance))} under`;
         elVariance.style.color = 'var(--emerald-primary)';
       }
     }
@@ -628,19 +989,19 @@ const WattWatchApp = {
       elExplanation.className = `budget-explanation-box ${b.status === 'exceeded' ? 'state-exceeded' : (b.status === 'critical' || b.status === 'warning') ? 'state-caution' : ''}`;
     }
 
-    if (elPacingBudget) elPacingBudget.textContent = `${WattWatchCalculations.formatCurrency(pacing.dailyBudgetInr)} / day`;
+    if (elPacingBudget) elPacingBudget.textContent = `${fmtMoney(pacing.dailyBudgetInr)} / day`;
     if (elPacingDays) elPacingDays.textContent = `${pacing.daysInMonth}-day target`;
     if (elPacingDailyKwh) elPacingDailyKwh.textContent = !isNaN(pacing.dailyAllowedKwh) ? `${pacing.dailyAllowedKwh.toFixed(2)} kWh / day` : '-- kWh / day';
-    if (elPacingCost) elPacingCost.textContent = `${WattWatchCalculations.formatCurrency(pacing.dailyEstimatedCost)} / day`;
+    if (elPacingCost) elPacingCost.textContent = `${fmtMoney(pacing.dailyEstimatedCost)} / day`;
     if (elPacingKwhEst) elPacingKwhEst.textContent = `~${pacing.dailyEstimatedKwh.toFixed(2)} kWh/day`;
 
     if (elPacingDelta) {
       if (isOverBudget) {
-        elPacingDelta.textContent = `+${WattWatchCalculations.formatCurrency(Math.abs(variance))} over`;
+        elPacingDelta.textContent = `+${fmtMoney(Math.abs(variance))} over`;
         elPacingDelta.style.color = '#ef4444';
         if (elPacingDeltaSub) elPacingDeltaSub.textContent = 'Projected over budget';
       } else {
-        elPacingDelta.textContent = `${WattWatchCalculations.formatCurrency(Math.max(0, variance))} surplus`;
+        elPacingDelta.textContent = `${fmtMoney(Math.max(0, variance))} surplus`;
         elPacingDelta.style.color = 'var(--emerald-primary)';
         if (elPacingDeltaSub) elPacingDeltaSub.textContent = 'Projected under budget';
       }
@@ -676,7 +1037,20 @@ const WattWatchApp = {
       const isActive = tab.getAttribute('data-timeframe') === timeframe;
       tab.classList.toggle('active', isActive);
       tab.setAttribute('aria-selected', isActive ? 'true' : 'false');
+      tab.setAttribute('tabindex', isActive ? '0' : '-1');
     });
+
+    const contentEl = document.getElementById('overviewInsightsContent');
+    if (contentEl) {
+      const tabLabelMap = {
+        daily: 'tabDailyInsights',
+        weekly: 'tabWeeklyInsights',
+        monthly: 'tabMonthlyInsights'
+      };
+      if (tabLabelMap[timeframe]) {
+        contentEl.setAttribute('aria-labelledby', tabLabelMap[timeframe]);
+      }
+    }
 
     const appliances = WattWatchStorage.getAppliances();
     const settings = WattWatchStorage.getSettings();
@@ -685,6 +1059,7 @@ const WattWatchApp = {
     const effectiveBill = (summary.isValid && tariff.isValid) ? tariff.totalCost : NaN;
 
     this.renderOverviewInsights(summary, effectiveBill, settings, tariff);
+    this._flashElement(document.getElementById('overviewInsightsContent'), 'insights-content-fade');
   },
 
   /**
@@ -706,6 +1081,9 @@ const WattWatchApp = {
     const timeframe = this.currentInsightsTimeframe || 'daily';
     const rawCurrency = (settings && settings.currency) ? settings.currency : 'INR';
     const currency = WattWatchCalculations.sanitizeCurrencySymbol(rawCurrency, 'INR');
+    const validCurr = this._getValidatedCurrency(settings);
+    const fmtMoney = (v) => WattWatchCalculations.formatOptionalCurrency(v, validCurr);
+    const fmtRate = (r) => WattWatchCalculations.formatRateWithCurrency(r, validCurr, '/kWh');
     const totalDailyKwh = summary.totalDailyKwh;
     const totalMonthlyKwh = summary.totalMonthlyKwh;
     const daysInMonth = WattWatchCalculations.getDaysInCurrentMonth();
@@ -724,8 +1102,8 @@ const WattWatchApp = {
       };
       kpi2 = {
         label: 'Estimated Daily Cost',
-        val: WattWatchCalculations.formatCurrency(dailyCost, currency),
-        sub: `Effective rate: ~₹${summary.effectiveRatePerKwh.toFixed(2)}/kWh`
+        val: fmtMoney(dailyCost),
+        sub: `Effective rate: ~${fmtRate(summary.effectiveRatePerKwh)}`
       };
       kpi3 = {
         label: 'Peak Load Driver',
@@ -735,7 +1113,7 @@ const WattWatchApp = {
 
       tipBanner = topApp && topApp.sharePercentage >= 20
         ? `<div class="insights-tip-banner tip-caution">
-            <svg class="insights-tip-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <svg class="insights-tip-icon" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
               <line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
             </svg>
@@ -744,7 +1122,7 @@ const WattWatchApp = {
             </div>
           </div>`
         : `<div class="insights-tip-banner">
-            <svg class="insights-tip-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <svg class="insights-tip-icon" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/>
             </svg>
             <div class="insights-tip-text">
@@ -762,21 +1140,21 @@ const WattWatchApp = {
       };
       kpi2 = {
         label: 'Projected 7-Day Outlay',
-        val: WattWatchCalculations.formatCurrency(weeklyCost, currency),
-        sub: `~${WattWatchCalculations.formatCurrency(dailyCost, currency)} per day average`
+        val: fmtMoney(weeklyCost),
+        sub: `~${fmtMoney(dailyCost)} per day average`
       };
       kpi3 = {
         label: 'Weekly Budget Target',
-        val: weeklyBudget > 0 ? WattWatchCalculations.formatCurrency(weeklyBudget, currency) : 'Unset',
+        val: weeklyBudget > 0 ? fmtMoney(weeklyBudget) : 'Unset',
         sub: weeklyBudgetStatus
       };
 
       tipBanner = `<div class="insights-tip-banner">
-        <svg class="insights-tip-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <svg class="insights-tip-icon" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
         </svg>
         <div class="insights-tip-text">
-          <strong>Weekly Projection:</strong> At your current operating pace, weekly household electricity consumption projects to ${WattWatchCalculations.formatKwh(weeklyKwh)} costing approximately ${WattWatchAppliances.escapeHtml(WattWatchCalculations.formatCurrency(weeklyCost, currency))}.
+          <strong>Weekly Projection:</strong> At your current operating pace, weekly household electricity consumption projects to ${WattWatchCalculations.formatKwh(weeklyKwh)} costing approximately ${WattWatchAppliances.escapeHtml(fmtMoney(weeklyCost))}.
         </div>
       </div>`;
     } else { // monthly
@@ -790,33 +1168,44 @@ const WattWatchApp = {
       };
       kpi2 = {
         label: 'Projected Monthly Bill',
-        val: WattWatchCalculations.formatCurrency(effectiveBill, currency),
-        sub: `Effective rate: ₹${summary.effectiveRatePerKwh.toFixed(2)}/kWh`
+        val: fmtMoney(effectiveBill),
+        sub: `Effective rate: ${fmtRate(summary.effectiveRatePerKwh)}`
       };
       kpi3 = {
         label: 'Annualized Run-Rate',
-        val: WattWatchCalculations.formatCurrency(annualCost, currency),
+        val: fmtMoney(annualCost),
         sub: `Projected ~${WattWatchCalculations.formatKwh(annualKwh)} per year`
       };
 
-      const recs = WattWatchRecommendations.generateRecommendations(summary.appliances, summary.ratePerKwh);
-      tipBanner = recs.tips.length > 0
-        ? `<div class="insights-tip-banner">
-            <svg class="insights-tip-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
+      const recs = WattWatchRecommendations.generateRecommendations(summary.appliances, settings || summary.ratePerKwh);
+      if (recs.isValid === false) {
+        tipBanner = `<div class="insights-tip-banner" style="border-color: rgba(169, 38, 57, 0.35); background: rgba(169, 38, 57, 0.08);">
+            <svg class="insights-tip-icon" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
             </svg>
             <div class="insights-tip-text">
-              <strong>Monthly Conservation Opportunity:</strong> Implementing top recommendations can unlock up to <strong>${WattWatchAppliances.escapeHtml(WattWatchCalculations.formatCurrency(recs.totalPotentialSavingsCost, currency))}/month</strong> in savings (${WattWatchCalculations.formatKwh(recs.totalPotentialSavingsKwh)}).
-            </div>
-          </div>`
-        : `<div class="insights-tip-banner">
-            <svg class="insights-tip-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/>
-            </svg>
-            <div class="insights-tip-text">
-              <strong>Optimal Household Baseline:</strong> Current appliance runtimes and ratings reflect efficient operational parameters.
+              <strong>Conservation Analysis Unavailable:</strong> ${WattWatchAppliances.escapeHtml(recs.error || 'Verify tariff settings and appliance inventory values.')}
             </div>
           </div>`;
+      } else {
+        tipBanner = recs.tips.length > 0
+          ? `<div class="insights-tip-banner">
+              <svg class="insights-tip-icon" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
+              </svg>
+              <div class="insights-tip-text">
+                <strong>Monthly Conservation Opportunity:</strong> Implementing top recommendations can unlock up to <strong>${WattWatchAppliances.escapeHtml(fmtMoney(recs.totalPotentialSavingsCost))}/month</strong> in savings (${WattWatchCalculations.formatKwh(recs.totalPotentialSavingsKwh)}).
+              </div>
+            </div>`
+          : `<div class="insights-tip-banner">
+              <svg class="insights-tip-icon" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/>
+              </svg>
+              <div class="insights-tip-text">
+                <strong>Optimal Household Baseline:</strong> Current appliance runtimes and ratings reflect efficient operational parameters.
+              </div>
+            </div>`;
+      }
     }
 
     container.innerHTML = `
@@ -888,7 +1277,7 @@ const WattWatchApp = {
                 <div style="font-size: 0.72rem; color: var(--text-secondary);">${share.toFixed(1)}% of total load</div>
               </div>
               <div>
-                <div class="appliance-load-cost">${WattWatchAppliances.escapeHtml(WattWatchCalculations.formatCurrency(app.monthlyCost, currency))}</div>
+                <div class="appliance-load-cost">${WattWatchAppliances.escapeHtml(WattWatchCalculations.formatOptionalCurrency(app.monthlyCost, currency))}</div>
                 <div style="font-size: 0.72rem; color: var(--text-secondary);">per month</div>
               </div>
             </div>
@@ -926,9 +1315,10 @@ const WattWatchApp = {
     const elDailyCost = document.getElementById('analyticsDailyCost');
 
     const daysInMonth = WattWatchCalculations.getDaysInCurrentMonth();
-    if (elDailyAvg) elDailyAvg.textContent = WattWatchCalculations.formatKwh(summary.totalDailyKwh);
-    if (elMonthlyTotal) elMonthlyTotal.textContent = WattWatchCalculations.formatKwh(summary.totalMonthlyKwh);
-    if (elDailyCost) elDailyCost.textContent = WattWatchCalculations.formatCurrency(effectiveBill / daysInMonth);
+    const validCurr = this._getValidatedCurrency(settings);
+    if (elDailyAvg) this._animateMetricCounter(elDailyAvg, summary.totalDailyKwh, (v) => WattWatchCalculations.formatKwh(v));
+    if (elMonthlyTotal) this._animateMetricCounter(elMonthlyTotal, summary.totalMonthlyKwh, (v) => WattWatchCalculations.formatKwh(v));
+    if (elDailyCost) this._animateMetricCounter(elDailyCost, effectiveBill / daysInMonth, (v) => WattWatchCalculations.formatOptionalCurrency(v, validCurr));
 
     let topCatName = 'None';
     let topCatKwh = 0;
@@ -988,54 +1378,162 @@ const WattWatchApp = {
         <td>${safeWatts} W</td>
         <td>${safeHours} h / day (${safeDays} d)</td>
         <td><strong>${WattWatchCalculations.formatKwh(app.monthlyKwh)}</strong></td>
-        <td><strong style="color: var(--deep-burgundy);">${WattWatchAppliances.escapeHtml(WattWatchCalculations.formatCurrency(app.monthlyCost))}</strong> <span style="font-size: 0.75rem; color: var(--text-secondary);">(${(Number(app.sharePercentage) || 0).toFixed(1)}%)</span></td>
+        <td><strong style="color: var(--deep-burgundy);">${WattWatchAppliances.escapeHtml(WattWatchCalculations.formatOptionalCurrency(app.monthlyCost, validCurr))}</strong> <span style="font-size: 0.75rem; color: var(--text-secondary);">(${(Number(app.sharePercentage) || 0).toFixed(1)}%)</span></td>
       `;
       tbody.appendChild(tr);
     });
   },
 
   /**
-   * Renders rule-based tips on Energy Tips view
+   * Renders rule-based tips and What-If Scenarios on Energy Optimization view
    */
-  renderRecommendationsView(appliances, rate) {
-    const analysis = WattWatchRecommendations.generateRecommendations(appliances, rate);
+  renderRecommendationsView(appliances, rateOrSettings) {
+    const effectiveSettings = (rateOrSettings !== undefined)
+      ? rateOrSettings
+      : (typeof WattWatchStorage !== 'undefined' && typeof WattWatchStorage.getSettings === 'function' ? WattWatchStorage.getSettings() : 8.00);
+
+    const validCurr = (typeof effectiveSettings === 'object' && effectiveSettings !== null && effectiveSettings.currency !== undefined)
+      ? WattWatchCalculations.resolveValidatedCurrency(effectiveSettings.currency)
+      : this._getValidatedCurrency(null);
+    const fmtRecMoney = (v) => WattWatchCalculations.formatOptionalCurrency(v, validCurr);
+
+    const analysis = WattWatchRecommendations.generateRecommendations(appliances, effectiveSettings);
+    const hasAppliances = Array.isArray(appliances) && appliances.length > 0;
+    const whatIfData = (hasAppliances && typeof WattWatchRecommendations !== 'undefined' && typeof WattWatchRecommendations.generateWhatIfScenarios === 'function')
+      ? WattWatchRecommendations.generateWhatIfScenarios(appliances, effectiveSettings)
+      : null;
+
     const container = document.getElementById('tipsGridContainer');
+    const warningsBanner = document.getElementById('tipsWarningsBanner');
     const emptyState = document.getElementById('tipsEmptyState');
+    const filterBar = document.getElementById('tipsFilterBar');
+    const filterCountBadge = document.getElementById('tipsFilterCountBadge');
+    const filterEmptyState = document.getElementById('tipsFilterEmptyState');
+    const filterEmptyDesc = document.getElementById('tipsFilterEmptyDesc');
     const whatIfCard = document.getElementById('whatIfScenariosCard');
     const whatIfList = document.getElementById('whatIfScenariosList');
+    const overlapNote = document.getElementById('tipsOverlapNote');
+    const liveStatus = document.getElementById('recommendationsLiveStatus');
+
+    if (warningsBanner) {
+      const issueMessages = new Set();
+      if (Array.isArray(analysis.calculationIssues)) {
+        analysis.calculationIssues.forEach(msg => { if (msg) issueMessages.add(msg); });
+      }
+      if (whatIfData && Array.isArray(whatIfData.calculationIssues)) {
+        whatIfData.calculationIssues.forEach(msg => { if (msg) issueMessages.add(msg); });
+      }
+      if (issueMessages.size > 0) {
+        const listHtml = Array.from(issueMessages).map(m => `<li>${WattWatchAppliances.escapeHtml(m)}</li>`).join('');
+        warningsBanner.innerHTML = `<div style="background: rgba(197, 155, 67, 0.12); border: 1px solid rgba(197, 155, 67, 0.45); border-left: 4px solid var(--antique-gold); border-radius: var(--radius-md); padding: 0.75rem 1rem;"><strong style="display: block; font-size: 0.85rem; color: var(--text-primary); margin-bottom: 0.25rem;">Calculation Warnings</strong><ul style="margin: 0; padding-left: 1.25rem; font-size: 0.8rem; color: var(--text-secondary);">${listHtml}</ul></div>`;
+        warningsBanner.style.display = 'block';
+      } else {
+        warningsBanner.innerHTML = '';
+        warningsBanner.style.display = 'none';
+      }
+    }
 
     const totalSavedCostEl = document.getElementById('tipsTotalSavingsCost');
     const totalSavedKwhEl = document.getElementById('tipsTotalSavingsKwh');
 
-    if (totalSavedCostEl) totalSavedCostEl.textContent = WattWatchCalculations.formatCurrency(analysis.totalPotentialSavingsCost);
-    if (totalSavedKwhEl) totalSavedKwhEl.textContent = WattWatchCalculations.formatKwh(analysis.totalPotentialSavingsKwh);
+    const finalCostNum = analysis.isValid === false ? NaN : analysis.totalPotentialSavingsCost;
+    const finalKwhNum = analysis.isValid === false ? NaN : analysis.totalPotentialSavingsKwh;
+
+    if (totalSavedCostEl) {
+      this._animateMetricCounter(
+        totalSavedCostEl,
+        finalCostNum,
+        (v) => fmtRecMoney(v),
+        { setAriaLabel: false }
+      );
+    }
+    if (totalSavedKwhEl) {
+      this._animateMetricCounter(
+        totalSavedKwhEl,
+        finalKwhNum,
+        (v) => WattWatchCalculations.formatKwh(v),
+        { setAriaLabel: false }
+      );
+    }
+
+    if (overlapNote) {
+      if (analysis.isValid !== false && analysis.hasOverlappingRecommendations && analysis.tips.length > 1) {
+        overlapNote.style.display = 'block';
+        overlapNote.textContent = `Combined achievable total reflects reconciled household contributions across overlapping tips and tariff tiers (standalone individual tip sum: ${fmtRecMoney(analysis.individualSumSavingsCost)} / ${WattWatchCalculations.formatKwh(analysis.individualSumSavingsKwh)}).`;
+      } else {
+        overlapNote.style.display = 'none';
+        overlapNote.textContent = '';
+      }
+    }
 
     const renderWhatIfSection = () => {
       if (!whatIfList) return;
-      const hasAppliances = Array.isArray(appliances) && appliances.length > 0;
-      const whatIfData = (hasAppliances && typeof WattWatchRecommendations !== 'undefined' && typeof WattWatchRecommendations.generateWhatIfScenarios === 'function')
-        ? WattWatchRecommendations.generateWhatIfScenarios(appliances, rate)
-        : null;
-
-      if (!whatIfData || !whatIfData.scenarios || whatIfData.scenarios.length === 0) {
+      if (!hasAppliances || !whatIfData) {
         whatIfList.innerHTML = '';
         if (whatIfCard) whatIfCard.style.display = 'none';
         return;
       }
 
-      if (whatIfCard) whatIfCard.style.display = 'block';
+      if (whatIfData.isValid === false) {
+        if (whatIfCard) {
+          whatIfCard.style.display = 'block';
+          whatIfCard.classList.add('card-animate-in');
+        }
+        whatIfList.innerHTML = `<div role="alert" style="grid-column: 1 / -1; background: rgba(169, 38, 57, 0.08); border: 1px solid rgba(169, 38, 57, 0.28); border-radius: var(--radius-md); padding: 0.9rem 1rem; color: var(--deep-burgundy); font-size: 0.85rem;"><strong>What-If Scenarios Unavailable:</strong> ${WattWatchAppliances.escapeHtml(whatIfData.error || 'Unable to compute scenario projections with current settings.')}</div>`;
+        return;
+      }
+
+      if (!whatIfData.scenarios || whatIfData.scenarios.length === 0) {
+        whatIfList.innerHTML = '';
+        if (whatIfCard) whatIfCard.style.display = 'none';
+        return;
+      }
+
+      if (whatIfCard) {
+        whatIfCard.style.display = 'block';
+        whatIfCard.classList.add('card-animate-in');
+      }
       whatIfList.innerHTML = '';
-      whatIfData.scenarios.forEach(sc => {
-        const card = document.createElement('div');
-        card.className = 'tip-card';
+      const reducedMotion = this._prefersReducedMotion();
+
+      const scenarioBaseCounts = {};
+      whatIfData.scenarios.forEach(s => {
+        const key = `${s.title || 'Scenario'}|${s.badge || 'Scenario'}`;
+        scenarioBaseCounts[key] = (scenarioBaseCounts[key] || 0) + 1;
+      });
+      const scenarioBaseSeen = {};
+
+      whatIfData.scenarios.forEach((sc, idx) => {
+        const card = document.createElement('article');
+        card.className = reducedMotion ? 'tip-card' : 'tip-card card-animate-in';
+        if (!reducedMotion) {
+          card.style.animationDelay = `${Math.min(idx * 40, 160)}ms`;
+        }
+        const safeBadgeClass = this._safeBadgeClass(sc.badgeClass, 'badge-gold');
+        const safeTitleId = `whatifTitle_${idx}_${String(sc.id || '').replace(/[^a-zA-Z0-9_\-]/g, '')}`;
+        card.setAttribute('aria-labelledby', safeTitleId);
+
+        const costStr = fmtRecMoney(sc.savedCostMonthly);
+        const annualStr = fmtRecMoney(sc.annualSavingsCost);
+        const kwhStr = WattWatchCalculations.formatKwh(sc.savedKwhMonthly);
+        const safeTitle = WattWatchAppliances.escapeHtml(sc.title || 'Scenario');
+        const safeBadge = WattWatchAppliances.escapeHtml(sc.badge || 'Scenario');
+        const labelKey = `${sc.title || 'Scenario'}|${sc.badge || 'Scenario'}`;
+        scenarioBaseSeen[labelKey] = (scenarioBaseSeen[labelKey] || 0) + 1;
+        const dupTag = scenarioBaseCounts[labelKey] > 1 ? ` #${scenarioBaseSeen[labelKey]}` : '';
+        const scAriaLabel = `Preview ${safeTitle} (${safeBadge}${sc.isHeuristicEstimate ? ', benchmark estimate' : ''})${dupTag} in simulator`;
+        const heuristicBadge = sc.isHeuristicEstimate
+          ? `<span class="badge badge-outline" style="margin-left: 0.35rem; font-size: 0.65rem;" title="Projected using benchmark engineering assumptions">Benchmark Estimate</span>`
+          : '';
+
         card.innerHTML = `
           <div>
             <div class="tip-card-header">
               <div>
-                <span class="badge ${sc.badgeClass || 'badge-gold'}">${WattWatchAppliances.escapeHtml(sc.badge || 'Scenario')}</span>
-                <h3 class="tip-appliance-title" style="margin-top: 0.4rem;">${WattWatchAppliances.escapeHtml(sc.title)}</h3>
+                <span class="badge ${safeBadgeClass}">${safeBadge}</span>${heuristicBadge}
+                <h3 class="tip-appliance-title" id="${safeTitleId}" style="margin-top: 0.4rem;">${safeTitle}</h3>
               </div>
-              <span class="badge badge-outline">Rank #${sc.rank} Consumer</span>
+              <span class="badge badge-outline">Rank #${Number(sc.rank) || 1} Consumer</span>
             </div>
             <div class="tip-reason" style="margin-top: 0.5rem;">
               ${WattWatchAppliances.escapeHtml(sc.description)}
@@ -1044,16 +1542,17 @@ const WattWatchApp = {
           <div class="tip-savings-row" style="margin-top: 1rem;">
             <div>
               <div style="font-size: 0.72rem; color: var(--text-secondary); text-transform: uppercase;">Projected Monthly Reduction</div>
-              <div class="tip-savings-pill">${WattWatchAppliances.escapeHtml(WattWatchCalculations.formatCurrency(sc.savedCostMonthly))} <span style="font-size: 0.78rem; font-family: var(--font-sans); color: var(--royal-blue); font-weight: 500;">(${WattWatchCalculations.formatKwh(sc.savedKwhMonthly)})</span></div>
+              <div class="tip-savings-pill">${WattWatchAppliances.escapeHtml(costStr)} <span style="font-size: 0.78rem; font-family: var(--font-sans); color: var(--royal-blue); font-weight: 500;">(${WattWatchAppliances.escapeHtml(kwhStr)})</span></div>
+              ${sc.savedCostMonthly <= 0 && sc.savedKwhMonthly > 0 ? '<div style="font-size: 0.72rem; color: var(--text-secondary); margin-top: 0.15rem;">Bill unchanged (free allowance / subsidy covers consumption)</div>' : ''}
             </div>
             <div style="text-align: right;">
               <div style="font-size: 0.72rem; color: var(--text-secondary); text-transform: uppercase;">Est. Annual Savings</div>
-              <div style="font-family: var(--font-serif); font-size: 1rem; font-weight: 600; color: var(--text-gold);">${WattWatchAppliances.escapeHtml(WattWatchCalculations.formatCurrency(sc.annualSavingsCost))}</div>
+              <div style="font-family: var(--font-serif); font-size: 1rem; font-weight: 600; color: var(--text-gold);">${WattWatchAppliances.escapeHtml(annualStr)}</div>
             </div>
           </div>
           <div style="margin-top: 0.85rem; padding-top: 0.65rem; border-top: 1px solid var(--border-subtle);">
-            <button type="button" class="btn btn-primary btn-sm" style="width: 100%;" data-action="apply-whatif" data-id="${WattWatchAppliances.escapeHtml(sc.id)}">
-              Apply to Simulator &rarr;
+            <button type="button" class="btn btn-primary btn-sm" style="width: 100%;" data-action="apply-whatif" data-id="${WattWatchAppliances.escapeHtml(sc.id)}" aria-label="${scAriaLabel}">
+              Preview in Simulator <span aria-hidden="true">&rarr;</span>
             </button>
           </div>
         `;
@@ -1069,34 +1568,156 @@ const WattWatchApp = {
       });
     };
 
+    const announceFinalStatus = (tipsCount) => {
+      if (!liveStatus) return;
+      if (analysis.isValid === false) {
+        liveStatus.textContent = 'Recommendations unavailable due to invalid tariff or appliance configuration.';
+      } else {
+        const finalCostTxt = fmtRecMoney(analysis.totalPotentialSavingsCost);
+        const finalKwhTxt = WattWatchCalculations.formatKwh(analysis.totalPotentialSavingsKwh);
+        liveStatus.textContent = tipsCount === 0
+          ? `No recommendations available. Potential monthly savings ${finalCostTxt}, energy conservation ${finalKwhTxt}.`
+          : `Showing ${tipsCount} energy optimization recommendation${tipsCount === 1 ? '' : 's'}. Combined achievable monthly savings ${finalCostTxt} and ${finalKwhTxt}.`;
+      }
+    };
+
     if (!container) {
       renderWhatIfSection();
+      announceFinalStatus(analysis.tips.length);
       return;
     }
 
-    if (analysis.tips.length === 0) {
+    const emptyTitle = document.getElementById('tipsEmptyTitle');
+    const emptyDesc = document.getElementById('tipsEmptyDesc');
+    const emptySimBtn = document.getElementById('btnEmptyWhatIfSimulator');
+
+    if (analysis.isValid === false || analysis.tips.length === 0) {
       container.innerHTML = '';
       container.style.display = 'none';
-      if (emptyState) emptyState.style.display = 'flex';
+      if (filterBar) filterBar.style.display = 'none';
+      if (filterEmptyState) filterEmptyState.style.display = 'none';
+      if (emptyState) {
+        emptyState.style.display = 'flex';
+        emptyState.classList.add('card-animate-in');
+      }
+      if (emptyTitle) {
+        emptyTitle.textContent = analysis.isValid === false ? 'Calculation Data Requires Attention' : 'No Recommendations Available';
+      }
+      if (emptyDesc) {
+        if (analysis.isValid === false) {
+          emptyDesc.textContent = analysis.error || 'Recommendations cannot be generated until active tariff or appliance settings are corrected.';
+        } else if (!hasAppliances) {
+          emptyDesc.textContent = 'Add appliances to your inventory so our appliance analysis system can analyze your load profiles and recommend specific optimizations. What-If scenario previews are disabled until at least one appliance is added.';
+        } else {
+          emptyDesc.textContent = 'Your configured appliances are already operating efficiently within optimal consumption thresholds, so no additional high-impact reductions are currently flagged.';
+        }
+      }
+      if (emptySimBtn) {
+        emptySimBtn.disabled = true;
+        emptySimBtn.style.display = hasAppliances && analysis.isValid !== false ? 'none' : 'inline-flex';
+      }
       renderWhatIfSection();
+      announceFinalStatus(0);
       return;
     }
 
-    container.style.display = 'grid';
     if (emptyState) emptyState.style.display = 'none';
+    if (filterBar) filterBar.style.display = 'flex';
+
+    // Sync filter button UI states
+    const activeFilter = this.currentTipFilter || 'all';
+    document.querySelectorAll('#tipsImpactFilters [data-tip-filter]').forEach(btn => {
+      const isMatch = btn.getAttribute('data-tip-filter') === activeFilter;
+      btn.classList.toggle('active', isMatch);
+      btn.setAttribute('aria-pressed', isMatch ? 'true' : 'false');
+    });
+
+    const filteredTips = analysis.tips.filter(tip => {
+      if (activeFilter === 'all') return true;
+      if (activeFilter === 'Optimization') {
+        return tip.impactLevel === 'Optimization' || tip.impactLevel === 'Thermal Efficiency';
+      }
+      return tip.impactLevel === activeFilter;
+    });
+
+    if (filterCountBadge) {
+      filterCountBadge.textContent = activeFilter === 'all'
+        ? `Showing ${filteredTips.length} recommendation${filteredTips.length === 1 ? '' : 's'}`
+        : `Showing ${filteredTips.length} of ${analysis.tips.length} (${activeFilter})`;
+    }
+
+    if (filteredTips.length === 0) {
+      container.innerHTML = '';
+      container.style.display = 'none';
+      if (filterEmptyState) {
+        filterEmptyState.style.display = 'flex';
+        filterEmptyState.classList.add('card-animate-in');
+      }
+      if (filterEmptyDesc) {
+        filterEmptyDesc.textContent = `No recommendations match "${activeFilter}". Select "All Tips" to view all ${analysis.tips.length} available optimization strategies.`;
+      }
+      renderWhatIfSection();
+      announceFinalStatus(0);
+      return;
+    }
+
+    if (filterEmptyState) filterEmptyState.style.display = 'none';
+    container.style.display = 'grid';
+
+    const newSig = JSON.stringify({
+      filter: activeFilter,
+      ids: filteredTips.map(t => `${t.id}:${t.savedKwhMonthly.toFixed(2)}:${t.savedCostMonthly.toFixed(2)}`)
+    });
+    const shouldAnimateCards = !this._prefersReducedMotion() && this._lastTipsSignature !== newSig;
+    this._lastTipsSignature = newSig;
 
     container.innerHTML = '';
 
-    analysis.tips.forEach(tip => {
-      const card = document.createElement('div');
-      card.className = 'tip-card';
+    const tipAriaCounts = {};
+    filteredTips.forEach(t => {
+      const grp = String(t.actionGroup || 'optimization').replace(/_/g, ' ');
+      const key = `${t.applianceName || 'Appliance'}|${t.impactLevel || 'Recommendation'}|${grp}`;
+      tipAriaCounts[key] = (tipAriaCounts[key] || 0) + 1;
+    });
+    const tipAriaSeen = {};
+
+    filteredTips.forEach((tip, idx) => {
+      const card = document.createElement('article');
+      card.className = shouldAnimateCards ? 'tip-card card-animate-in' : 'tip-card';
+      if (shouldAnimateCards) {
+        card.style.animationDelay = `${Math.min(idx * 40, 200)}ms`;
+      }
+
+      const safeBadgeClass = this._safeBadgeClass(tip.impactClass, 'badge-gold');
       const safeTipCategory = WattWatchAppliances.escapeHtml(tip.category || 'General');
+      const safeApplianceName = WattWatchAppliances.escapeHtml(tip.applianceName || 'Appliance');
+      const safeImpact = WattWatchAppliances.escapeHtml(tip.impactLevel || 'Recommendation');
+      const safeTitleId = `tipTitle_${idx}_${String(tip.id || '').replace(/[^a-zA-Z0-9_\-]/g, '')}`;
+      card.setAttribute('aria-labelledby', safeTitleId);
+
+      const grpText = String(tip.actionGroup || 'optimization').replace(/_/g, ' ');
+      const ariaKey = `${tip.applianceName || 'Appliance'}|${tip.impactLevel || 'Recommendation'}|${grpText}`;
+      tipAriaSeen[ariaKey] = (tipAriaSeen[ariaKey] || 0) + 1;
+      const dupTipSuffix = tipAriaCounts[ariaKey] > 1 ? ` #${tipAriaSeen[ariaKey]}` : '';
+      const tipBtnAriaLabel = `Simulate efficiency upgrade for ${safeApplianceName} (${safeImpact} - ${WattWatchAppliances.escapeHtml(grpText)})${dupTipSuffix}`;
+      const heuristicBadge = tip.isHeuristicEstimate
+        ? `<span class="badge badge-outline" style="margin-left: 0.35rem; font-size: 0.65rem;" title="Estimated savings using benchmark assumptions">Benchmark Estimate</span>`
+        : '';
+
+      const costStr = fmtRecMoney(tip.savedCostMonthly);
+      const annualStr = fmtRecMoney(tip.annualSavingsCost);
+      const kwhStr = WattWatchCalculations.formatKwh(tip.savedKwhMonthly);
+
+      const hasStandaloneDetails = Boolean(tip.hasReconciledAdjustment);
+      const standaloneCostStr = hasStandaloneDetails ? fmtRecMoney(tip.individualSavedCostMonthly) : '';
+      const standaloneKwhStr = hasStandaloneDetails ? WattWatchCalculations.formatKwh(tip.individualSavedKwhMonthly) : '';
+
       card.innerHTML = `
         <div>
           <div class="tip-card-header">
             <div>
-              <span class="badge ${tip.impactClass}">${WattWatchAppliances.escapeHtml(tip.impactLevel)}</span>
-              <h3 class="tip-appliance-title" style="margin-top: 0.4rem;">${WattWatchAppliances.escapeHtml(tip.applianceName)}</h3>
+              <span class="badge ${safeBadgeClass}">${safeImpact}</span>${heuristicBadge}
+              <h3 class="tip-appliance-title" id="${safeTitleId}" style="margin-top: 0.4rem;">${safeApplianceName}</h3>
             </div>
             <span class="badge badge-outline" style="border: 1px solid var(--border-card);">${safeTipCategory}</span>
           </div>
@@ -1110,24 +1731,34 @@ const WattWatchApp = {
         </div>
         <div class="tip-savings-row">
           <div>
-            <div style="font-size: 0.72rem; color: var(--text-secondary); text-transform: uppercase;">Potential Monthly Savings</div>
-            <div class="tip-savings-pill">${WattWatchAppliances.escapeHtml(WattWatchCalculations.formatCurrency(tip.savedCostMonthly))} <span style="font-size: 0.78rem; font-family: var(--font-sans); color: var(--royal-blue); font-weight: 500;">(${WattWatchCalculations.formatKwh(tip.savedKwhMonthly)})</span></div>
+            <div style="font-size: 0.72rem; color: var(--text-secondary); text-transform: uppercase;">${hasStandaloneDetails ? 'Combined Household Share' : 'Potential Monthly Savings'}</div>
+            <div class="tip-savings-pill">${WattWatchAppliances.escapeHtml(costStr)} <span style="font-size: 0.78rem; font-family: var(--font-sans); color: var(--royal-blue); font-weight: 500;">(${WattWatchCalculations.formatKwh(tip.savedKwhMonthly)})</span></div>
+            ${tip.savedCostMonthly <= 0 && tip.savedKwhMonthly > 0 ? '<div style="font-size: 0.72rem; color: var(--text-secondary); margin-top: 0.15rem;">Bill unchanged within free allowance / subsidy</div>' : (hasStandaloneDetails ? `<div style="font-size: 0.72rem; color: var(--text-secondary); margin-top: 0.15rem;">Standalone if applied alone: ~${WattWatchAppliances.escapeHtml(standaloneCostStr)} (${WattWatchAppliances.escapeHtml(standaloneKwhStr)})</div>` : '')}
           </div>
           <div style="text-align: right;">
             <div style="font-size: 0.72rem; color: var(--text-secondary); text-transform: uppercase;">Est. Annual Savings</div>
-            <div style="font-family: var(--font-serif); font-size: 1rem; font-weight: 600; color: var(--text-gold);">${WattWatchAppliances.escapeHtml(WattWatchCalculations.formatCurrency(tip.annualSavingsCost))}</div>
+            <div style="font-family: var(--font-serif); font-size: 1rem; font-weight: 600; color: var(--text-gold);">${WattWatchAppliances.escapeHtml(annualStr)}</div>
           </div>
         </div>
         <div style="margin-top: 0.85rem; padding-top: 0.65rem; border-top: 1px solid var(--border-subtle);">
-          <button type="button" class="btn btn-secondary btn-sm" style="width: 100%;" onclick="WattWatchAppliances.simulateAppliance('${WattWatchAppliances.escapeHtml(tip.applianceId)}')">
+          <button type="button" class="btn btn-secondary btn-sm" style="width: 100%;" data-action="simulate-tip" data-appliance-id="${WattWatchAppliances.escapeHtml(tip.applianceId)}" aria-label="${tipBtnAriaLabel}">
             Simulate Efficiency Upgrade
           </button>
         </div>
       `;
+
+      const simBtn = card.querySelector('[data-action="simulate-tip"]');
+      if (simBtn) {
+        simBtn.addEventListener('click', () => {
+          WattWatchAppliances.simulateAppliance(tip.applianceId);
+        });
+      }
+
       container.appendChild(card);
     });
 
     renderWhatIfSection();
+    announceFinalStatus(filteredTips.length);
   },
 
   /**
@@ -1153,7 +1784,8 @@ const WattWatchApp = {
           return;
         }
         this.refreshAll();
-        this.showToast(`Electricity flat rate updated to ₹${val.toFixed(2)}/kWh (Flat mode active)`, 'success', 'Rate Updated');
+        this._flashElement(document.getElementById('settingsActiveTariffBanner'));
+        this.showToast(`Electricity flat rate updated to ${WattWatchCalculations.formatRateWithCurrency(val, curSettings?.currency, '/kWh')} (Flat mode active)`, 'success', 'Rate Updated');
       });
     }
 
@@ -1171,7 +1803,8 @@ const WattWatchApp = {
     }
     if (btnRatePlus && rateInput) {
       btnRatePlus.addEventListener('click', () => {
-        let current = parseFloat(rateInput.value) || 8.00;
+        const parsed = parseFloat(rateInput.value);
+        let current = !isNaN(parsed) && Number.isFinite(parsed) ? parsed : 8.00;
         current = Math.min(100, current + 0.5);
         rateInput.value = current.toFixed(2);
         rateInput.dispatchEvent(new Event('change'));
@@ -1211,7 +1844,8 @@ const WattWatchApp = {
         // Reset session warning so user gets fresh alerts for new budget
         this.budgetWarnedSession = { 75: false, 90: false, 100: false };
         this.refreshAll();
-        this.showToast(`Monthly electricity budget set to ₹${val.toLocaleString('en-IN')}`, 'success', 'Budget Saved');
+        this._flashElement(document.getElementById('settingsActiveTariffBanner'));
+        this.showToast(`Monthly electricity budget set to ${WattWatchCalculations.formatOptionalCurrency(val, curSettings?.currency)}`, 'success', 'Budget Saved');
       });
     }
 
@@ -1259,6 +1893,7 @@ const WattWatchApp = {
           return;
         }
         this.refreshAll();
+        this._flashElement(document.getElementById('settingsActiveTariffBanner'));
         this.showToast(`Lifeline allowance updated to ${val} kWh/month`, 'success', 'Tariff Saved');
       });
     }
@@ -1284,7 +1919,8 @@ const WattWatchApp = {
           return;
         }
         this.refreshAll();
-        this.showToast(`Government subsidy / bill credit set to ₹${val.toFixed(2)}`, 'success', 'Tariff Saved');
+        this._flashElement(document.getElementById('settingsActiveTariffBanner'));
+        this.showToast(`Government subsidy / bill credit set to ${WattWatchCalculations.formatOptionalCurrency(val, curSettings?.currency)}`, 'success', 'Tariff Saved');
       });
     }
 
@@ -1309,7 +1945,8 @@ const WattWatchApp = {
           return;
         }
         this.refreshAll();
-        this.showToast(`Fixed meter charges set to ₹${val.toFixed(2)}/month`, 'success', 'Tariff Saved');
+        this._flashElement(document.getElementById('settingsActiveTariffBanner'));
+        this.showToast(`Fixed meter charges set to ${WattWatchCalculations.formatRateWithCurrency(val, curSettings?.currency, '/month')}`, 'success', 'Tariff Saved');
       });
     }
 
@@ -1334,6 +1971,7 @@ const WattWatchApp = {
           return;
         }
         this.refreshAll();
+        this._flashElement(document.getElementById('settingsActiveTariffBanner'));
         this.showToast(`Electricity duty set to ${val.toFixed(1)}%`, 'success', 'Tariff Saved');
       });
     }
@@ -1345,6 +1983,7 @@ const WattWatchApp = {
         const saved = WattWatchStorage.saveSettings({ tariffModel: 'flat' });
         if (saved) {
           this.refreshAll();
+          this._flashElement(document.getElementById('settingsActiveTariffBanner'));
           this.showToast('Switched to uniform flat rate billing model.', 'info', 'Billing Model Updated');
         }
       });
@@ -1433,7 +2072,7 @@ const WattWatchApp = {
         this.renderFirstTimeGuide();
         const guideCard = document.getElementById('firstTimeGuideCard');
         if (guideCard) {
-          guideCard.scrollIntoView({ behavior: 'smooth' });
+          guideCard.scrollIntoView({ behavior: this._prefersReducedMotion() ? 'auto' : 'smooth' });
         }
         this.showToast('Getting Started Guide opened', 'info', 'Quick Start Guide');
       });
@@ -1768,9 +2407,8 @@ const WattWatchApp = {
   populateSettingsFields(settings) {
     const rateInput = document.getElementById('settingsElectricityRate');
     if (rateInput && document.activeElement !== rateInput) {
-      const rawRate = Number(settings.electricityRate);
-      const flatRate = (settings.electricityRate !== undefined && settings.electricityRate !== null && settings.electricityRate !== '' && !isNaN(rawRate) && rawRate >= 0)
-        ? rawRate
+      const flatRate = (typeof WattWatchCalculations !== 'undefined' && WattWatchCalculations.isFiniteNumber(settings.electricityRate) && Number(settings.electricityRate) >= 0)
+        ? Number(settings.electricityRate)
         : 8.00;
       rateInput.value = flatRate.toFixed(2);
     }
@@ -1820,6 +2458,10 @@ const WattWatchApp = {
     const slabContainer = document.getElementById('settingsActiveSlabsContainer');
     const slabTbody = document.getElementById('settingsActiveSlabsTableBody');
 
+    const validCurr = this._getValidatedCurrency(settings);
+    const fmtRate = (r, sfx = ' / kWh') => WattWatchCalculations.formatRateWithCurrency(r, validCurr, sfx);
+    const fmtMoney = (v) => WattWatchCalculations.formatOptionalCurrency(v, validCurr);
+
     if (isSlab) {
       if (flatGroup) flatGroup.style.display = 'none';
       if (slabContainer) slabContainer.style.display = 'block';
@@ -1834,7 +2476,7 @@ const WattWatchApp = {
           tr.innerHTML = `
             <td style="font-weight: 600;">Tier ${idx + 1}</td>
             <td>${rangeLabel}</td>
-            <td style="font-weight: 600; color: var(--deep-burgundy);">₹${Number(s.rate).toFixed(2)} / kWh</td>
+            <td style="font-weight: 600; color: var(--deep-burgundy);">${WattWatchAppliances.escapeHtml(fmtRate(Number(s.rate)))}</td>
           `;
           slabTbody.appendChild(tr);
         });
@@ -1851,32 +2493,26 @@ const WattWatchApp = {
     if (modelName) {
       modelName.textContent = isSlab ? 'Progressive Multi-Slab Tariff' : 'Uniform Flat Rate';
     }
-    const rawFlat = Number(settings.electricityRate);
-    const flatRate = (settings.electricityRate !== undefined && settings.electricityRate !== null && settings.electricityRate !== '' && !isNaN(rawFlat))
-      ? Math.max(0, rawFlat)
-      : 8.00;
-
-    const rawFixed = Number(settings.fixedCharges);
-    const fixedCharges = (settings.fixedCharges !== undefined && settings.fixedCharges !== null && settings.fixedCharges !== '' && !isNaN(rawFixed))
-      ? Math.max(0, rawFixed)
-      : 0.00;
-
-    const rawTax = Number(settings.additionalTaxPercent);
-    const taxPercent = (settings.additionalTaxPercent !== undefined && settings.additionalTaxPercent !== null && settings.additionalTaxPercent !== '' && !isNaN(rawTax))
-      ? Math.max(0, rawTax)
-      : 0.0;
+    const isFinitePos = (v, defVal) => (
+      typeof WattWatchCalculations !== 'undefined' && WattWatchCalculations.isFiniteNumber(v) && Number(v) >= 0
+        ? Math.max(0, Number(v))
+        : defVal
+    );
+    const flatRate = isFinitePos(settings.electricityRate, 8.00);
+    const fixedCharges = isFinitePos(settings.fixedCharges, 0.00);
+    const taxPercent = isFinitePos(settings.additionalTaxPercent, 0.0);
 
     if (effRateVal) {
       effRateVal.textContent = isSlab
-        ? `₹${summary.effectiveRatePerKwh.toFixed(2)} / kWh (Effective)`
-        : `₹${flatRate.toFixed(2)} / kWh`;
+        ? `${fmtRate(summary.effectiveRatePerKwh)} (Effective)`
+        : fmtRate(flatRate);
     }
     if (actionPrompt) {
       const hasExtraFlatCharges = fixedCharges > 0 || taxPercent > 0;
       actionPrompt.innerHTML = isSlab
-        ? `Progressive tiers, fixed meter charge (₹${fixedCharges.toFixed(2)}), and duty (${taxPercent.toFixed(1)}%) are active. <a href="#simulator" onclick="WattWatchApp.navigateTo('simulator'); return false;" style="color: var(--royal-blue); font-weight: 600; text-decoration: underline;">Configure Slabs in Simulator &rarr;</a>`
+        ? `Progressive tiers, fixed meter charge (${WattWatchAppliances.escapeHtml(fmtMoney(fixedCharges))}), and duty (${taxPercent.toFixed(1)}%) are active. <a href="#simulator" onclick="WattWatchApp.navigateTo('simulator'); return false;" style="color: var(--royal-blue); font-weight: 600; text-decoration: underline;">Configure Slabs in Simulator &rarr;</a>`
         : hasExtraFlatCharges
-          ? `Flat rate (₹${flatRate.toFixed(2)}/kWh), fixed meter charge (₹${fixedCharges.toFixed(2)}), and duty (${taxPercent.toFixed(1)}%) are active. <a href="#simulator" onclick="WattWatchApp.navigateTo('simulator'); return false;" style="color: var(--royal-blue); font-weight: 600; text-decoration: underline;">Open Tariff Calculator &rarr;</a>`
+          ? `Flat rate (${WattWatchAppliances.escapeHtml(fmtRate(flatRate, '/kWh'))}), fixed meter charge (${WattWatchAppliances.escapeHtml(fmtMoney(fixedCharges))}), and duty (${taxPercent.toFixed(1)}%) are active. <a href="#simulator" onclick="WattWatchApp.navigateTo('simulator'); return false;" style="color: var(--royal-blue); font-weight: 600; text-decoration: underline;">Open Tariff Calculator &rarr;</a>`
           : `Current billing uses a uniform flat rate. To configure progressive tiered slabs and fixed charges, <a href="#simulator" onclick="WattWatchApp.navigateTo('simulator'); return false;" style="color: var(--royal-blue); font-weight: 600; text-decoration: underline;">Open Tariff Calculator &rarr;</a>`;
     }
   },
@@ -2140,7 +2776,7 @@ const WattWatchApp = {
   /**
    * Reusable Custom Confirmation Dialog
    */
-  openConfirmDialog({ title, message, confirmText, confirmClass, onConfirm }) {
+  openConfirmDialog({ title, message, confirmText, cancelText, confirmClass, onConfirm }) {
     const modal = document.getElementById('confirmModal');
     if (!modal) return;
 
@@ -2150,6 +2786,11 @@ const WattWatchApp = {
     if (titleEl) titleEl.textContent = title || 'Confirmation Required';
     const msgEl = document.getElementById('confirmModalMessage');
     if (msgEl) msgEl.textContent = message || 'Are you sure you want to proceed?';
+
+    const btnCancel = document.getElementById('confirmModalCancelBtn');
+    if (btnCancel) {
+      btnCancel.textContent = cancelText || 'Cancel';
+    }
 
     const btnConfirm = document.getElementById('confirmModalOkBtn');
     if (btnConfirm) {
@@ -2352,7 +2993,7 @@ const WattWatchApp = {
       container.innerHTML = `
         <div style="padding: 1.5rem 1rem; text-align: center; color: var(--text-secondary);">
           <div style="width: 44px; height: 44px; border-radius: 50%; background: var(--bg-surface-elevated, rgba(15, 23, 42, 0.05)); margin: 0 auto 0.75rem; display: flex; align-items: center; justify-content: center; color: var(--text-secondary);">
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+            <svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
               <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/>
               <line x1="16" y1="2" x2="16" y2="6"/>
               <line x1="8" y1="2" x2="8" y2="6"/>
@@ -2416,6 +3057,13 @@ const WattWatchApp = {
     const now = new Date();
     const currentMonthLabel = now.toLocaleString('default', { month: 'short', year: 'numeric' });
     const prevMonthLabel = prevRecord.periodLabel || prevMonth.label;
+    const activeCurr = this._getValidatedCurrency(null);
+    const prevCurr = (typeof WattWatchHistory !== 'undefined' && typeof WattWatchHistory._getSnapshotCurrency === 'function')
+      ? WattWatchHistory._getSnapshotCurrency(prevRecord)
+      : WattWatchCalculations.resolveValidatedCurrency(prevRecord?.tariffSettings?.currency ?? prevRecord?.currency);
+    const canCompareCurr = Boolean(activeCurr && prevCurr && activeCurr === prevCurr);
+    const fmtCurMoney = (val) => WattWatchCalculations.formatOptionalCurrency(val, activeCurr);
+    const fmtPrevMoney = (val) => WattWatchCalculations.formatOptionalCurrency(val, prevCurr);
 
     if (badge) {
       badge.textContent = isKwhInc
@@ -2429,17 +3077,17 @@ const WattWatchApp = {
     const prevBarWidth = Math.min(100, Math.round((prevKwh / maxKwh) * 100));
 
     container.innerHTML = `
-      <div class="metrics-grid" style="grid-template-columns: repeat(3, 1fr); margin-bottom: 1.25rem;">
+      <div class="metrics-grid overview-compare-grid" style="margin-bottom: 1.25rem;">
         <div class="metric-card">
           <span class="metric-title">Current Month (Projected)</span>
           <div class="metric-value">${currentKwh.toFixed(1)} <span style="font-size: 0.9rem; font-weight: 500;">kWh</span></div>
-          <div class="metric-subtext">${WattWatchAppliances.escapeHtml(currentMonthLabel)} · ${WattWatchCalculations.formatCurrency(currentCost)}</div>
+          <div class="metric-subtext">${WattWatchAppliances.escapeHtml(currentMonthLabel)} · ${WattWatchAppliances.escapeHtml(fmtCurMoney(currentCost))}</div>
         </div>
 
         <div class="metric-card">
           <span class="metric-title">Previous Month (${WattWatchAppliances.escapeHtml(prevMonthLabel)})</span>
           <div class="metric-value">${prevKwh.toFixed(1)} <span style="font-size: 0.9rem; font-weight: 500;">kWh</span></div>
-          <div class="metric-subtext">Recorded Snapshot · ${WattWatchCalculations.formatCurrency(prevCost)}</div>
+          <div class="metric-subtext">Recorded Snapshot · ${WattWatchAppliances.escapeHtml(fmtPrevMoney(prevCost))}${!prevCurr ? ' (Currency unrecorded)' : ''}</div>
         </div>
 
         <div class="metric-card">
@@ -2451,7 +3099,9 @@ const WattWatchApp = {
             ${kwhTrendText}
           </div>
           <div class="metric-subtext">
-            Estimated Cost Delta: <strong>${costDiff >= 0 ? '+' : '-'}${WattWatchCalculations.formatCurrency(Math.abs(costDiff))}</strong> (${costPercentDiff >= 0 ? '+' : ''}${costPercentDiff.toFixed(1)}%)
+            ${canCompareCurr
+              ? `Estimated Cost Delta: <strong>${costDiff >= 0 ? '+' : '-'}${WattWatchAppliances.escapeHtml(fmtCurMoney(Math.abs(costDiff)))}</strong> (${costPercentDiff >= 0 ? '+' : ''}${costPercentDiff.toFixed(1)}%)`
+              : 'Estimated Cost Delta: <strong>Non-Comparable</strong> (currency missing or mismatched)'}
           </div>
         </div>
       </div>
@@ -2482,7 +3132,7 @@ const WattWatchApp = {
   },
 
   /**
-   * Luxury Toast Notification
+   * Safe Toast Notification (uses textContent for user/dynamic message strings to guarantee zero HTML injection)
    * @param {string} message
    * @param {string} type - 'success' | 'error' | 'info' | 'warning'
    * @param {string} title
@@ -2491,39 +3141,66 @@ const WattWatchApp = {
     const container = document.getElementById('toastContainer');
     if (!container) return;
 
+    const validTypes = ['success', 'error', 'info', 'warning'];
+    const safeType = validTypes.includes(type) ? type : 'info';
+
     const toast = document.createElement('div');
-    toast.className = `toast toast-${type}`;
+    toast.className = `toast toast-${safeType}`;
+    toast.setAttribute('role', safeType === 'error' ? 'alert' : 'status');
 
     let iconSvg = '';
-    if (type === 'success') {
-      iconSvg = `<svg class="toast-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>`;
-    } else if (type === 'error') {
-      iconSvg = `<svg class="toast-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>`;
-    } else if (type === 'warning') {
-      iconSvg = `<svg class="toast-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>`;
+    if (safeType === 'success') {
+      iconSvg = `<svg class="toast-icon" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>`;
+    } else if (safeType === 'error') {
+      iconSvg = `<svg class="toast-icon" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>`;
+    } else if (safeType === 'warning') {
+      iconSvg = `<svg class="toast-icon" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>`;
     } else {
-      iconSvg = `<svg class="toast-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>`;
+      iconSvg = `<svg class="toast-icon" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>`;
     }
 
-    toast.innerHTML = `
-      ${iconSvg}
-      <div class="toast-content">
-        ${title ? `<div class="toast-title">${WattWatchAppliances.escapeHtml(title)}</div>` : ''}
-        <div class="toast-message">${WattWatchAppliances.escapeHtml(message)}</div>
-      </div>
-      <button type="button" class="toast-close" aria-label="Close notification">&times;</button>
-    `;
+    toast.innerHTML = iconSvg;
 
+    const contentWrap = document.createElement('div');
+    contentWrap.className = 'toast-content';
+    if (title) {
+      const titleEl = document.createElement('div');
+      titleEl.className = 'toast-title';
+      titleEl.textContent = String(title);
+      contentWrap.appendChild(titleEl);
+    }
+    const msgEl = document.createElement('div');
+    msgEl.className = 'toast-message';
+    msgEl.textContent = message !== undefined && message !== null ? String(message) : '';
+    contentWrap.appendChild(msgEl);
+
+    const closeBtn = document.createElement('button');
+    closeBtn.type = 'button';
+    closeBtn.className = 'toast-close';
+    closeBtn.setAttribute('aria-label', 'Close notification');
+    closeBtn.textContent = '×';
+
+    toast.appendChild(contentWrap);
+    toast.appendChild(closeBtn);
     container.appendChild(toast);
 
-    const closeBtn = toast.querySelector('.toast-close');
+    let autoTimer = null;
     const dismiss = () => {
+      if (autoTimer) {
+        clearTimeout(autoTimer);
+        autoTimer = null;
+      }
+      if (!toast.isConnected) return;
+      if (this._prefersReducedMotion()) {
+        toast.remove();
+        return;
+      }
       toast.classList.add('toast-hiding');
-      setTimeout(() => toast.remove(), 250);
+      setTimeout(() => { if (toast.isConnected) toast.remove(); }, 250);
     };
 
     closeBtn.addEventListener('click', dismiss);
-    setTimeout(dismiss, 4200);
+    autoTimer = setTimeout(dismiss, 4200);
   }
 };
 

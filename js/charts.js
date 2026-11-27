@@ -69,6 +69,139 @@ const WattWatchCharts = {
   },
 
   /**
+   * Resolves validated effective or flat tariff rate without converting explicit 0 into 8.00.
+   * @private
+   */
+  _resolveValidRate(summary) {
+    if (!summary || typeof summary !== 'object') return NaN;
+    if (WattWatchCalculations.isFiniteNumber(summary.effectiveRatePerKwh) && Number(summary.effectiveRatePerKwh) >= 0) {
+      return Number(summary.effectiveRatePerKwh);
+    }
+    if (WattWatchCalculations.isFiniteNumber(summary.ratePerKwh) && Number(summary.ratePerKwh) >= 0) {
+      return Number(summary.ratePerKwh);
+    }
+    return NaN;
+  },
+
+  /**
+   * Resolves validated active account currency without assuming ₹ when missing/invalid.
+   * @private
+   */
+  _getActiveCurrency() {
+    const settings = (typeof WattWatchStorage !== 'undefined' && typeof WattWatchStorage.getSettings === 'function')
+      ? WattWatchStorage.getSettings()
+      : null;
+    return (typeof WattWatchCalculations !== 'undefined' && typeof WattWatchCalculations.resolveValidatedCurrency === 'function')
+      ? WattWatchCalculations.resolveValidatedCurrency(settings?.currency)
+      : null;
+  },
+
+  /**
+   * Resolves validated currency for a snapshot object (nested tariffSettings.currency then top-level currency).
+   * @private
+   */
+  _resolveSnapshotCurrency(rec) {
+    if (!rec || typeof rec !== 'object') return null;
+    if (typeof WattWatchHistory !== 'undefined' && typeof WattWatchHistory._getSnapshotCurrency === 'function') {
+      return WattWatchHistory._getSnapshotCurrency(rec);
+    }
+    const ts = (rec.tariffSettings && typeof rec.tariffSettings === 'object' && !Array.isArray(rec.tariffSettings))
+      ? rec.tariffSettings
+      : null;
+    if (ts) {
+      const nested = WattWatchCalculations.resolveValidatedCurrency(ts.currency);
+      if (nested) return nested;
+    }
+    return WattWatchCalculations.resolveValidatedCurrency(rec.currency);
+  },
+
+  /**
+   * Formats chart monetary values cleanly with validated currency or unlabelled fallback.
+   * @private
+   */
+  _formatChartMoney(val, currency) {
+    if (typeof WattWatchCalculations !== 'undefined' && typeof WattWatchCalculations.formatOptionalCurrency === 'function') {
+      return WattWatchCalculations.formatOptionalCurrency(val, currency);
+    }
+    return WattWatchCalculations.formatNumber(val, 2);
+  },
+
+  /**
+   * Checks whether reduced motion is requested via media query or test flag.
+   * @returns {boolean}
+   */
+  _prefersReducedMotion() {
+    if (typeof WattWatchApp !== 'undefined' && WattWatchApp.reduceMotionOverride === true) {
+      return true;
+    }
+    return typeof window !== 'undefined' && typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  },
+
+  /**
+   * Updates an existing Chart.js instance in place when compatible, avoiding
+   * unnecessary destroy/recreate cycles while ensuring smooth transitions and
+   * clean replacement when canvas or chart type changes.
+   * @param {string} key
+   * @param {HTMLCanvasElement} canvas
+   * @param {Object} config
+   * @returns {Chart|null}
+   */
+  _updateOrCreateChart(key, canvas, config) {
+    if (!canvas || typeof Chart === 'undefined') return null;
+    const reducedMotion = this._prefersReducedMotion();
+    const animConfig = reducedMotion ? false : { duration: 420, easing: 'easeOutQuart' };
+    const existing = this.instances[key];
+
+    if (
+      existing &&
+      existing.canvas === canvas &&
+      existing.config &&
+      existing.config.type === config.type &&
+      typeof existing.update === 'function'
+    ) {
+      try {
+        existing.data.labels = config.data.labels;
+        if (Array.isArray(existing.data.datasets) && Array.isArray(config.data.datasets) && existing.data.datasets.length === config.data.datasets.length) {
+          config.data.datasets.forEach((ds, idx) => {
+            const targetDs = existing.data.datasets[idx];
+            Object.keys(targetDs).forEach(k => {
+              if (!k.startsWith('$') && k !== 'hidden' && !Object.prototype.hasOwnProperty.call(ds, k)) {
+                delete targetDs[k];
+              }
+            });
+            Object.assign(targetDs, ds);
+          });
+        } else {
+          existing.data.datasets = config.data.datasets;
+        }
+        if (config.options) {
+          if (config.options.plugins) existing.options.plugins = config.options.plugins;
+          if (config.options.scales) existing.options.scales = config.options.scales;
+          if (config.options.cutout !== undefined) existing.options.cutout = config.options.cutout;
+          if (config.options.indexAxis !== undefined) existing.options.indexAxis = config.options.indexAxis;
+          existing.options.animation = animConfig;
+        }
+        existing.update(reducedMotion ? 'none' : undefined);
+        return existing;
+      } catch (e) {
+        console.warn(`[WattWatch Charts] Falling back to clean recreate for ${key}:`, e);
+      }
+    }
+
+    this.destroyChart(key, canvas);
+    const ctx = canvas.getContext('2d');
+    const finalConfig = {
+      ...config,
+      options: {
+        ...(config.options || {}),
+        animation: animConfig
+      }
+    };
+    this.instances[key] = new Chart(ctx, finalConfig);
+    return this.instances[key];
+  },
+
+  /**
    * Destroys all active chart instances
    */
   destroyAll() {
@@ -96,9 +229,8 @@ const WattWatchCharts = {
     const canvas = document.getElementById('overviewTrendChart');
     if (!canvas) return;
 
-    this.destroyChart('overviewTrend', canvas);
-
     if (!summary || !Array.isArray(summary.appliances) || summary.appliances.length === 0 || !Number.isFinite(summary.totalDailyKwh) || summary.totalDailyKwh <= 0) {
+      this.destroyChart('overviewTrend', canvas);
       this.renderEmptyStateOnCanvas(canvas, 'Add appliances to visualize consumption trends');
       return;
     }
@@ -106,8 +238,6 @@ const WattWatchCharts = {
     this.clearEmptyState(canvas);
 
     const colors = this.getThemeColors();
-    const ctx = canvas.getContext('2d');
-
     const daysOfWeek = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
     const baselineDailyKwh = summary.totalDailyKwh;
 
@@ -121,9 +251,12 @@ const WattWatchCharts = {
       Number((baselineDailyKwh * 1.12).toFixed(2))
     ];
 
-    const weeklyCosts = weeklyData.map(kwh => (kwh * summary.ratePerKwh).toFixed(2));
+    const validEffRate = this._resolveValidRate(summary);
+    const effRate = Number.isFinite(validEffRate) ? validEffRate : 0;
+    const weeklyCosts = weeklyData.map(kwh => Number((kwh * effRate).toFixed(2)));
+    const activeCurr = this._getActiveCurrency();
 
-    this.instances.overviewTrend = new Chart(ctx, {
+    this._updateOrCreateChart('overviewTrend', canvas, {
       type: 'bar',
       data: {
         labels: daysOfWeek,
@@ -158,7 +291,7 @@ const WattWatchCharts = {
                 const cost = weeklyCosts[context.dataIndex];
                 return [
                   `Energy: ${kwh} kWh`,
-                  `Est. Cost: ₹${cost}`
+                  `Est. Cost: ${this._formatChartMoney(cost, activeCurr)}`
                 ];
               }
             }
@@ -193,32 +326,33 @@ const WattWatchCharts = {
     const canvas = document.getElementById('overviewCategoryChart');
     if (!canvas) return;
 
-    this.destroyChart('overviewCategory', canvas);
-
     if (!summary || !summary.categoryBreakdown || !Array.isArray(summary.appliances) || summary.appliances.length === 0 || !Number.isFinite(summary.totalMonthlyKwh) || summary.totalMonthlyKwh <= 0) {
+      this.destroyChart('overviewCategory', canvas);
       this.renderEmptyStateOnCanvas(canvas, 'No category data available');
       return;
     }
-
-    const colors = this.getThemeColors();
-    const ctx = canvas.getContext('2d');
 
     const activeCategories = Object.values(summary.categoryBreakdown)
       .filter(c => c.kwh > 0)
       .sort((a, b) => b.kwh - a.kwh);
 
     if (activeCategories.length === 0) {
+      this.destroyChart('overviewCategory', canvas);
       this.renderEmptyStateOnCanvas(canvas, 'No category data available');
       return;
     }
 
     this.clearEmptyState(canvas);
 
+    const colors = this.getThemeColors();
     const labels = activeCategories.map(c => c.category);
     const dataKwh = activeCategories.map(c => Number(c.kwh.toFixed(2)));
     const bgColors = activeCategories.map((_, idx) => colors.categoryPalette[idx % colors.categoryPalette.length]);
+    const validEffRate = this._resolveValidRate(summary);
+    const effRate = Number.isFinite(validEffRate) ? validEffRate : 0;
+    const activeCurr = this._getActiveCurrency();
 
-    this.instances.overviewCategory = new Chart(ctx, {
+    this._updateOrCreateChart('overviewCategory', canvas, {
       type: 'doughnut',
       data: {
         labels: labels,
@@ -257,10 +391,10 @@ const WattWatchCharts = {
             callbacks: {
               label: (context) => {
                 const cat = activeCategories[context.dataIndex];
-                const cost = (cat.kwh * summary.ratePerKwh).toFixed(2);
+                const cost = cat.kwh * effRate;
                 return [
                   `Energy: ${cat.kwh.toFixed(2)} kWh (${cat.percentage.toFixed(1)}%)`,
-                  `Est. Bill: ₹${cost}`
+                  `Est. Bill: ${this._formatChartMoney(cost, activeCurr)}`
                 ];
               }
             }
@@ -293,17 +427,23 @@ const WattWatchCharts = {
     const canvas = document.getElementById('analyticsTimelineChart');
     if (!canvas) return;
 
-    this.destroyChart('analyticsTimeline', canvas);
-
-    if (!summary || !Array.isArray(summary.appliances) || summary.appliances.length === 0) {
-      this.renderEmptyStateOnCanvas(canvas, 'Add appliances to generate analytics projection');
+    if (
+      !summary || summary.isValid === false ||
+      !Array.isArray(summary.appliances) || summary.appliances.length === 0 ||
+      !Number.isFinite(summary.totalDailyKwh) || summary.totalDailyKwh <= 0 ||
+      !Number.isFinite(summary.totalMonthlyKwh) || summary.totalMonthlyKwh <= 0
+    ) {
+      this.destroyChart('analyticsTimeline', canvas);
+      this.renderEmptyStateOnCanvas(canvas, 'Add active appliances to generate analytics projection');
       return;
     }
 
     this.clearEmptyState(canvas);
 
     const colors = this.getThemeColors();
-    const ctx = canvas.getContext('2d');
+    const validEffRate = this._resolveValidRate(summary);
+    const effRate = Number.isFinite(validEffRate) ? validEffRate : 0;
+    const activeCurr = this._getActiveCurrency();
 
     let labels = [];
     let kwhData = [];
@@ -314,7 +454,7 @@ const WattWatchCharts = {
       const baseHourly = summary.totalDailyKwh / 8;
       const profileWeights = [0.65, 0.50, 0.90, 1.35, 1.10, 1.25, 1.60, 1.40];
       kwhData = profileWeights.map(w => Number((baseHourly * w).toFixed(2)));
-      costData = kwhData.map(kwh => (kwh * summary.ratePerKwh).toFixed(2));
+      costData = kwhData.map(kwh => Number((kwh * effRate).toFixed(2)));
     } else if (timeframe === 'weekly') {
       labels = ['Week 1', 'Week 2', 'Week 3', 'Week 4'];
       const weeklyBase = summary.totalMonthlyKwh / 4;
@@ -324,7 +464,7 @@ const WattWatchCharts = {
         Number((weeklyBase * 0.98).toFixed(2)),
         Number((weeklyBase * 1.04).toFixed(2))
       ];
-      costData = kwhData.map(kwh => (kwh * summary.ratePerKwh).toFixed(2));
+      costData = kwhData.map(kwh => Number((kwh * effRate).toFixed(2)));
     } else {
       labels = ['Current Month', 'Month +1', 'Month +2', 'Month +3', 'Month +4', 'Month +5'];
       const mBase = summary.totalMonthlyKwh;
@@ -336,10 +476,10 @@ const WattWatchCharts = {
         Number((mBase * 0.98).toFixed(2)),
         Number((mBase * 0.95).toFixed(2))
       ];
-      costData = kwhData.map(kwh => (kwh * summary.ratePerKwh).toFixed(2));
+      costData = kwhData.map(kwh => Number((kwh * effRate).toFixed(2)));
     }
 
-    this.instances.analyticsTimeline = new Chart(ctx, {
+    this._updateOrCreateChart('analyticsTimeline', canvas, {
       type: 'line',
       data: {
         labels: labels,
@@ -375,7 +515,7 @@ const WattWatchCharts = {
             callbacks: {
               label: (context) => [
                 `Energy: ${context.raw} kWh`,
-                `Est. Cost: ₹${costData[context.dataIndex]}`
+                `Est. Cost: ${this._formatChartMoney(costData[context.dataIndex], activeCurr)}`
               ]
             }
           }
@@ -409,9 +549,12 @@ const WattWatchCharts = {
     const canvas = document.getElementById('analyticsApplianceRankChart');
     if (!canvas) return;
 
-    this.destroyChart('analyticsApplianceRank', canvas);
-
-    if (!summary || !Array.isArray(summary.appliances) || summary.appliances.length === 0) {
+    if (
+      !summary || summary.isValid === false ||
+      !Array.isArray(summary.appliances) || summary.appliances.length === 0 ||
+      !Number.isFinite(summary.totalMonthlyKwh) || summary.totalMonthlyKwh <= 0
+    ) {
+      this.destroyChart('analyticsApplianceRank', canvas);
       this.renderEmptyStateOnCanvas(canvas, 'No appliance consumption records found');
       return;
     }
@@ -419,16 +562,24 @@ const WattWatchCharts = {
     this.clearEmptyState(canvas);
 
     const colors = this.getThemeColors();
-    const ctx = canvas.getContext('2d');
-
     const sortedAppliances = [...summary.appliances]
-      .sort((a, b) => b.monthlyKwh - a.monthlyKwh)
+      .filter(a => a && Number.isFinite(Number(a.monthlyKwh)) && Number(a.monthlyKwh) > 0)
+      .sort((a, b) => Number(b.monthlyKwh) - Number(a.monthlyKwh))
       .slice(0, 8);
 
-    const labels = sortedAppliances.map(a => a.name.length > 22 ? a.name.substr(0, 20) + '…' : a.name);
-    const dataKwh = sortedAppliances.map(a => Number(a.monthlyKwh.toFixed(2)));
+    if (sortedAppliances.length === 0) {
+      this.destroyChart('analyticsApplianceRank', canvas);
+      this.renderEmptyStateOnCanvas(canvas, 'No appliance consumption records found');
+      return;
+    }
 
-    this.instances.analyticsApplianceRank = new Chart(ctx, {
+    const labels = sortedAppliances.map(a => {
+      const n = String(a.name || 'Appliance');
+      return n.length > 22 ? n.substr(0, 20) + '…' : n;
+    });
+    const dataKwh = sortedAppliances.map(a => Number(Number(a.monthlyKwh).toFixed(2)));
+
+    this._updateOrCreateChart('analyticsApplianceRank', canvas, {
       type: 'bar',
       data: {
         labels: labels,
@@ -460,7 +611,7 @@ const WattWatchCharts = {
                 const app = sortedAppliances[context.dataIndex];
                 return [
                   `Monthly: ${app.monthlyKwh.toFixed(2)} kWh`,
-                  `Est. Bill: ₹${app.monthlyCost.toFixed(2)}`,
+                  `Est. Bill: ${this._formatChartMoney(app.monthlyCost, this._getActiveCurrency())}`,
                   `Share: ${app.sharePercentage.toFixed(1)}%`
                 ];
               }
@@ -496,9 +647,18 @@ const WattWatchCharts = {
     const canvas = document.getElementById('analyticsCategoryShareChart');
     if (!canvas) return;
 
-    this.destroyChart('analyticsCategoryShare', canvas);
-
     if (!summary || !summary.categoryBreakdown || !Array.isArray(summary.appliances) || summary.appliances.length === 0 || !Number.isFinite(summary.totalMonthlyCost) || summary.totalMonthlyCost <= 0) {
+      this.destroyChart('analyticsCategoryShare', canvas);
+      this.renderEmptyStateOnCanvas(canvas, 'No cost data available');
+      return;
+    }
+
+    const activeCategories = Object.values(summary.categoryBreakdown)
+      .filter(c => c.cost > 0)
+      .sort((a, b) => b.cost - a.cost);
+
+    if (activeCategories.length === 0) {
+      this.destroyChart('analyticsCategoryShare', canvas);
       this.renderEmptyStateOnCanvas(canvas, 'No cost data available');
       return;
     }
@@ -506,17 +666,11 @@ const WattWatchCharts = {
     this.clearEmptyState(canvas);
 
     const colors = this.getThemeColors();
-    const ctx = canvas.getContext('2d');
-
-    const activeCategories = Object.values(summary.categoryBreakdown)
-      .filter(c => c.cost > 0)
-      .sort((a, b) => b.cost - a.cost);
-
     const labels = activeCategories.map(c => c.category);
     const dataCost = activeCategories.map(c => Number(c.cost.toFixed(2)));
     const bgColors = activeCategories.map((_, idx) => colors.categoryPalette[idx % colors.categoryPalette.length]);
 
-    this.instances.analyticsCategoryShare = new Chart(ctx, {
+    this._updateOrCreateChart('analyticsCategoryShare', canvas, {
       type: 'doughnut',
       data: {
         labels: labels,
@@ -554,7 +708,7 @@ const WattWatchCharts = {
               label: (context) => {
                 const cat = activeCategories[context.dataIndex];
                 return [
-                  `Est. Cost: ₹${cat.cost.toFixed(2)}`,
+                  `Est. Cost: ${this._formatChartMoney(cat.cost, this._getActiveCurrency())}`,
                   `Energy: ${cat.kwh.toFixed(2)} kWh (${cat.percentage.toFixed(1)}%)`
                 ];
               }
@@ -572,28 +726,35 @@ const WattWatchCharts = {
     const canvas = document.getElementById('analyticsCarbonChart');
     if (!canvas) return;
 
-    this.destroyChart('carbonChart', canvas);
+    if (
+      !summary || summary.isValid === false || !summary.categoryBreakdown ||
+      !Array.isArray(summary.appliances) || summary.appliances.length === 0 ||
+      !Number.isFinite(summary.totalMonthlyKwh) || summary.totalMonthlyKwh <= 0 ||
+      !emissionFactor || !Number.isFinite(Number(emissionFactor)) || Number(emissionFactor) <= 0
+    ) {
+      this.destroyChart('carbonChart', canvas);
+      this.renderEmptyStateOnCanvas(canvas, 'Configure active appliances and emission factor to view carbon breakdown');
+      return;
+    }
 
-    if (!summary || !Array.isArray(summary.appliances) || summary.appliances.length === 0 || !emissionFactor || !Number.isFinite(Number(emissionFactor)) || Number(emissionFactor) <= 0) {
-      this.renderEmptyStateOnCanvas(canvas, 'Configure emission factor in Settings to view carbon breakdown');
+    const activeCategories = Object.values(summary.categoryBreakdown)
+      .filter(c => c && Number.isFinite(Number(c.kwh)) && Number(c.kwh) > 0)
+      .sort((a, b) => Number(b.kwh) - Number(a.kwh));
+
+    if (activeCategories.length === 0) {
+      this.destroyChart('carbonChart', canvas);
+      this.renderEmptyStateOnCanvas(canvas, 'No active consumption available for carbon breakdown');
       return;
     }
 
     this.clearEmptyState(canvas);
-
     const colors = this.getThemeColors();
-    const ctx = canvas.getContext('2d');
-
-    // Calculate emissions per category
-    const activeCategories = Object.values(summary.categoryBreakdown)
-      .filter(c => c.kwh > 0)
-      .sort((a, b) => b.kwh - a.kwh);
 
     const labels = activeCategories.map(c => c.category);
     const dataKg = activeCategories.map(c => Number((c.kwh * emissionFactor).toFixed(2)));
     const bgColors = activeCategories.map((_, idx) => colors.categoryPalette[idx % colors.categoryPalette.length]);
 
-    this.instances.carbonChart = new Chart(ctx, {
+    this._updateOrCreateChart('carbonChart', canvas, {
       type: 'bar',
       data: {
         labels: labels,
@@ -656,9 +817,17 @@ const WattWatchCharts = {
     const canvas = document.getElementById('historyTrendChart');
     if (!canvas) return;
 
-    this.destroyChart('historyTrend', canvas);
+    const validHistory = Array.isArray(history)
+      ? history.filter(h =>
+          h && typeof h === 'object' &&
+          typeof h.period === 'string' && h.period.trim() !== '' &&
+          WattWatchCalculations.isFiniteNumber(h.totalKwh) && Number(h.totalKwh) >= 0 &&
+          WattWatchCalculations.isFiniteNumber(h.totalCost) && Number(h.totalCost) >= 0
+        )
+      : [];
 
-    if (!Array.isArray(history) || history.length === 0 || !history.some(h => h && Number.isFinite(Number(h.totalKwh)))) {
+    if (validHistory.length === 0) {
+      this.destroyChart('historyTrend', canvas);
       this.renderEmptyStateOnCanvas(canvas, 'No saved billing snapshots available');
       return;
     }
@@ -666,15 +835,13 @@ const WattWatchCharts = {
     this.clearEmptyState(canvas);
 
     const colors = this.getThemeColors();
-    const ctx = canvas.getContext('2d');
+    const sorted = [...validHistory].sort((a, b) => a.period.localeCompare(b.period));
+    const labels = sorted.map(h => String(h.periodLabel || h.period));
+    const dataKwh = sorted.map(h => Number(Number(h.totalKwh).toFixed(2)));
+    const dataCost = sorted.map(h => Number(Number(h.totalCost).toFixed(2)));
+    const pointCurrencies = sorted.map(h => this._resolveSnapshotCurrency(h));
 
-    // Chronological sort for the trend graph (oldest to newest)
-    const sorted = [...history].sort((a, b) => a.period.localeCompare(b.period));
-    const labels = sorted.map(h => h.periodLabel || h.period);
-    const dataKwh = sorted.map(h => Number(h.totalKwh.toFixed(2)));
-    const dataCost = sorted.map(h => Number(h.totalCost.toFixed(2)));
-
-    this.instances.historyTrend = new Chart(ctx, {
+    this._updateOrCreateChart('historyTrend', canvas, {
       type: 'line',
       data: {
         labels: labels,
@@ -707,10 +874,14 @@ const WattWatchCharts = {
             borderWidth: 1,
             padding: 12,
             callbacks: {
-              label: (context) => [
-                `Consumption: ${context.raw} kWh`,
-                `Estimated Bill: ₹${dataCost[context.dataIndex].toLocaleString('en-IN')}`
-              ]
+              label: (context) => {
+                const ptCurr = pointCurrencies[context.dataIndex];
+                const billStr = this._formatChartMoney(dataCost[context.dataIndex], ptCurr);
+                return [
+                  `Consumption: ${context.raw} kWh`,
+                  `Estimated Bill: ${billStr}${ptCurr ? '' : ' (Currency unrecorded)'}`
+                ];
+              }
             }
           }
         },
@@ -739,36 +910,54 @@ const WattWatchCharts = {
   /**
    * Month-to-Month Comparative Grouped Bar Chart
    */
-  renderComparisonChart(comp) {
+  renderComparisonChart(comp, currencyMeta = null) {
     const canvas = document.getElementById('historyComparisonChart');
     if (!canvas) return;
 
-    this.destroyChart('comparisonChart', canvas);
-
-    if (!comp || comp.isValid === false || !Number.isFinite(Number(comp.kwhA)) || !Number.isFinite(Number(comp.kwhB))) {
+    if (
+      !comp || comp.isValid === false ||
+      !WattWatchCalculations.isFiniteNumber(comp.kwhA) || !WattWatchCalculations.isFiniteNumber(comp.kwhB) ||
+      !WattWatchCalculations.isFiniteNumber(comp.costA) || !WattWatchCalculations.isFiniteNumber(comp.costB)
+    ) {
+      this.destroyChart('comparisonChart', canvas);
       this.renderEmptyStateOnCanvas(canvas, 'Select two billing periods above to compare consumption and costs');
       return;
     }
 
     this.clearEmptyState(canvas);
 
-    const colors = this.getThemeColors();
-    const ctx = canvas.getContext('2d');
+    const meta = (currencyMeta && typeof currencyMeta === 'object') ? currencyMeta : null;
+    const canCompareMoney = meta ? Boolean(meta.canCompareMoney) : (comp.canCompareMoney !== false);
+    const compCurr = canCompareMoney
+      ? WattWatchCalculations.resolveValidatedCurrency(meta ? meta.currency : comp.currency)
+      : null;
 
-    this.instances.comparisonChart = new Chart(ctx, {
+    const kwhA = Number(comp.kwhA);
+    const kwhB = Number(comp.kwhB);
+    const costA = Number(comp.costA);
+    const costB = Number(comp.costB);
+
+    const chartLabels = canCompareMoney
+      ? ['Energy Consumption (kWh)', `Estimated Bill (${compCurr ? compCurr + ' ' : ''}/ 10)`]
+      : ['Energy Consumption (kWh)'];
+    const dataA = canCompareMoney ? [kwhA, costA / 10] : [kwhA];
+    const dataB = canCompareMoney ? [kwhB, costB / 10] : [kwhB];
+
+    const colors = this.getThemeColors();
+    this._updateOrCreateChart('comparisonChart', canvas, {
       type: 'bar',
       data: {
-        labels: ['Energy Consumption (kWh)', 'Estimated Bill (₹ / 10)'],
+        labels: chartLabels,
         datasets: [
           {
             label: comp.periodLabelA,
-            data: [comp.kwhA, comp.costA / 10],
+            data: dataA,
             backgroundColor: colors.royalBlue,
             borderRadius: 4
           },
           {
             label: comp.periodLabelB,
-            data: [comp.kwhB, comp.costB / 10],
+            data: dataB,
             backgroundColor: colors.antiqueGold,
             borderRadius: 4
           }
@@ -799,7 +988,7 @@ const WattWatchCharts = {
                 const raw = context.raw;
                 return isEnergy
                   ? `${label}: ${raw.toFixed(2)} kWh`
-                  : `${label}: ₹${(raw * 10).toFixed(2)}`;
+                  : `${label}: ${this._formatChartMoney(raw * 10, compCurr)}`;
               }
             }
           }
@@ -869,17 +1058,18 @@ const WattWatchCharts = {
 
     const colors = this.getThemeColors();
     overlay.innerHTML = `
-      <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="${colors.antiqueGold}" stroke-width="1.5" style="margin-bottom: 0.5rem; opacity: 0.85;">
+      <svg aria-hidden="true" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="${colors.antiqueGold}" stroke-width="1.5" style="margin-bottom: 0.5rem; opacity: 0.85;">
         <path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>
       </svg>
       <div style="font-family: 'Playfair Display', serif; font-size: 1.05rem; font-weight: 600; color: ${colors.textColor}; margin-bottom: 0.25rem;">
         No Usage Data
       </div>
-      <div style="font-size: 0.825rem; color: ${colors.softSlate}; max-width: 280px;">
-        ${message}
-      </div>
+      <div class="canvas-empty-msg" style="font-size: 0.825rem; color: ${colors.softSlate}; max-width: 280px;"></div>
     `;
+    const msgEl = overlay.querySelector('.canvas-empty-msg');
+    if (msgEl) msgEl.textContent = message || 'No data available';
     overlay.style.display = 'flex';
+    overlay.classList.add('is-visible');
   },
 
   /**
@@ -892,6 +1082,7 @@ const WattWatchCharts = {
     const parent = canvas?.parentElement;
     const overlay = parent?.querySelector('.canvas-empty-state-overlay');
     if (overlay) {
+      overlay.classList.remove('is-visible');
       overlay.style.display = 'none';
     }
   }

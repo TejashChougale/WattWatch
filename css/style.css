@@ -85,7 +85,11 @@
   --radius-lg: 16px;
   --radius-pill: 9999px;
 
-  /* Transitions */
+  /* Transitions & Consistent Motion System */
+  --motion-duration-fast: 150ms;
+  --motion-duration-normal: 250ms;
+  --motion-duration-emphasis: 320ms;
+  --motion-ease: cubic-bezier(0.16, 1, 0.3, 1);
   --transition-fast: 0.15s cubic-bezier(0.16, 1, 0.3, 1);
   --transition-normal: 0.25s cubic-bezier(0.16, 1, 0.3, 1);
 }
@@ -215,6 +219,19 @@ a:hover {
 }
 
 /* --- Base Buttons --- */
+/* Screen-reader only utility */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 .btn {
   display: inline-flex;
   align-items: center;
@@ -228,9 +245,40 @@ a:hover {
   border-radius: var(--radius-md);
   border: 1px solid transparent;
   cursor: pointer;
-  transition: all var(--transition-fast);
+  transition: transform var(--transition-fast), box-shadow var(--transition-fast), background-color var(--transition-fast), border-color var(--transition-fast), color var(--transition-fast), opacity var(--transition-fast);
   white-space: nowrap;
   user-select: none;
+}
+
+button:disabled,
+.btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  transform: none !important;
+  box-shadow: none !important;
+}
+
+.btn.is-loading,
+.skeleton-shimmer {
+  position: relative;
+  overflow: hidden;
+}
+
+.btn.is-loading::after,
+.skeleton-shimmer::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.18), transparent);
+  transform: translateX(-100%);
+  animation: skeletonSweep 1.15s infinite;
+  pointer-events: none;
+}
+
+@keyframes skeletonSweep {
+  100% {
+    transform: translateX(100%);
+  }
 }
 
 .btn:focus-visible,
@@ -735,6 +783,11 @@ body.auth-gate-active #privacyModal {
   margin-top: 1px;
 }
 
+.toast-success { border-left: 3px solid var(--emerald-primary); }
+.toast-error { border-left: 3px solid #A92639; }
+.toast-info { border-left: 3px solid var(--royal-blue); }
+.toast-warning { border-left: 3px solid #C2821A; }
+
 .toast-success .toast-icon { color: #1E6649; }
 .toast-error .toast-icon { color: #A92639; }
 .toast-info .toast-icon { color: var(--royal-blue); }
@@ -804,4 +857,28 @@ body.auth-gate-active #privacyModal {
 
 ::-webkit-scrollbar-thumb:hover {
   background: var(--antique-gold-dark);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto !important;
+  }
+
+  .btn.is-loading::after,
+  .skeleton-shimmer::after,
+  .toast {
+    animation-name: none !important;
+    animation: none !important;
+  }
+
+  body,
+  a,
+  .btn,
+  .card,
+  .form-control,
+  .modal-backdrop,
+  .modal-content,
+  .toast {
+    transition: none !important;
+  }
 }
